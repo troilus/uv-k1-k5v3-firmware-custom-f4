@@ -328,22 +328,27 @@ void DisplayRSSIBar(const bool now)
 #endif
         + dBmCorrTable[gRxVfo->Band];
 
-    // S9 = -93 dBm, S0 = -141 dBm (IARU standard)
-    const int16_t s9_dBm = -93;
-    const int16_t s0_dBm = -141;
-
+    // IARU VHF/UHF S-meter: S9 = -93 dBm, 1 S-unit = 6 dB
+    // S(n) threshold = -93 + (n - 9) * 6
     uint8_t s_level    = 0;
     uint8_t overS9dBm  = 0;
     uint8_t overS9Bars = 0;
 
-    if (rssi_dBm <= s9_dBm) {
-        // Signal <= S9 : map between S0 and S9
-        s_level = map(rssi_dBm, s0_dBm, s9_dBm, 0, 9);
-    } else {
-        // Signal > S9 : compute over-S9
-        s_level    = 9;
-        overS9dBm  = map(rssi_dBm, s9_dBm, s9_dBm + 40, 0, 40);
-        overS9Bars = map(overS9dBm, 0, 40, 0, 4);
+    if      (rssi_dBm >= -93)  s_level = 9;  // S9  = -93 dBm
+    else if (rssi_dBm >= -99)  s_level = 8;  // S8  = -99 dBm
+    else if (rssi_dBm >= -105) s_level = 7;  // S7  = -105 dBm
+    else if (rssi_dBm >= -111) s_level = 6;  // S6  = -111 dBm
+    else if (rssi_dBm >= -117) s_level = 5;  // S5  = -117 dBm
+    else if (rssi_dBm >= -123) s_level = 4;  // S4  = -123 dBm
+    else if (rssi_dBm >= -129) s_level = 3;  // S3  = -129 dBm
+    else if (rssi_dBm >= -135) s_level = 2;  // S2  = -135 dBm
+    else if (rssi_dBm >= -141) s_level = 1;  // S1  = -141 dBm
+    else                       s_level = 0;  // S0 (below -141 dBm)
+
+    if (s_level == 9) {
+        // Compute over-S9 dB directly
+        overS9dBm  = (uint8_t)MIN(rssi_dBm - (-93), 40);
+        overS9Bars = overS9dBm / 10;
     }
 #else
     const int16_t s0_dBm   = -gEeprom.S0_LEVEL;                  // S0 .. base level
