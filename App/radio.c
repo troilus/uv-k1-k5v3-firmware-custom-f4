@@ -926,8 +926,8 @@ void RADIO_SetupRegisters(bool switchToForeground)
     BK4819_EnableDTMF();
     InterruptMask |= BK4819_REG_3F_DTMF_5TONE_FOUND;
 
-    //RADIO_SetupAGC(gRxVfo->Modulation == MODULATION_AM, false);
-    RADIO_SetupAGC(false, false);
+    RADIO_SetupAGC(gRxVfo->Modulation == MODULATION_AM, false);
+    //RADIO_SetupAGC(false, false);
 
     // enable/disable BK4819 selected interrupts
     BK4819_WriteRegister(BK4819_REG_3F, InterruptMask);
@@ -1143,36 +1143,28 @@ void RADIO_SetModulation(ModulationMode_t modulation)
     BK4819_WriteRegister(BK4819_REG_3D, modulation == MODULATION_USB ? 0 : 0x2AAB);
     BK4819_SetRegValue(afcDisableRegSpec, modulation != MODULATION_FM);
 
-    //RADIO_SetupAGC(modulation == MODULATION_AM, false);
-    RADIO_SetupAGC(false, false);
+    RADIO_SetupAGC(modulation == MODULATION_AM, false);
+    //RADIO_SetupAGC(false, false);
 }
 
 void RADIO_SetupAGC(bool listeningAM, bool disable)
 {
     static uint8_t lastSettings;
     uint8_t newSettings = (listeningAM << 1) | disable;
-    if(lastSettings == newSettings)
+    if (lastSettings == newSettings)
         return;
     lastSettings = newSettings;
 
-
-    if(!listeningAM) { // if not actively listening AM we don't need any AM specific regulation
-        BK4819_SetAGC(!disable);
-        BK4819_InitAGC(false);
-    }
-    else {
 #ifdef ENABLE_AM_FIX
-        if(gSetting_AM_fix) { // if AM fix active lock AGC so AM-fix can do it's job
-            BK4819_SetAGC(0);
-            AM_fix_enable(!disable);
-        }
-        else
-#endif
-        {
-            BK4819_SetAGC(!disable);
-            BK4819_InitAGC(true);
-        }
+    if (listeningAM && gSetting_AM_fix) {
+        BK4819_SetAGC(0);
+        AM_fix_enable(!disable);
+        return;
     }
+#endif
+
+    BK4819_SetAGC(!disable);
+    BK4819_InitAGC(listeningAM);
 }
 
 void RADIO_SetVfoState(VfoState_t State)
