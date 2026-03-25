@@ -375,6 +375,7 @@ extern bool                  gFlagResetVfos;
 extern bool                  gRequestSaveVFO;
 extern uint16_t              gRequestSaveChannel;
 extern bool                  gRequestSaveSettings;
+extern bool                  gRequestSaveSquelch;
 #ifdef ENABLE_FMRADIO
     extern bool              gRequestSaveFM;
 #endif

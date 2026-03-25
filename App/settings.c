@@ -766,7 +766,10 @@ void SETTINGS_SaveSettings(void)
     #ifdef ENABLE_FEAT_F4HWN_AUDIO
         State[0] = gSetting_set_audio;
     #endif
-    State[1] = gEeprom.SQUELCH_LEVEL;
+    if (gRequestSaveSquelch)
+    {
+        State[1] = gEeprom.SQUELCH_LEVEL;
+    }
     State[2] = gEeprom.TX_TIMEOUT_TIMER;
     #ifdef ENABLE_NOAA
         State[3] = gEeprom.NOAA_AUTO_SCAN;

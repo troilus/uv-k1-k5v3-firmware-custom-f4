@@ -480,6 +480,7 @@ void MENU_AcceptSetting(void)
         case MENU_SQL:
             gEeprom.SQUELCH_LEVEL = gSubMenuSelection;
             gVfoConfigureMode     = VFO_CONFIGURE;
+            gRequestSaveSquelch   = true;
             break;
 
         case MENU_STEP:

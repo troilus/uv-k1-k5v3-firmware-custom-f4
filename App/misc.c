@@ -250,6 +250,7 @@ bool              gFlagResetVfos;
 bool              gRequestSaveVFO;
 uint16_t          gRequestSaveChannel;
 bool              gRequestSaveSettings;
+bool              gRequestSaveSquelch;
 #ifdef ENABLE_FMRADIO
     bool          gRequestSaveFM;
 #endif
