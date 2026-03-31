@@ -968,9 +968,10 @@ void UI_DisplayMenu(void)
             break;
 
         case MENU_LIST_CH:
+        case MENU_S_LIST:
             if (gSubMenuSelection == MR_CHANNELS_LIST + 1)
                 strcpy(String, "ALL");
-            else if (gSubMenuSelection == 0)
+            else if (gSubMenuSelection == 0 && UI_MENU_GetCurrentMenuId() == MENU_LIST_CH)
                 strcpy(String, "OFF");
             else {
                 const char *name = gListName[gSubMenuSelection - 1];
@@ -982,20 +983,7 @@ void UI_DisplayMenu(void)
                     sprintf(String, "%02u (%.3s)", gSubMenuSelection, name);
             }
             break;
-
-        case MENU_S_LIST:
-            if (gSubMenuSelection == MR_CHANNELS_LIST + 1)
-                strcpy(String, "ALL");
-            else {
-                const char *name = gListName[gSubMenuSelection - 1];
-                // If first character is empty/invalid, display "N/A"
-                if (IsEmptyName(name, sizeof(gListName[0])))
-                    sprintf(String, "%02u", gSubMenuSelection);
-                else
-                    sprintf(String, "%02u (%.3s)", gSubMenuSelection, name);
-            }
-            break;
-
+            
         #ifdef ENABLE_ALARM
             case MENU_AL_MOD:
                 sprintf(String, gSubMenu_AL_MOD[gSubMenuSelection]);

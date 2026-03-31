@@ -1353,11 +1353,8 @@ void UI_DisplayMain(void)
             break;
 
             case 2:
-            sprintf(String, "%03oN", DCS_Options[pConfig->Code]);
-            break;
-
             case 3:
-            sprintf(String, "%03oI", DCS_Options[pConfig->Code]);
+            sprintf(String, (int)pConfig->CodeType == 2 ? "%03oN" : "%03oI", DCS_Options[pConfig->Code]);
             break;
 
             default:
