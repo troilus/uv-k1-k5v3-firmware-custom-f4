@@ -5,8 +5,9 @@ FROM mcr.microsoft.com/devcontainers/python:3.10-bookworm
 # ---------------------------------------------
 RUN rm -f /etc/apt/sources.list.d/yarn.list && \
     apt-get update && apt-get install -y --no-install-recommends \
-    build-essential cmake ninja-build python3 curl xz-utils ca-certificates \
- && rm -rf /var/lib/apt/lists/*
+    build-essential cmake ninja-build python3 python3-pip curl xz-utils ca-certificates \
+ && rm -rf /var/lib/apt/lists/* && \
+    pip3 install crcmod
 
 # ---------------------------------------------
 # Install ARM GNU Toolchain (host autodetect)
