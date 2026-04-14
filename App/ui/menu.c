@@ -313,6 +313,9 @@ const char * const gSubMenu_F_LOCK[] =
 #ifdef ENABLE_FEAT_F4HWN_CA
     "CA HAM\n144-148\n430-450",
 #endif
+#ifdef ENABLE_FEAT_F4HWN_CN
+    "CN\n409.75-409.9875\n144-148\n430-440",
+#endif
     "CE HAM\n144-146\n430-440",
     "GB HAM\n144-148\n430-440",
     "137-174\n400-430",

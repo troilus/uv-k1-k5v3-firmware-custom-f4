@@ -44,6 +44,9 @@ enum TxLockModes_t {
 #ifdef ENABLE_FEAT_F4HWN_CA
     F_LOCK_CA,
 #endif
+#ifdef ENABLE_FEAT_F4HWN_CN
+    F_LOCK_CN,
+#endif
     F_LOCK_CE,
     F_LOCK_GB,
     F_LOCK_430,

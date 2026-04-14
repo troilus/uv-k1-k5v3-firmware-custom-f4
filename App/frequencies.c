@@ -249,11 +249,25 @@ int32_t TX_freq_check(const uint32_t Frequency)
             break;
 #endif
 
-#ifdef ENABLE_FEAT_F4HWN_CA 
+#ifdef ENABLE_FEAT_F4HWN_CA
         case F_LOCK_CA:
             if (Frequency >= 14400000 && Frequency < 14800000)
                 return 0;
             if (Frequency >= 43000000 && Frequency < 45000000)
+                return 0;
+            break;
+#endif
+
+#ifdef ENABLE_FEAT_F4HWN_CN
+        case F_LOCK_CN:
+            // 中国频段：409.750-409.9875 MHz (民用对讲机)
+            if (Frequency >= 40975000 && Frequency <= 40998750)
+                return 0;
+            // 144-148 MHz (2米业余波段)
+            if (Frequency >= 14400000 && Frequency <= 14800000)
+                return 0;
+            // 430-440 MHz (70厘米业余波段)
+            if (Frequency >= 43000000 && Frequency <= 44000000)
                 return 0;
             break;
 #endif
