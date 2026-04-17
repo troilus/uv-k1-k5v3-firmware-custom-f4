@@ -51,6 +51,7 @@ center_line_t center_line = CENTER_LINE_NONE;
     static int8_t RxBlinkLedCounter;
     static int8_t RxLine;
     static uint32_t RxOnVfofrequency;
+    static int8_t LastRxVfo = -1;  // 记录上一个接收的VFO
 
     bool isMainOnlyInputDTMF = false;
 
@@ -887,6 +888,7 @@ void UI_DisplayMain(void)
                     RxBlinkLedCounter = 0;
                     RxLine = line;
                     RxOnVfofrequency = frequency;
+                    LastRxVfo = vfo_num;  // 记录当前RX的VFO
 
                     // 双信道模式下，当前RX的VFO的1-3行反色显示
                     if (gEeprom.DUAL_WATCH != DUAL_WATCH_OFF && !isMainOnly()) {
@@ -928,6 +930,9 @@ void UI_DisplayMain(void)
                         //UI_PrintStringSmallBold("RX", 8, 0, RxLine);
                     // }
 #else
+                    static int8_t LastRxVfo = -1;  // 记录上一个接收的VFO
+                    LastRxVfo = vfo_num;  // 记录当前RX的VFO
+
                     UI_PrintStringSmallBold("RX", 8, 0, line);
 
                     // 双信道模式下，当前RX的VFO的1-3行反色显示
@@ -955,6 +960,13 @@ void UI_DisplayMain(void)
 
                 if(RxBlinkLed == 1)
                     RxBlinkLed = 2;
+
+                // 双信道模式下，接收结束后第3行持续反色显示
+                if (gEeprom.DUAL_WATCH != DUAL_WATCH_OFF && !isMainOnly() && LastRxVfo == vfo_num) {
+                    for (uint8_t x = 0; x < 128; x++) {
+                        gFrameBuffer[line + 2][x] ^= 0xFF;
+                    }
+                }
             }
 #endif
         }
@@ -1614,6 +1626,15 @@ void UI_DisplayMain(void)
            } else {
                 GUI_DisplaySmallest(String, 110, line == 0 ? 17 : 49, false, true);
            }
+        }
+#endif
+
+#ifndef ENABLE_FEAT_F4HWN
+        // 双信道模式下，接收结束后第3行持续反色显示
+        if (gEeprom.DUAL_WATCH != DUAL_WATCH_OFF && LastRxVfo == vfo_num) {
+            for (uint8_t x = 0; x < 128; x++) {
+                gFrameBuffer[line + 2][x] ^= 0xFF;
+            }
         }
 #endif
     }
