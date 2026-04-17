@@ -887,6 +887,15 @@ void UI_DisplayMain(void)
                     RxBlinkLedCounter = 0;
                     RxLine = line;
                     RxOnVfofrequency = frequency;
+
+                    // 双信道模式下，当前RX的VFO的1-3行反色显示
+                    if (gEeprom.DUAL_WATCH != DUAL_WATCH_OFF && !isMainOnly()) {
+                        for (uint8_t l = line + 1; l <= line + 3; l++) {
+                            for (uint8_t x = 0; x < 128; x++) {
+                                gFrameBuffer[l][x] ^= 0xFF;
+                            }
+                        }
+                    }
                     // if(!isMainVFO)
                     // {
                     //     RxBlink = 1;
@@ -920,6 +929,15 @@ void UI_DisplayMain(void)
                     // }
 #else
                     UI_PrintStringSmallBold("RX", 8, 0, line);
+
+                    // 双信道模式下，当前RX的VFO的1-3行反色显示
+                    if (gEeprom.DUAL_WATCH != DUAL_WATCH_OFF) {
+                        for (uint8_t l = line + 1; l <= line + 3; l++) {
+                            for (uint8_t x = 0; x < 128; x++) {
+                                gFrameBuffer[l][x] ^= 0xFF;
+                            }
+                        }
+                    }
 #endif
                 }
 #ifdef ENABLE_FEAT_F4HWN
