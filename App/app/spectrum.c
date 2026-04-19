@@ -1321,12 +1321,16 @@ static void ShowChannelName(uint32_t f)
             }
         }
         if (channelName[0] != 0) {
-            UI_PrintStringSmallBufferNormal(channelName, gStatusLine + 36);
+            // Channel name starts at x=43 (fixed), leaving room for the dBm
+            // string on the left (max ~40 px) and battery indicator at x=116.
+            // Clear first so a shorter name doesn't leave stale pixels.
+            memset(&gStatusLine[43], 0, 116 - 43);
+            UI_PrintStringSmallBufferNormal(channelName, gStatusLine + 43);
         }
     }
     else
     {
-        memset(&gStatusLine[36], 0, 100 - 28);
+        memset(&gStatusLine[43], 0, 116 - 43);
     }
     ST7565_BlitStatusLine();
 }
@@ -1339,7 +1343,9 @@ static void FormatFrequency(uint32_t freq, char *buffer) {
 static void DrawF(uint32_t f)
 {
     FormatFrequency(f, String);
-    UI_PrintStringSmallNormal(String, 8, 127, 0);
+    // Align frequency with channel name in status bar (both at x=43).
+    // Left-aligned (End == Start = 43) so it does not collide with BW at x=108.
+    UI_PrintStringSmallNormal(String, 43, 43, 0);
 
     sprintf(String, "%3s", gModulationStr[settings.modulationType]);
     GUI_DisplaySmallest(String, 116, 1, false, true);
