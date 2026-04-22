@@ -253,12 +253,25 @@ static void ScanProgress_DrawGaugeLine(uint8_t line, uint32_t current_index, uin
     }
 }
 
-static void ScanProgress_FormatIndex(char *out, uint32_t current_index, uint32_t total)
+static uint8_t ScanProgress_DecimalDigits(uint32_t value)
 {
-    if (total < 100 && current_index < 100)
-        sprintf(out, "%02u/%02u", (unsigned int)current_index, (unsigned int)total);
-    else
-        sprintf(out, "%u/%u", (unsigned int)current_index, (unsigned int)total);
+    uint8_t digits = 1;
+
+    while (value >= 10u) {
+        value /= 10u;
+        digits++;
+    }
+
+    return digits;
+}
+
+static void ScanProgress_FormatIndex(char *out, size_t out_size, uint32_t current_index, uint32_t total)
+{
+    const uint8_t width = ScanProgress_DecimalDigits(total);
+
+    snprintf(out, out_size, "%0*u/%u",
+             width, (unsigned int)current_index,
+             (unsigned int)total);
 }
 
 static bool ScanProgress_BuildRangeIndex(uint32_t *current_index_out, uint32_t *total_out)
@@ -299,7 +312,7 @@ static bool UI_DrawScanProgress(void)
 {
     bool show_memory = IS_MR_CHANNEL(gNextMrChannel);
     bool show_range = false;
-    char text[12];
+    char text[24];
     uint8_t line;
     uint32_t current_index = 1;
     uint32_t total = 1;
@@ -365,7 +378,7 @@ static bool UI_DrawScanProgress(void)
 #endif
     }
 
-    ScanProgress_FormatIndex(text, current_index, total);
+    ScanProgress_FormatIndex(text, sizeof(text), current_index, total);
 
 #ifdef ENABLE_FEAT_F4HWN
     line = isMainOnly() ? 5 : 3;
