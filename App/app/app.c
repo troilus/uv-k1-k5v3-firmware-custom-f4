@@ -812,6 +812,22 @@ void APP_EndTransmission(void)
     }
 }
 
+void APP_HandleEndTransmission(void) {
+    if (gFlagEndTransmission) {
+        FUNCTION_Select(FUNCTION_FOREGROUND);
+    }
+    else {
+        APP_EndTransmission();
+
+        if (gEeprom.REPEATER_TAIL_TONE_ELIMINATION == 0)
+            FUNCTION_Select(FUNCTION_FOREGROUND);
+        else
+            gRTTECountdown_10ms = gEeprom.REPEATER_TAIL_TONE_ELIMINATION * 10;
+    }
+
+    gFlagEndTransmission = false;
+}
+
 #ifdef ENABLE_VOX
 static void HandleVox(void)
 {
@@ -847,24 +863,10 @@ static void HandleVox(void)
             gVOX_NoiseDetected = false;
 
         if (gCurrentFunction == FUNCTION_TRANSMIT && !gPttIsPressed && !gVOX_NoiseDetected) {
-            if (gFlagEndTransmission) {
-                //if (gCurrentFunction != FUNCTION_FOREGROUND)
-                    FUNCTION_Select(FUNCTION_FOREGROUND);
-            }
-            else {
-                APP_EndTransmission();
-
-                if (gEeprom.REPEATER_TAIL_TONE_ELIMINATION == 0) {
-                    //if (gCurrentFunction != FUNCTION_FOREGROUND)
-                        FUNCTION_Select(FUNCTION_FOREGROUND);
-                }
-                else
-                    gRTTECountdown_10ms = gEeprom.REPEATER_TAIL_TONE_ELIMINATION * 10;
-            }
+            APP_HandleEndTransmission();
 
             gUpdateStatus        = true;
             gUpdateDisplay       = true;
-            gFlagEndTransmission = false;
         }
         return;
     }
@@ -1942,12 +1944,10 @@ static void ProcessKey(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
     bool lowBatPopup = gLowBattery && !gLowBatteryConfirmed &&  gScreenToDisplay == DISPLAY_MAIN;
 
 #ifdef ENABLE_FEAT_F4HWN // Disable PTT if KEY_LOCK
-    bool lck_condition = false;
+    bool lck_condition = (gEeprom.KEY_LOCK || lowBatPopup) && gCurrentFunction != FUNCTION_TRANSMIT;
 
-    if(gSetting_set_lck)
-        lck_condition = (gEeprom.KEY_LOCK || lowBatPopup) && gCurrentFunction != FUNCTION_TRANSMIT;
-    else
-        lck_condition = (gEeprom.KEY_LOCK || lowBatPopup) && gCurrentFunction != FUNCTION_TRANSMIT && Key != KEY_PTT;
+    if(!gSetting_set_lck)
+        lck_condition = lck_condition && Key != KEY_PTT;
 
     if (lck_condition)
 #else
