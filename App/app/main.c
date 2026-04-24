@@ -556,10 +556,10 @@ static void MAIN_Key_DIGITS(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
                 return;
             }
             
-            gKeyInputCountdown = (gInputBoxIndex >= totalDigits) ? (key_input_timeout_500ms / 16) : (key_input_timeout_500ms / 3);
+            gKeyInputCountdown = key_input_timeout_500ms / (gInputBoxIndex >= totalDigits ? 16 : 3);
 
             if (gInputBoxIndex > totalDigits) {
-                gInputBoxIndex =  totalDigits;
+                gInputBoxIndex = totalDigits;
 
                 return;
             }
@@ -570,11 +570,8 @@ static void MAIN_Key_DIGITS(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
             // convert to int
             uint32_t inputFreq = StrToUL(inputStr);
 
-            // how many zero to add
-            uint8_t zerosToAdd = totalDigits - inputLength;
-
             // add missing zero
-            for (uint8_t i = 0; i < zerosToAdd; i++) {
+            for (uint8_t i = 0; i < totalDigits - inputLength; i++) {
                 inputFreq *= 10;
             }
 

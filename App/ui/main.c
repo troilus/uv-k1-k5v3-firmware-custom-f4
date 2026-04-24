@@ -973,6 +973,10 @@ void UI_MAIN_TimeSlice500ms(void)
 
 // ----------------------------------------
 
+static void UI_FormatFrequency(uint32_t freq, char *buffer) {
+    sprintf(buffer, "%3u.%05u", freq / 100000, freq % 100000);
+}
+
 void UI_DisplayMain(void)
 {
     char               String[22];
@@ -1066,9 +1070,9 @@ void UI_DisplayMain(void)
                     }
 
                     UI_PrintString("ScnRng", 5, 0, line + shift, 8);
-                    sprintf(String, "%3u.%05u", gScanRangeStart / 100000, gScanRangeStart % 100000);
+                    UI_FormatFrequency(gScanRangeStart, String);
                     UI_PrintStringSmallNormal(String, 56, 0, line + shift);
-                    sprintf(String, "%3u.%05u", gScanRangeStop / 100000, gScanRangeStop % 100000);
+                    UI_FormatFrequency(gScanRangeStop, String);
                     UI_PrintStringSmallNormal(String, 56, 0, line + shift + 1);
 
                     if (!isMainOnly())
@@ -1080,9 +1084,9 @@ void UI_DisplayMain(void)
                 }
 #else
                 UI_PrintString("ScnRng", 5, 0, line, 8);
-                sprintf(String, "%3u.%05u", gScanRangeStart / 100000, gScanRangeStart % 100000);
+                UI_FormatFrequency(gScanRangeStart, String);
                 UI_PrintStringSmallNormal(String, 56, 0, line);
-                sprintf(String, "%3u.%05u", gScanRangeStop / 100000, gScanRangeStop % 100000);
+                UI_FormatFrequency(gScanRangeStop, String);
                 UI_PrintStringSmallNormal(String, 56, 0, line + 1);
                 continue;
 #endif
@@ -1381,29 +1385,22 @@ void UI_DisplayMain(void)
 
                 const ChannelAttributes_t* att = MR_GetChannelAttributes(gEeprom.ScreenChannel[vfo_num]);
 
+                const char *displayStr;
+                uint8_t xStart = 113; // 3-char name aligned left
 
                 if(att->exclude == false)
                 {
                     // show the scan list assigment symbols
-                    const ChannelAttributes_t* att = MR_GetChannelAttributes(gEeprom.ScreenChannel[vfo_num]);
-
                     uint8_t countList = att->scanlist;
                     if(countList > MR_CHANNELS_LIST + 1) {
                         countList = 0;
                     }
 
-                    const char *displayStr;
-                    uint8_t xStart, xDisplay;
-
                     if (countList == MR_CHANNELS_LIST + 1) {
                         displayStr = "ALL";
-                        xStart = 113;
-                        xDisplay = 115;
                     } 
                     else if (countList == 0) {
                         displayStr = "OFF";
-                        xStart = 113;
-                        xDisplay = 115;
                     } 
                     else {
                         // List 1 to MR_CHANNELS_LIST
@@ -1413,40 +1410,26 @@ void UI_DisplayMain(void)
                         if (IsEmptyName(name, sizeof(gListName[0]))) {
                             sprintf(String, "%02d", countList);
                             xStart = 117;  // 2-digit number aligned right
-                            xDisplay = 119;
                         } 
                         else {
                             sprintf(String, "%.3s", name);
-                            xStart = 113;  // 3-char name aligned left
-                            xDisplay = 115;
                         }
                         displayStr = String;
                     }
-
-                    GUI_DisplaySmallest(displayStr, xDisplay, line == 0 ? 1 : 33, false, true);
-
-                    gFrameBuffer[line][xStart] ^= 0x3E;
-                    for (uint8_t x = xStart + 1; x < 127; x++) {
-                        gFrameBuffer[line][x] ^= 0x7F;
-                    }
-                    gFrameBuffer[line][127] ^= 0x3E;
-
                 }
                 else
                 {
-                    const char *displayStr = "EX";
-
-                    uint8_t xStart = 117;
-                    uint8_t xDisplay = 119;
-                    
-                    GUI_DisplaySmallest(displayStr, xDisplay, line == 0 ? 1 : 33, false, true);
-
-                    gFrameBuffer[line][xStart] ^= 0x3E;
-                    for (uint8_t x = xStart + 1; x < 127; x++) {
-                        gFrameBuffer[line][x] ^= 0x7F;
-                    }
-                    gFrameBuffer[line][127] ^= 0x3E;
+                    displayStr = "EX";
+                    xStart = 117;
                 }
+
+                GUI_DisplaySmallest(displayStr, xStart + 2, line == 0 ? 1 : 33, false, true);
+
+                gFrameBuffer[line][xStart] ^= 0x3E;
+                for (uint8_t x = xStart + 1; x < 127; x++) {
+                    gFrameBuffer[line][x] ^= 0x7F;
+                }
+                gFrameBuffer[line][127] ^= 0x3E;
 
                 #ifdef ENABLE_FEAT_F4HWN_RESCUE_OPS
                 {
@@ -1465,7 +1448,7 @@ void UI_DisplayMain(void)
                 switch (gEeprom.CHANNEL_DISPLAY_MODE)
                 {
                     case MDF_FREQUENCY: // show the channel frequency
-                        sprintf(String, "%3u.%05u", frequency / 100000, frequency % 100000);
+                        UI_FormatFrequency(frequency, String);
 #ifdef ENABLE_BIG_FREQ
                         if(frequency < _1GHz_in_KHz) {
                             // show the remaining 2 small frequency digits
@@ -1525,7 +1508,7 @@ void UI_DisplayMain(void)
 #ifdef ENABLE_FEAT_F4HWN
                             if (isMainOnly())
                             {
-                                sprintf(String, "%3u.%05u", frequency / 100000, frequency % 100000);
+                                UI_FormatFrequency(frequency, String);
                                 if(frequency < _1GHz_in_KHz) {
                                     // show the remaining 2 small frequency digits
                                     UI_PrintStringSmallNormal(String + 7, 113, 0, line + 4);
@@ -1555,7 +1538,7 @@ void UI_DisplayMain(void)
             }
             else
             {   // frequency mode
-                sprintf(String, "%3u.%05u", frequency / 100000, frequency % 100000);
+                UI_FormatFrequency(frequency, String);
 
 #ifdef ENABLE_BIG_FREQ
                 if(frequency < _1GHz_in_KHz) {

@@ -242,13 +242,9 @@ void RADIO_ValidateAndSetCode(FREQ_Config_t *pFreq_Config, uint8_t tmp) {
             break;
 
         case CODE_TYPE_CONTINUOUS_TONE:
-            if (tmp > (ARRAY_SIZE(CTCSS_Options) - 1))
-                tmp = 0;
-            break;
-
         case CODE_TYPE_DIGITAL:
         case CODE_TYPE_REVERSE_DIGITAL:
-            if (tmp > (ARRAY_SIZE(DCS_Options) - 1))
+            if (tmp > ((pFreq_Config->CodeType == CODE_TYPE_CONTINUOUS_TONE ? ARRAY_SIZE(CTCSS_Options) : ARRAY_SIZE(DCS_Options)) - 1))
                 tmp = 0;
             break;
     }
@@ -586,30 +582,15 @@ void RADIO_ConfigureSquelchAndOutputPower(VFO_Info_t *pInfo)
     uint8_t Op = 0; // Low eeprom calibration data 
     uint8_t currentPower = pInfo->OUTPUT_POWER;
 
-    if(currentPower == OUTPUT_POWER_USER)
-    {
-        if(gSetting_set_pwr == 5)
-        {
-            Op = 1; // Mid eeprom calibration data
-        }
-        else if(gSetting_set_pwr == 6)
-        {
-            Op = 2; // High eeprom calibration data
-        }
+    if (currentPower == OUTPUT_POWER_USER)
         currentPower = gSetting_set_pwr;
-    }
     else
-    {
-        if (currentPower == OUTPUT_POWER_MID)
-        {
-            Op = 1; // Mid eeprom calibration data
-        }
-        else if(currentPower == OUTPUT_POWER_HIGH)
-        {
-            Op = 2; // High eeprom calibration data
-        }
         currentPower--;
-    }
+
+    if (currentPower == 5)
+        Op = 1; // Mid eeprom calibration data
+    else if (currentPower == 6)
+        Op = 2; // High eeprom calibration data
 
     PY25Q16_ReadBuffer(0x100D0 + (Band * 16) + (Op * 3), Txp, 3);
 
