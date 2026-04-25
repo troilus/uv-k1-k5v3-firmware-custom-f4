@@ -222,7 +222,7 @@ static void ScanProgress_DrawGaugeLine(uint8_t line, uint32_t current_index, uin
     else if (current_index > total)
         current_index = total;
 
-    head_col = ((current_index - 1) * fill_cols) / total;
+    head_col = (total <= 1) ? (fill_cols - 1) : ((current_index - 1) * (fill_cols - 1)) / (total - 1);
     if (head_col >= fill_cols)
         head_col = fill_cols - 1;
 
