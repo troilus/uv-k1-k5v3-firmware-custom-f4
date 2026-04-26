@@ -524,6 +524,7 @@ int32_t gSubMenuSelection;
 char    edit_original[17]; // a copy of the text before editing so that we can easily test for changes/difference
 char    edit[17];
 int     edit_index;
+bool    edit_is_uppercase = false;
 
 static void UI_MENU_DrawTopRightRoundedBadge(const char *text, const uint8_t line, const bool center_in_area, const uint8_t area_x1, const uint8_t area_x2)
 {
@@ -925,7 +926,7 @@ void UI_DisplayMenu(void)
                 {   // show the frequency so that the user knows the channels frequency
                     const uint32_t frequency = SETTINGS_FetchChannelFrequency(gSubMenuSelection);
                     sprintf(String, "%u.%05u", frequency / 100000, frequency % 100000);
-                    UI_PrintString(String, menu_item_x1, menu_item_x2, 4, 8);
+                    UI_PrintString(String, menu_item_x1, menu_item_x2, 5, 8);
                 }
 
                 SETTINGS_FetchChannelName(String, gSubMenuSelection);
@@ -959,15 +960,34 @@ void UI_DisplayMenu(void)
                 {   // show the channel name being edited
                     //UI_PrintString(edit, menu_item_x1, 0, 2, 8);
                     UI_PrintString(edit, menu_item_x1, menu_item_x2, 2, 8);
-                    if (edit_index < 10)
-                        //UI_PrintString("^", menu_item_x1 + (8 * edit_index), 0, 4, 8);  // show the cursor
-                        UI_PrintString("^", menu_item_x1 - 1 + (8 * edit_index),0, 4, 8); // show the cursor
+                    if (edit_index < 10) {
+                        // UI_PrintString("^", menu_item_x1 - 1 + (8 * edit_index),0, 4, 8); // show the cursor
+                        uint8_t x = 49;
+                        for (uint8_t i = 0; i < 10; i++) 
+                        {
+                            if (i != edit_index) 
+                            {
+                                if (edit[i] != 'g' && edit[i] != 'j')
+                                {
+                                    UI_DrawLineBuffer(gFrameBuffer, x, 29, x + 6, 29, 1);
+                                }
+                            }
+                            else 
+                            {
+                                UI_DrawLineBuffer(gFrameBuffer, x + 2, 30, x + 4, 30, 1);
+                                UI_DrawPixelBuffer(gFrameBuffer, x + 3, 29, 1);
+                            }
+                            x += 8;
+                        }
+                        
+                        UI_PrintStringSmallNormal(edit_is_uppercase ? "ABC" : "abc", 77, 0, 4);
+                    }
                 }
 
                 if (!gAskForConfirmation)
                 {   // show the frequency so that the user knows the channels frequency
                     sprintf(String, "%u.%05u", frequency / 100000, frequency % 100000);
-                    UI_PrintString(String, menu_item_x1, menu_item_x2, 4 + (gIsInSubMenu && edit_index >= 0), 8);
+                    UI_PrintString(String, menu_item_x1, menu_item_x2, 5, 8);
                 }
             }
 

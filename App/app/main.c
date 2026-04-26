@@ -306,9 +306,9 @@ static void processFKeyFunction(const KEY_Code_t Key, const bool beep)
                         gSquelchLevelOriginal =  gEeprom.SQUELCH_LEVEL;
 
                     if (isKeyUp) {
-                        gEeprom.SQUELCH_LEVEL = (gEeprom.SQUELCH_LEVEL < 9) ? gEeprom.SQUELCH_LEVEL + 1 : 9;
+                        if (gEeprom.SQUELCH_LEVEL < 9) gEeprom.SQUELCH_LEVEL++;
                     } else {
-                        gEeprom.SQUELCH_LEVEL = (gEeprom.SQUELCH_LEVEL > 0) ? gEeprom.SQUELCH_LEVEL - 1 : 0;
+                        if (gEeprom.SQUELCH_LEVEL > 0) gEeprom.SQUELCH_LEVEL--;
                     }
                     gVfoConfigureMode = VFO_CONFIGURE;
                 }
