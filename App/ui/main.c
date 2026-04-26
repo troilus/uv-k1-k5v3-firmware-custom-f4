@@ -204,6 +204,23 @@ static bool ScanProgress_IsForward(void)
     return gScanStateDir != SCAN_REV;
 }
 
+static bool ScanProgress_BucketHasExcludedOrdinal(uint32_t first_ordinal, uint32_t last_ordinal)
+{
+    if (first_ordinal == 0)
+        first_ordinal = 1;
+    if (last_ordinal > gScanProgressMemoryTotal)
+        last_ordinal = gScanProgressMemoryTotal;
+    if (first_ordinal > last_ordinal)
+        return false;
+
+    for (uint32_t ordinal = first_ordinal; ordinal <= last_ordinal; ordinal++) {
+        if (ScanProgress_GetBit(gScanProgressMemoryExcludeOrdinalMap, (uint16_t)(ordinal - 1)))
+            return true;
+    }
+
+    return false;
+}
+
 static void ScanProgress_DrawGaugeLine(uint8_t line, uint32_t current_index, uint32_t total, uint8_t width, bool memory_mode, uint8_t extra_left_offset)
 {
     const bool forward = ScanProgress_IsForward();
@@ -232,16 +249,22 @@ static void ScanProgress_DrawGaugeLine(uint8_t line, uint32_t current_index, uin
     gFrameBuffer[line][gauge_right] = 0x0c;
 
     for (uint8_t col = 0; col < fill_cols; col++) {
-        const uint32_t ordinal = ((uint32_t)col * total) / fill_cols + 1;
+        const uint32_t first_ordinal = ((uint32_t)col * total) / fill_cols + 1;
+        uint32_t last_ordinal = ((uint32_t)(col + 1) * total) / fill_cols;
         const bool processed = forward ? (col <= head_col) : (col >= head_col);
         bool excluded = false;
         uint8_t pixel = 0x21;
 
-        if (memory_mode && ordinal > 0 && ordinal <= MR_CHANNELS_MAX)
-            excluded = ScanProgress_GetBit(gScanProgressMemoryExcludeOrdinalMap, (uint16_t)(ordinal - 1));
+        if (last_ordinal < first_ordinal)
+            last_ordinal = first_ordinal;
+
+        if (memory_mode)
+            excluded = ScanProgress_BucketHasExcludedOrdinal(first_ordinal, last_ordinal);
 
         if (processed && !excluded) {
             pixel = 0x2d;
+        } else if (excluded) {
+            pixel = 0x21;
         }
 
         gFrameBuffer[line][fill_start + col] = pixel;
