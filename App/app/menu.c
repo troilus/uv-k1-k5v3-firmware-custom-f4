@@ -1494,6 +1494,9 @@ static void MENU_Key_0_to_9(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
 
     if (UI_MENU_GetCurrentMenuId() == MENU_MEM_NAME && edit_index >= 0)
     {   // currently editing the channel name
+        if (edit_index >= 10)
+            return;
+
         uint8_t key_idx = Key - KEY_0;
 
         if (bKeyHeld)
