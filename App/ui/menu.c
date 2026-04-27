@@ -1144,7 +1144,7 @@ void UI_DisplayMenu(void)
             if (page == p++) {
                 // Page 0: firmware identity.
 #ifdef ENABLE_FEAT_F4HWN
-                sprintf(String, "%s\n%s", AUTHOR_STRING_2, Edition);
+                sprintf(String, "%s\n%s\n%s", AUTHOR_STRING_2, Edition, VERSION_STRING_2);
 #else
                 sprintf(String, "%u.%02uV\n%u%%",
                     gBatteryVoltageAverage / 100, gBatteryVoltageAverage % 100,
@@ -1436,9 +1436,9 @@ void UI_DisplayMenu(void)
             // Page 0 gets a fixed vertical position; other SysInf pages own their layout.
             if(UI_MENU_GetCurrentMenuId() == MENU_VOL && gSubMenuSelection == 0)
             {
-                #ifdef ENABLE_FEAT_F4HWN
-                    UI_PrintStringSmallNormal(VERSION_STRING_2, 54, 127, 6);
-                #endif
+                //#ifdef ENABLE_FEAT_F4HWN
+                //    UI_PrintStringSmallNormal(VERSION_STRING_2, 54, 127, 6);
+                //#endif
 
                 y = 1;
             }
