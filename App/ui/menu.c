@@ -963,7 +963,7 @@ void UI_DisplayMenu(void)
                     UI_PrintString(edit, menu_item_x1, menu_item_x2, 2, 8);
                     if (edit_index < 10) {
                         // UI_PrintString("^", menu_item_x1 - 1 + (8 * edit_index),0, 4, 8); // show the cursor
-                        uint8_t x = 49;
+                        uint8_t x = menu_item_x1 - 1;
                         for (uint8_t i = 0; i < 10; i++) 
                         {
                             if (i != edit_index) 
@@ -1146,7 +1146,7 @@ void UI_DisplayMenu(void)
                 // Page 0: firmware identity.
 #ifdef ENABLE_FEAT_F4HWN
                 sprintf(String, "%s\n%s", AUTHOR_STRING_2, VERSION_STRING_2);
-                UI_PrintStringSmallNormal(Edition, 54, 127, 6);
+                UI_PrintStringSmallNormal(Edition, menu_item_x1 - 1, menu_item_x2, 6);
 #else
                 sprintf(String, "%u.%02uV\n%u%%",
                     gBatteryVoltageAverage / 100, gBatteryVoltageAverage % 100,
@@ -1156,10 +1156,10 @@ void UI_DisplayMenu(void)
             }
 #ifdef ENABLE_FEAT_F4HWN
             if (page == p++) {
-                UI_PrintStringSmallNormalInverse("BUILD", 70, 0, 1);
-                UI_PrintStringSmallNormal(BuildDate, 49, 127, 3);
-                UI_PrintStringSmallNormal(BuildTime, 49, 127, 4);
-                UI_PrintStringSmallNormal(BuildCommit, 49, 127, 6);
+                strcpy(top_right_badge, "BUILD");
+                UI_PrintStringSmallNormal(BuildDate, menu_item_x1 - 1, menu_item_x2, 3);
+                UI_PrintStringSmallNormal(BuildTime, menu_item_x1 - 1, menu_item_x2, 4);
+                UI_PrintStringSmallNormal(BuildCommit, menu_item_x1 - 1, menu_item_x2, 6);
 
                 already_printed = true;
                 break;
@@ -1168,14 +1168,14 @@ void UI_DisplayMenu(void)
             if (page == p++) {
                 char val[16];
 
-                UI_PrintStringSmallNormalInverse("BATTERY", 63, 0, 1);
+                strcpy(top_right_badge, "BATTERY");
 
                 sprintf(val, "%u.%02uV %u%%",
                     gBatteryVoltageAverage / 100, gBatteryVoltageAverage % 100,
                     BATTERY_VoltsToPercent(gBatteryVoltageAverage));
-                UI_PrintStringSmallNormal(val, 49, 127, 3);
+                UI_PrintStringSmallNormal(val, menu_item_x1 - 1, menu_item_x2, 3);
 
-                UI_PrintStringSmallNormal(gSubMenu_BATTYP[gEeprom.BATTERY_TYPE], 49, 127, 5);
+                UI_PrintStringSmallNormal(gSubMenu_BATTYP[gEeprom.BATTERY_TYPE], menu_item_x1 - 1, menu_item_x2, 5);
 
                 already_printed = true;
                 break;
@@ -1189,17 +1189,17 @@ void UI_DisplayMenu(void)
 
                 char val[16];
 
-                // MEMORY title capsule (6 chars → 45 px wide) centered in right zone, fb line 1.
-                UI_PrintStringSmallNormalInverse("MEMORY", 67, 0, 1);
+                // MEMORY title capsule centered in right zone, fb line 1.
+                strcpy(top_right_badge, "MEMORY");
 
                 // Flash + SRAM values stacked below, normal small font, with a fb-line of breathing space.
                 sprintf(val, "FLASH %u.%u%%",
                         (unsigned)(flash_pct / 100), (unsigned)((flash_pct / 10) % 10));
-                UI_PrintStringSmallNormal(val, 49, 127, 3);
+                UI_PrintStringSmallNormal(val, menu_item_x1 - 1, menu_item_x2, 3);
 
                 sprintf(val, "SRAM  %u.%u%%",
                         (unsigned)(ram_pct / 100), (unsigned)((ram_pct / 10) % 10));
-                UI_PrintStringSmallNormal(val, 49, 127, 5);
+                UI_PrintStringSmallNormal(val, menu_item_x1 - 1, menu_item_x2, 5);
 
                 already_printed = true;
                 break;
@@ -1210,8 +1210,8 @@ void UI_DisplayMenu(void)
             // Capsule label above QR (small-font Inverse style at fb line 1).
             if (page == p || page == p + 1) {
                 const bool is_wiki = (page == (p + 1));
-                
-                UI_PrintStringSmallNormalInverse(is_wiki ? "WIKI" : "CODE", 74, 0, 1);
+
+                strcpy(top_right_badge, is_wiki ? "WIKI" : "CODE");
                 UI_DrawQRCode(is_wiki, 72, 28);
                 
                 already_printed = true;
