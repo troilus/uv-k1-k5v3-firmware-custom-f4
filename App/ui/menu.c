@@ -1163,12 +1163,12 @@ void UI_DisplayMenu(void)
                 UI_PrintStringSmallNormalInverse("MEMORY", 67, 0, 1);
 
                 // Flash + SRAM values stacked below, normal small font, with a fb-line of breathing space.
-                sprintf(val, "FLASH %u.%01u%%",
-                        (unsigned)(flash_pct / 100), (unsigned)((flash_pct % 100) / 10));
+                sprintf(val, "FLASH %u.%u%%",
+                        (unsigned)(flash_pct / 100), (unsigned)((flash_pct / 10) % 10));
                 UI_PrintStringSmallNormal(val, 49, 127, 3);
 
-                sprintf(val, "SRAM  %u.%01u%%",
-                        (unsigned)(ram_pct / 100), (unsigned)((ram_pct % 100) / 10));
+                sprintf(val, "SRAM  %u.%u%%",
+                        (unsigned)(ram_pct / 100), (unsigned)((ram_pct / 10) % 10));
                 UI_PrintStringSmallNormal(val, 49, 127, 5);
 
                 already_printed = true;
@@ -1178,18 +1178,17 @@ void UI_DisplayMenu(void)
 #ifdef ENABLE_FEAT_F4HWN_QRCODE
             // Right zone: x=49..127 (79 px). QR centered at x=72..104.
             // Capsule label above QR (small-font Inverse style at fb line 1).
-            if (page == p++) {
-                UI_PrintStringSmallNormalInverse("CODE", 74, 0, 1);
-                UI_DrawQRCode(false, 72, 28);
+            if (page == p || page == p + 1) {
+                const bool is_wiki = (page == (p + 1));
+                
+                UI_PrintStringSmallNormalInverse(is_wiki ? "WIKI" : "CODE", 74, 0, 1);
+                UI_DrawQRCode(is_wiki, 72, 28);
+                
                 already_printed = true;
                 break;
             }
-            if (page == p++) {
-                UI_PrintStringSmallNormalInverse("WIKI", 74, 0, 1);
-                UI_DrawQRCode(true, 72, 28);
-                already_printed = true;
-                break;
-            }
+
+            p += 2; 
 #endif
             break;
         }
