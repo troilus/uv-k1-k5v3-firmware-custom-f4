@@ -310,26 +310,8 @@ const char gSubMenu_RESET[][4] =
 
 const char * const gSubMenu_F_LOCK[] =
 {
-    "DEFAULT+\n137-174\n400-470",
-    "FCC HAM\n144-148\n420-450",
-#ifdef ENABLE_FEAT_F4HWN_CA
-    "CA HAM\n144-148\n430-450",
-#endif
-#ifdef ENABLE_FEAT_F4HWN_CN
+
     "CN\n409.75-409.9875\n144-148\n430-440",
-#endif
-    "CE HAM\n144-146\n430-440",
-    "GB HAM\n144-148\n430-440",
-    "137-174\n400-430",
-    "137-174\n400-438",
-#ifdef ENABLE_FEAT_F4HWN_PMR
-    "PMR 446",
-#endif
-#ifdef ENABLE_FEAT_F4HWN_GMRS_FRS_MURS
-    "GMRS\nFRS\nMURS",
-#endif
-    "DISABLE\nALL",
-    "UNLOCK\nALL",
 };
 
 const char gSubMenu_RX_TX[][6] =
