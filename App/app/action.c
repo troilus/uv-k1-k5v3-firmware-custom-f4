@@ -534,18 +534,33 @@ void ACTION_Update(void)
     gUpdateStatus        = true;
 }
 
-void ACTION_RxMode(void)
-{
-    static bool cycle = 0;
-
-    if (cycle) {
-        gEeprom.CROSS_BAND_RX_TX = !gEeprom.CROSS_BAND_RX_TX;
-    } else {
-        gEeprom.DUAL_WATCH = !gEeprom.DUAL_WATCH;
-    }
-
-    cycle = !cycle;
-    ACTION_Update();
+void ACTION_RxMode(void)  
+{  
+    static bool cycle = 0;  
+  
+    switch(cycle) {  
+        case 0:  
+            gEeprom.DUAL_WATCH = !gEeprom.DUAL_WATCH;  
+            cycle = 1;  
+            break;  
+        case 1:  
+            gEeprom.CROSS_BAND_RX_TX = !gEeprom.CROSS_BAND_RX_TX;  
+            cycle = 0;  
+            break;  
+    }  
+  
+    #ifdef ENABLE_FEAT_F4HWN  
+        // 保存当前值到备份变量  
+        gDW = gEeprom.DUAL_WATCH;  
+        gCB = gEeprom.CROSS_BAND_RX_TX;  
+        // 设置保存标志  
+        gSaveRxMode = true;  
+        // 触发设置保存  
+        gRequestSaveSettings = true;  
+    #endif  
+  
+    gFlagReconfigureVfos = true;  
+    gUpdateStatus = true;  
 }
 
 void ACTION_MainOnly(void)
