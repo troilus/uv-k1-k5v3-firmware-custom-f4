@@ -31,7 +31,7 @@
                 "ENABLE_TX_WHEN_AM": false,
                 "ENABLE_F_CAL_MENU": false,
                 "ENABLE_CTCSS_TAIL_PHASE_SHIFT": false,
-                "ENABLE_BOOT_BEEPS": false,
+                "ENABLE_BOOT_BEEPS": true,
                 "ENABLE_SHOW_CHARGE_LEVEL": false,
                 "ENABLE_REVERSE_BAT_SYMBOL": false,
                 "ENABLE_NO_CODE_SCAN_TIMEOUT": true,
