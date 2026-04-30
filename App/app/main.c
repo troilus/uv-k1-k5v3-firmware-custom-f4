@@ -663,11 +663,24 @@ static void MAIN_Key_DIGITS(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
         ACTION_BackLightOnDemand();
         return;
     }
-    else if(Key == 9)
-    {
-        ACTION_BackLight();
-        return;
-    }
+else if(Key == 9)  
+{  
+    if (RADIO_CheckValidChannel(gEeprom.CHAN_1_CALL, false, 0)) {  
+        gEeprom.MrChannel[Vfo]     = gEeprom.CHAN_1_CALL;  
+        gEeprom.ScreenChannel[Vfo] = gEeprom.CHAN_1_CALL;  
+#ifdef ENABLE_VOICE  
+        AUDIO_SetVoiceID(0, VOICE_ID_CHANNEL_MODE);  
+        AUDIO_SetDigitVoice(1, gEeprom.CHAN_1_CALL + 1);  
+        gAnotherVoiceID        = (VOICE_ID_t)0xFE;  
+#endif  
+        gRequestSaveVFO            = true;  
+        gVfoConfigureMode          = VFO_CONFIGURE_RELOAD;  
+        return;  
+    }  
+  
+    gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;  
+    return;  
+}
     #ifdef ENABLE_FEAT_F4HWN_GAME
     else if(Key == 7)
     {
