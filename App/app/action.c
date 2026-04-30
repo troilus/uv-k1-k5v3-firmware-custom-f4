@@ -534,7 +534,7 @@ void ACTION_Update(void)
     gSaveRxMode          = true;
     gFlagReconfigureVfos = true;
     gUpdateStatus        = true;
-    gRequestSaveSettings = true;
+    SETTINGS_SaveSettings();
 }
 
 void ACTION_RxMode(void)
