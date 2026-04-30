@@ -185,7 +185,7 @@
                 "ENABLE_FMRADIO": true,
                 "ENABLE_VOX": true,
                 "ENABLE_AIRCOPY": false,
-                "ENABLE_FEAT_F4HWN_SCREENSHOT": true,
+                "ENABLE_FEAT_F4HWN_SCREENSHOT": false,
                 "ENABLE_FEAT_F4HWN_GAME": false,
                 "ENABLE_FEAT_F4HWN_PMR": false,
                 "ENABLE_FEAT_F4HWN_GMRS_FRS_MURS": false,
