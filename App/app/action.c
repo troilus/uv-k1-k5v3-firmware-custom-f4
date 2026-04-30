@@ -532,6 +532,7 @@ void ACTION_Update(void)
     gSaveRxMode          = true;
     gFlagReconfigureVfos = true;
     gUpdateStatus        = true;
+    SETTINGS_SaveSettings();
 }
 
 void ACTION_RxMode(void)
@@ -539,14 +540,19 @@ void ACTION_RxMode(void)
     static bool cycle = 0;
 
     if (cycle) {
-        gEeprom.CROSS_BAND_RX_TX = !gEeprom.CROSS_BAND_RX_TX;
+        // 设置为模式 0: "MAIN ONLY"
+        gEeprom.DUAL_WATCH = DUAL_WATCH_OFF;
+        gEeprom.CROSS_BAND_RX_TX = CROSS_BAND_OFF;
     } else {
-        gEeprom.DUAL_WATCH = !gEeprom.DUAL_WATCH;
+        // 设置为模式 3: "MAIN TX\nDUAL RX"
+        gEeprom.DUAL_WATCH = DUAL_WATCH_ON;
+        gEeprom.CROSS_BAND_RX_TX = CROSS_BAND_ON;
     }
 
     cycle = !cycle;
     ACTION_Update();
 }
+
 void ACTION_MainOnly(void)
 {
     static bool cycle = 0;
