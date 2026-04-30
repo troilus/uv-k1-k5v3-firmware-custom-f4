@@ -665,6 +665,7 @@ static void MAIN_Key_DIGITS(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
     }
 else if(Key == 9)  
 {  
+    const uint8_t Vfo = gEeprom.TX_VFO;  // Add this line  
     if (RADIO_CheckValidChannel(gEeprom.CHAN_1_CALL, false, 0)) {  
         gEeprom.MrChannel[Vfo]     = gEeprom.CHAN_1_CALL;  
         gEeprom.ScreenChannel[Vfo] = gEeprom.CHAN_1_CALL;  
