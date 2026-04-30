@@ -211,7 +211,7 @@ void UI_DisplayStatus()
     x += sizeof(gFontVox) + 3;
 #endif
 
-#ifdef ENABLE_FEAT_F4HWN
+/*#ifdef ENABLE_FEAT_F4HWN
     // PTT indicator
     if(!gAirCopyBootMode) {
         if (gSetting_set_ptt_session) {
@@ -225,7 +225,7 @@ void UI_DisplayStatus()
         }
     }
     x += sizeof(gFontPttClassic) + 3;
-#endif
+#endif*/
 
     x = MAX(x1, 69u);
 
