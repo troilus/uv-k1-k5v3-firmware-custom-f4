@@ -153,7 +153,7 @@ typedef enum ALARM_Mode_t ALARM_Mode_t;
 enum ROGER_Mode_t {
     ROGER_MODE_OFF = 0,
     ROGER_MODE_ROGER,
-    ROGER_MODE_MDC
+    ROGER_MODE_DIDI
 };
 typedef enum ROGER_Mode_t ROGER_Mode_t;
 

@@ -299,7 +299,7 @@ const char gSubMenu_ROGER[][6] =
 {
     "OFF",
     "ROGER",
-    "MDC"
+    "DIDI"
 };
 
 const char gSubMenu_RESET[][4] =
