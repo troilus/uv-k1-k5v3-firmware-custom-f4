@@ -325,6 +325,9 @@ const char * const gSubMenu_F_LOCK[] =
 #ifdef ENABLE_FEAT_F4HWN_GMRS_FRS_MURS
     "GMRS\nFRS\nMURS",
 #endif
+#ifdef ENABLE_FEAT_F4HWN_CN
+    "CN\n409-410\n144-148\n430-440",
+#endif
     "DISABLE\nALL",
     "UNLOCK\nALL",
 };

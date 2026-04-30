@@ -249,6 +249,17 @@ int32_t TX_freq_check(const uint32_t Frequency)
             break;
 #endif
 
+#ifdef ENABLE_FEAT_F4HWN_CN
+        case F_LOCK_CN:
+            if (Frequency >= 40900000 && Frequency < 41000000)
+                return 0;
+            if (Frequency >= 14400000 && Frequency < 14800000)
+                return 0;
+            if (Frequency >= 43000000 && Frequency < 44000000)
+                return 0;
+            break;
+#endif
+
 #ifdef ENABLE_FEAT_F4HWN_CA 
         case F_LOCK_CA:
             if (Frequency >= 14400000 && Frequency < 14800000)
