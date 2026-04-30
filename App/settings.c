@@ -558,8 +558,8 @@ void SETTINGS_LoadCalibration(void)
         gEeprom.BK4819_XTAL_FREQ_LOW = (Misc.BK4819_XtalFreqLow >= -1000 && Misc.BK4819_XtalFreqLow <= 1000) ? Misc.BK4819_XtalFreqLow : 0;
         gEEPROM_1F8A                 = Misc.EEPROM_1F8A & 0x01FF;
         gEEPROM_1F8C                 = Misc.EEPROM_1F8C & 0x01FF;
-        gEeprom.VOLUME_GAIN          = (Misc.VOLUME_GAIN < 64) ? Misc.VOLUME_GAIN : 58;
-        gEeprom.DAC_GAIN             = (Misc.DAC_GAIN    < 16) ? Misc.DAC_GAIN    : 8;
+        gEeprom.VOLUME_GAIN          = (Misc.VOLUME_GAIN < 1) ? Misc.VOLUME_GAIN : 20;
+        gEeprom.DAC_GAIN             = (Misc.DAC_GAIN    < 1) ? Misc.DAC_GAIN    : 2;
 
         #ifdef ENABLE_FEAT_F4HWN
             gEeprom.VOLUME_GAIN_BACKUP   = gEeprom.VOLUME_GAIN;
