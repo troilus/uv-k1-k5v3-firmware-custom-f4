@@ -539,14 +539,21 @@ void ACTION_RxMode(void)
 {
     static bool cycle = 0;
 
+    // 根据当前 DUAL_WATCH 状态同步 cycle
+    if (gEeprom.DUAL_WATCH != DUAL_WATCH_OFF) {
+        cycle = 1;  // 双信道模式，第一次按键应该切换到单信道
+    } else {
+        cycle = 0;  // 单信道模式，第一次按键应该切换到双信道
+    }
+
     if (cycle) {
-        // 设置为模式 0: "MAIN ONLY"
+        // cycle = 1：切换到单信道模式
         gEeprom.DUAL_WATCH = DUAL_WATCH_OFF;
         gEeprom.CROSS_BAND_RX_TX = CROSS_BAND_OFF;
     } else {
-        // 设置为模式 3: "MAIN TX\nDUAL RX"
-        gEeprom.DUAL_WATCH = !DUAL_WATCH_OFF;
-        gEeprom.CROSS_BAND_RX_TX = !CROSS_BAND_OFF;
+        // cycle = 0：切换到双信道模式
+        gEeprom.DUAL_WATCH = DUAL_WATCH_CHAN_A;
+        gEeprom.CROSS_BAND_RX_TX = CROSS_BAND_CHAN_A;
     }
 
     cycle = !cycle;
@@ -642,14 +649,8 @@ void ACTION_BackLightOnDemand(void)
     }
     else
     {
-        if(gBacklightBrightnessOld == gEeprom.BACKLIGHT_MAX)
-        {
-            gEeprom.BACKLIGHT_TIME = 0;
-        }
-        else
-        {
-            gEeprom.BACKLIGHT_TIME = 61;
-        }
+        // Instead of turning off, restore backlight strategy like F+9  
+        ACTION_BackLight();  
     }
     
     BACKLIGHT_TurnOn();
