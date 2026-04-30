@@ -1838,7 +1838,7 @@ void UI_DisplayMain(void)
         UI_PrintStringSmallNormal(s, LCD_WIDTH + 24, 0, line + 1);
 #endif
 
-        if (state == VFO_STATE_NORMAL || state == VFO_STATE_ALARM)
+        if ((state == VFO_STATE_NORMAL || state == VFO_STATE_ALARM) && !(TX_freq_check(vfoInfo->pTX->Frequency) != 0 && vfoInfo->TX_LOCK == true))  
         {   // show the TX power
             uint8_t currentPower = vfoInfo->OUTPUT_POWER % 8;
             uint8_t arrowPos = 19;
@@ -1878,7 +1878,7 @@ void UI_DisplayMain(void)
             }
         }
 
-        if (vfoInfo->freq_config_RX.Frequency != vfoInfo->freq_config_TX.Frequency)
+        if (vfoInfo->freq_config_RX.Frequency != vfoInfo->freq_config_TX.Frequency && !(TX_freq_check(vfoInfo->pTX->Frequency) != 0 && vfoInfo->TX_LOCK == true))  
         {   // show the TX offset symbol
             int i = vfoInfo->TX_OFFSET_FREQUENCY_DIRECTION % 3;
 
