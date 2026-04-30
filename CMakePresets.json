@@ -41,7 +41,7 @@
                 "ENABLE_AUDIO_BAR": true,
                 "ENABLE_COPY_CHAN_TO_VFO": true,
                 "ENABLE_REDUCE_LOW_MID_TX_POWER": false,
-                "ENABLE_BYP_RAW_DEMODULATORS": false,
+                "ENABLE_BYP_RAW_DEMODULATORS": true,
                 "ENABLE_BLMIN_TMP_OFF": false,
                 "ENABLE_SCAN_RANGES": true,
                 "ENABLE_REGA": false,

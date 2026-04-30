@@ -1,3 +1,10 @@
+## 修改内容
+1. 增加CN HAM 频率锁，409-410、144-148、430-440可发射
+2. 默认启用BYP模式
+3. 
+
+### 以下是原始Readme
+
 # Stats
 
 ![Alt](https://repobeats.axiom.co/api/embed/ecdd86aa536b716f088339a0c5ee734558f78c28.svg "Repobeats analytics image")
