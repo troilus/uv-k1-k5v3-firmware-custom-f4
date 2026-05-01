@@ -180,7 +180,7 @@ void UI_DisplayStatus()
                             if (gDualWatchActive) { // DWR - dual watch + respond
                                 src = gFontDWR;
                                 sOff = xb ? 2 : 0;
-                                sSize = sizeof(gFontDWR) - (xb ? 5 : 0);
+                                sSize = sizeof(gFontDWR);
                             } else {
                                 src = gFontHold;
                                 sOff = 3;
