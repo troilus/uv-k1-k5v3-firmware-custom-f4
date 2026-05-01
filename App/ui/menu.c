@@ -47,6 +47,8 @@
 const t_menu_item MenuList[] =
 {
 //   text,          menu ID
+    {"SQL",         MENU_SQL           },
+    {"Mode",        MENU_AM            }, // was "AM"
     {"STEP",        MENU_STEP          },
     {"Power",       MENU_TXP           }, // was "TXP"
     {"RxDCS",       MENU_R_DCS         }, // was "R_DCS"
@@ -56,20 +58,56 @@ const t_menu_item MenuList[] =
     {"TxDir",      MENU_SFT_D         }, // was "SFT_D"
     {"TxOffs",      MENU_OFFSET        }, // was "OFFSET"
     {"W/N",         MENU_W_N           },
+    {"ChSave",      MENU_MEM_CH        }, // was "MEM-CH"
+    {"ChDele",      MENU_DEL_CH        }, // was "DEL-CH"
+    {"ChName",      MENU_MEM_NAME      },
+    {"VOX",         MENU_VOX           },
+#ifdef ENABLE_FEAT_F4HWN
+    {"SysInf",      MENU_VOL           }, // was "VOL"
+#else
+    {"BatVol",      MENU_VOL           }, // was "VOL"
+#endif
+    // hidden menu items from here on
+    // enabled if pressing both the PTT and upper side button at power-on
+    {"F Lock",      MENU_F_LOCK        },
+    {"RxMode",      MENU_TDR           },
+#ifdef ENABLE_FEAT_F4HWN
+    {"SetPwr",      MENU_SET_PWR       },
+    {"SetPTT",      MENU_SET_PTT       },
+    {"SetTOT",      MENU_SET_TOT       },
+    {"SetEOT",      MENU_SET_EOT       },
+    {"SetCtr",      MENU_SET_CTR       },
+    {"SetInv",      MENU_SET_INV       },
+    {"SetLck",      MENU_SET_LCK       },
+    {"SetMet",      MENU_SET_MET       },
+    {"SetGUI",      MENU_SET_GUI       },
+#ifdef ENABLE_FEAT_F4HWN_AUDIO    
+    {"SetRxA",      MENU_SET_AUD       },
+#endif
+    {"SetTmr",      MENU_SET_TMR       },
+#ifdef ENABLE_FEAT_F4HWN_SLEEP
+    {"SetOff",       MENU_SET_OFF      },
+#endif
+#ifdef ENABLE_FEAT_F4HWN_NARROWER
+    {"SetNFM",      MENU_SET_NFM       },
+#endif
+#ifdef ENABLE_FEAT_F4HWN_VOL
+    {"SetVol",      MENU_SET_VOL       },
+#endif
+#ifdef ENABLE_FEAT_F4HWN_RESCUE_OPS
+    {"SetKey",      MENU_SET_KEY       },
+#endif
+#ifdef ENABLE_NOAA
+    {"SetNWR",      MENU_NOAA_S    },
+#endif
+#endif
+
 #ifndef ENABLE_FEAT_F4HWN
     {"Scramb",      MENU_SCR           }, // was "SCR"
 #endif
     {"BzLock",      MENU_BCL           }, // was "BCL"
     {"Compnd",      MENU_COMPAND       },
-    {"Mode",        MENU_AM            }, // was "AM"
-#ifdef ENABLE_FEAT_F4HWN
-    {"TXLock",      MENU_TX_LOCK       }, 
-#endif
     {"ChList",      MENU_LIST_CH       },
-    {"ChSave",      MENU_MEM_CH        }, // was "MEM-CH"
-    {"ChDele",      MENU_DEL_CH        }, // was "DEL-CH"
-    {"ChName",      MENU_MEM_NAME      },
-
     {"ScList",       MENU_S_LIST       },
     {"ScPri",        MENU_S_PRI        },
     {"PriCh1",       MENU_S_PRI_CH_1   },
@@ -131,47 +169,9 @@ const t_menu_item MenuList[] =
         {"AM Fix",      MENU_AM_FIX        },
     #endif
 #endif
-    {"VOX",         MENU_VOX           },
 #ifdef ENABLE_FEAT_F4HWN
-    {"SysInf",      MENU_VOL           }, // was "VOL"
-#else
-    {"BatVol",      MENU_VOL           }, // was "VOL"
+    {"TXLock",      MENU_TX_LOCK       }, 
 #endif
-    {"RxMode",      MENU_TDR           },
-    {"Sql",         MENU_SQL           },
-#ifdef ENABLE_FEAT_F4HWN
-    {"SetPwr",      MENU_SET_PWR       },
-    {"SetPTT",      MENU_SET_PTT       },
-    {"SetTOT",      MENU_SET_TOT       },
-    {"SetEOT",      MENU_SET_EOT       },
-    {"SetCtr",      MENU_SET_CTR       },
-    {"SetInv",      MENU_SET_INV       },
-    {"SetLck",      MENU_SET_LCK       },
-    {"SetMet",      MENU_SET_MET       },
-    {"SetGUI",      MENU_SET_GUI       },
-#ifdef ENABLE_FEAT_F4HWN_AUDIO    
-    {"SetRxA",      MENU_SET_AUD       },
-#endif
-    {"SetTmr",      MENU_SET_TMR       },
-#ifdef ENABLE_FEAT_F4HWN_SLEEP
-    {"SetOff",       MENU_SET_OFF      },
-#endif
-#ifdef ENABLE_FEAT_F4HWN_NARROWER
-    {"SetNFM",      MENU_SET_NFM       },
-#endif
-#ifdef ENABLE_FEAT_F4HWN_VOL
-    {"SetVol",      MENU_SET_VOL       },
-#endif
-#ifdef ENABLE_FEAT_F4HWN_RESCUE_OPS
-    {"SetKey",      MENU_SET_KEY       },
-#endif
-#ifdef ENABLE_NOAA
-    {"SetNWR",      MENU_NOAA_S    },
-#endif
-#endif
-    // hidden menu items from here on
-    // enabled if pressing both the PTT and upper side button at power-on
-    {"F Lock",      MENU_F_LOCK        },
 #ifndef ENABLE_FEAT_F4HWN
     {"Tx 200",      MENU_200TX         }, // was "200TX"
     {"Tx 350",      MENU_350TX         }, // was "350TX"
