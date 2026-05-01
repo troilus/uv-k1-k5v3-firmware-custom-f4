@@ -1852,7 +1852,7 @@ static void ProcessKey(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
     }
     #endif
 
-    if (Key == KEY_EXIT && !BACKLIGHT_IsOn() && gEeprom.BACKLIGHT_TIME > 0)
+    if (Key == KEY_EXIT && !BACKLIGHT_IsOn() && !gFmRadioMode && gEeprom.BACKLIGHT_TIME > 0)
     {   // just turn the light on for now so the user can see what's what
         BACKLIGHT_TurnOn();
         gBeepToPlay = BEEP_NONE;
