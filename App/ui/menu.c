@@ -47,19 +47,19 @@
 const t_menu_item MenuList[] =
 {
 //   text,          menu ID
-    {"Step",        MENU_STEP          },
+    {"STEP",        MENU_STEP          },
     {"Power",       MENU_TXP           }, // was "TXP"
     {"RxDCS",       MENU_R_DCS         }, // was "R_DCS"
     {"RxCTCS",      MENU_R_CTCS        }, // was "R_CTCS"
     {"TxDCS",       MENU_T_DCS         }, // was "T_DCS"
     {"TxCTCS",      MENU_T_CTCS        }, // was "T_CTCS"
-    {"TxODir",      MENU_SFT_D         }, // was "SFT_D"
+    {"TxDir",      MENU_SFT_D         }, // was "SFT_D"
     {"TxOffs",      MENU_OFFSET        }, // was "OFFSET"
     {"W/N",         MENU_W_N           },
 #ifndef ENABLE_FEAT_F4HWN
     {"Scramb",      MENU_SCR           }, // was "SCR"
 #endif
-    {"BusyCL",      MENU_BCL           }, // was "BCL"
+    {"BzLock",      MENU_BCL           }, // was "BCL"
     {"Compnd",      MENU_COMPAND       },
     {"Mode",        MENU_AM            }, // was "AM"
 #ifdef ENABLE_FEAT_F4HWN
