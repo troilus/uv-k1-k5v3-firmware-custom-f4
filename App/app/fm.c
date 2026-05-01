@@ -243,7 +243,7 @@ static void Key_DIGITS(KEY_Code_t Key, uint8_t state)
         uint8_t State;
 
         if (gAskToDelete) {
-            gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
+            //gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
             return;
         }
 
@@ -252,7 +252,7 @@ static void Key_DIGITS(KEY_Code_t Key, uint8_t state)
         }
         else {
             if (gFM_ScanState != FM_SCAN_OFF) {
-                gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
+                //gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
                 return;
             }
 
@@ -281,7 +281,7 @@ static void Key_DIGITS(KEY_Code_t Key, uint8_t state)
                 Frequency = StrToUL(INPUTBOX_GetAscii());
 
                 if (Frequency < BK1080_GetFreqLoLimit(gEeprom.FM_Band) || BK1080_GetFreqHiLimit(gEeprom.FM_Band) < Frequency) {
-                    gBeepToPlay           = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
+                    //gBeepToPlay           = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
                     gRequestDisplayScreen = DISPLAY_FM;
                     return;
                 }
@@ -326,7 +326,7 @@ static void Key_DIGITS(KEY_Code_t Key, uint8_t state)
                 return;
             }
 
-            gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
+            //gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
             return;
         }
 
@@ -343,7 +343,7 @@ static void Key_FUNC(KEY_Code_t Key, uint8_t state)
     if (state == BUTTON_EVENT_SHORT || state == BUTTON_EVENT_HELD) {
         bool autoScan = gWasFKeyPressed || (state == BUTTON_EVENT_HELD);
 
-        gBeepToPlay           = BEEP_1KHZ_60MS_OPTIONAL;
+        //gBeepToPlay           = BEEP_1KHZ_60MS_OPTIONAL;
         HideFKeyIcon();
         gRequestDisplayScreen = DISPLAY_FM;
 
@@ -370,7 +370,7 @@ static void Key_FUNC(KEY_Code_t Key, uint8_t state)
                     gRequestSaveFM = true;
                 }
                 else
-                    gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
+                    //gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
                 break;
 
             case KEY_8:
@@ -386,7 +386,7 @@ static void Key_FUNC(KEY_Code_t Key, uint8_t state)
                 break;
 
             default:
-                gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
+                //gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
                 break;
         }
     }
@@ -403,7 +403,7 @@ static void Key_EXIT(uint8_t state)
             return;
     }
 
-    gBeepToPlay = BEEP_1KHZ_60MS_OPTIONAL;
+    //gBeepToPlay = BEEP_1KHZ_60MS_OPTIONAL;
 
     if (gFM_ScanState == FM_SCAN_OFF) {
         if (gInputBoxIndex == 0) {
@@ -458,13 +458,13 @@ static void Key_MENU(uint8_t state)
     }
 
     gRequestDisplayScreen = DISPLAY_FM;
-    gBeepToPlay           = BEEP_1KHZ_60MS_OPTIONAL;
+    //gBeepToPlay           = BEEP_1KHZ_60MS_OPTIONAL;
 
     HideFKeyIcon();
 
     if (gFM_ScanState == FM_SCAN_OFF) {
         if (gInputBoxIndex) {
-            gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
+            //gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
             return;
         }
 
@@ -489,7 +489,7 @@ static void Key_MENU(uint8_t state)
     }
     else {
         if (gFM_AutoScan || !gFM_FoundFrequency) {
-            gBeepToPlay    = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
+            //gBeepToPlay    = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
             gInputBoxIndex = 0;
             return;
         }
@@ -508,11 +508,11 @@ static void Key_UP_DOWN(uint8_t state, int8_t Step)
 
     if (state == BUTTON_EVENT_PRESSED) {
         if (gInputBoxIndex) {
-            gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
+            //gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
             return;
         }
 
-        gBeepToPlay = BEEP_1KHZ_60MS_OPTIONAL;
+        //gBeepToPlay = BEEP_1KHZ_60MS_OPTIONAL;
     } else if (gInputBoxIndex || state!=BUTTON_EVENT_HELD) {
         return;
     }
@@ -529,7 +529,7 @@ static void Key_UP_DOWN(uint8_t state, int8_t Step)
 
     if (gFM_ScanState != FM_SCAN_OFF) {
         if (gFM_AutoScan) {
-            gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
+            //gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
             return;
         }
 
@@ -593,7 +593,7 @@ void FM_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
         case KEY_SIDE1:
         case KEY_SIDE2:
             if (state != BUTTON_EVENT_PRESSED) {
-                gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
+                //gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
                 HideFKeyIcon();
             }
             break;
