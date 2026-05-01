@@ -1615,10 +1615,11 @@ void UI_DisplayMain(void)
                         }
                         else {
 #ifdef ENABLE_FEAT_F4HWN
-                            if (isMainOnly())
+                            if (isMainOnly())// 单信道模式下右对齐显示
                             {
-                                String[10] = 0;
-                                UI_PrintString(String, 33, 0, line, 8);
+                                size_t len = strlen(String);
+                                uint8_t start_pos = (len * 8 >= (LCD_WIDTH - 32)) ? 32 : (LCD_WIDTH - len * 8);
+                                UI_PrintString(String, start_pos, 0, line, 8);
                             }
                             else
                             {
@@ -1627,7 +1628,7 @@ void UI_DisplayMain(void)
                                 }
                                 else
                                 {
-                                    UI_PrintStringSmallNormal(String, 32 + 4, 0, line);     
+                                    UI_PrintStringSmallNormal(String, 32 + 4, 0, line);
                                 }
                             }
 #else
