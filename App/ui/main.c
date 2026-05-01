@@ -1512,7 +1512,7 @@ void UI_DisplayMain(void)
                     if(gEeprom.MENU_LOCK == false) {
                 #endif
 
-                const ChannelAttributes_t* att = MR_GetChannelAttributes(gEeprom.ScreenChannel[vfo_num]);
+/*                const ChannelAttributes_t* att = MR_GetChannelAttributes(gEeprom.ScreenChannel[vfo_num]);
 
                 const char *displayStr;
                 uint8_t xStart = 113; // 3-char name aligned left
@@ -1559,7 +1559,7 @@ void UI_DisplayMain(void)
                     gFrameBuffer[line][x] ^= 0x7F;
                 }
                 gFrameBuffer[line][127] ^= 0x3E;
-
+*/
                 #ifdef ENABLE_FEAT_F4HWN_RESCUE_OPS
                 {
                     }

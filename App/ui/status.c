@@ -91,7 +91,7 @@ void UI_DisplayStatus()
     }
     else
 #endif
-    { // SCAN indicator
+    /*{ // SCAN indicator
         if (gScanStateDir != SCAN_OFF || SCANNER_IsScanning()) {
             if (IS_MR_CHANNEL(gNextMrChannel) && !SCANNER_IsScanning()) { // channel mode
 
@@ -132,7 +132,7 @@ void UI_DisplayStatus()
             }
             x1 = x + 10;
         }
-    }
+    }*/
     x += 10;  // font character width
 
     #ifdef ENABLE_FEAT_F4HWN_DEBUG
