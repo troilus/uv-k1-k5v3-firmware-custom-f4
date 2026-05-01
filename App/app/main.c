@@ -252,7 +252,7 @@ static void processFKeyFunction(const KEY_Code_t Key, const bool beep)
 #endif
             }
             else {
-                toggle_chan_scanlist();
+                APP_RunSpectrum();
             }
 
             break;
