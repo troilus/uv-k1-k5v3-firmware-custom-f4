@@ -15,13 +15,13 @@ extern const uint8_t gFontLight[9];
 extern const uint8_t gFontMute[12];
 
 extern const uint8_t gFontXB[2][6];
-extern const uint8_t gFontMO[1][5];
-extern const uint8_t gFontDWR[1][5];
-extern const uint8_t gFontDW[1][5];
+extern const uint8_t gFontMO[1][7];
+extern const uint8_t gFontDWR[1][7];
+extern const uint8_t gFontDW[1][7];
 #ifdef ENABLE_FEAT_F4HWN_RESCUE_OPS
     extern const uint8_t gFontRO[2][6];
 #endif
-extern const uint8_t gFontHold[1][5];
+extern const uint8_t gFontHold[1][7];
 
 extern const uint8_t BITMAP_BatteryLevel[2];
 extern const uint8_t BITMAP_BatteryLevel1[17];
