@@ -228,9 +228,15 @@ void UI_DisplayStatus()
 #endif*/
 
     x = MAX(x1, 69u);
+    // FM indicator  
+    if (gFmRadioMode) {  
+        UI_PrintStringSmallBufferNormal("FM", line + x);  
+        x += 16; // 调整位置偏移  
+    } 
 
     const void *src = NULL;   // Pointer to the font/bitmap to copy
     size_t size = 0;          // Size of the font/bitmap
+
 
     // Determine the source and size based on conditions
     if (gEeprom.KEY_LOCK) {
