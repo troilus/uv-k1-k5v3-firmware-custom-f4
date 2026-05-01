@@ -192,7 +192,7 @@
                 "ENABLE_FEAT_F4HWN_GMRS_FRS_MURS": false,
                 "ENABLE_FEAT_F4HWN_RESCUE_OPS": false,
                 "ENABLE_FEAT_F4HWN_VOL": true,
-                "ENABLE_FEAT_F4HWN_AUDIO": true,
+                "ENABLE_FEAT_F4HWN_AUDIO": false,
                 "ENABLE_FEAT_F4HWN_AUDIO_SCOPE": true,
                 "ENABLE_FEAT_F4HWN_SCAN_PROGRESS": false,
                 "ENABLE_FEAT_F4HWN_QRCODE": true,
