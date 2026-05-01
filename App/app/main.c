@@ -907,10 +907,10 @@ static void MAIN_Key_STAR(bool bKeyPressed, bool bKeyHeld)
 
             gKeyInputCountdown    = key_input_timeout_500ms;
 
-            gRequestDisplayScreen = DISPLAY_MAIN;
+            gRequestDisplayScreen = DISPLAY_MAIN;*/
         }
         else
-            gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;*/
+            gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
     }
     else
     {   // with the F-key
