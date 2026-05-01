@@ -901,7 +901,7 @@ static void MAIN_Key_STAR(bool bKeyPressed, bool bKeyHeld)
 #endif      
         )
         {   // start entering a DTMF string
-            memcpy(gDTMF_InputBox, gDTMF_String, MIN(sizeof(gDTMF_InputBox), sizeof(gDTMF_String) - 1));
+            /*memcpy(gDTMF_InputBox, gDTMF_String, MIN(sizeof(gDTMF_InputBox), sizeof(gDTMF_String) - 1));
             gDTMF_InputBox_Index  = 0;
             gDTMF_InputMode       = true;
 
@@ -910,7 +910,7 @@ static void MAIN_Key_STAR(bool bKeyPressed, bool bKeyHeld)
             gRequestDisplayScreen = DISPLAY_MAIN;
         }
         else
-            gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
+            gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;*/
     }
     else
     {   // with the F-key
