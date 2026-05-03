@@ -872,7 +872,8 @@ static void MAIN_Key_STAR(bool bKeyPressed, bool bKeyHeld)
             return; 
 
         // Toggle backlight constant-on/off (like F+8)
-        processFKeyFunction(KEY_8, true);
+        ACTION_BackLightOnDemand();
+        gBeepToPlay = BEEP_1KHZ_60MS_OPTIONAL;
         return;
     }
     
