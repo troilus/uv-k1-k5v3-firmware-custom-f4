@@ -1637,26 +1637,46 @@ void UI_DisplayMain(void)
                             }
                             else
                             {
-                                if(activeTxVFO == vfo_num) {
-                                                    // 接收信号时反色显示信道名称  
-                                    if (FUNCTION_IsRx() && gEeprom.RX_VFO == vfo_num && VfoState[vfo_num] == VFO_STATE_NORMAL) {  
-                                        UI_PrintStringSmallNormalInverse(String, 32 + 4, 0, line);  
-                                    } else {  
-                                        UI_PrintStringSmallBold(String, 32 + 4, 0, line);  
-                                    }  
-                                }
-                                else
-                                {
-                                    UI_PrintStringSmallNormal(String, 32 + 4, 0, line);
-                                }
+    // 先检查是否需要反色显示  
+    bool shouldInverse = (FUNCTION_IsRx() && gEeprom.RX_VFO == vfo_num && VfoState[vfo_num] == VFO_STATE_NORMAL);  
+      
+    if(activeTxVFO == vfo_num) {  
+        if (shouldInverse) {  
+            UI_PrintStringSmallNormalInverse(String, 32 + 4, 0, line);  
+        } else {  
+            UI_PrintStringSmallBold(String, 32 + 4, 0, line);  
+        }  
+    }  
+    else  
+    {  
+        if (shouldInverse) {  
+            UI_PrintStringSmallNormalInverse(String, 32 + 4, 0, line);  
+        } else {  
+            UI_PrintStringSmallNormal(String, 32 + 4, 0, line);  
+        }  
+    }  
                             }
 #else
-                            // 接收信号时反色显示信道名称  
-                            if (FUNCTION_IsRx() && gEeprom.RX_VFO == vfo_num && VfoState[vfo_num] == VFO_STATE_NORMAL) {  
-                                UI_PrintStringSmallNormalInverse(String, 32 + 4, 0, line);  
-                            } else {  
-                                UI_PrintStringSmallBold(String, 32 + 4, 0, line);  
-                            }  
+{  
+    // 先检查是否需要反色显示  
+    bool shouldInverse = (FUNCTION_IsRx() && gEeprom.RX_VFO == vfo_num && VfoState[vfo_num] == VFO_STATE_NORMAL);  
+      
+    if(activeTxVFO == vfo_num) {  
+        if (shouldInverse) {  
+            UI_PrintStringSmallNormalInverse(String, 32 + 4, 0, line);  
+        } else {  
+            UI_PrintStringSmallBold(String, 32 + 4, 0, line);  
+        }  
+    }  
+    else  
+    {  
+        if (shouldInverse) {  
+            UI_PrintStringSmallNormalInverse(String, 32 + 4, 0, line);  
+        } else {  
+            UI_PrintStringSmallNormal(String, 32 + 4, 0, line);  
+        }  
+    }  
+}  
 #endif
 
 #ifdef ENABLE_FEAT_F4HWN
