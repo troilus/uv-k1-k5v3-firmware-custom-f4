@@ -1622,7 +1622,7 @@ void UI_DisplayMain(void)
                         if (gEeprom.CHANNEL_DISPLAY_MODE == MDF_NAME) {  
                             // 接收信号时反色显示信道名称  
                             if (FUNCTION_IsRx() && gEeprom.RX_VFO == vfo_num && VfoState[vfo_num] == VFO_STATE_NORMAL) {  
-                                UI_PrintStringSmallNormalInverse(String, 33, 0, line, 8);  
+                                UI_PrintStringSmallNormalInverse(String, 33, 0, line);  
                             } else {  
                                 UI_PrintString(String, 33, 0, line, 8);  
                             }  
