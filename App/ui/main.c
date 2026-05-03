@@ -1398,7 +1398,12 @@ void UI_DisplayMain(void)
                 sprintf(String, "%.4s", INPUTBOX_GetAsciiAlignRight() + 4);  // show the input text
 
             //if (gSetting_set_gui) {
-                UI_PrintStringSmallNormalInverse(String, x, 0, line + 1);
+                    // 根据RX状态选择显示样式  
+    if (FUNCTION_IsRx() && gEeprom.RX_VFO == vfo_num && VfoState[vfo_num] == VFO_STATE_NORMAL) {  
+        UI_PrintStringSmallNormalInverse(String, x, 0, line + 1);  // RX时反色显示  
+    } else {  
+        UI_PrintStringSmallNormal(String, x, 0, line + 1);        // 正常时普通显示  
+    }  
             /*
             }
             else
@@ -1424,7 +1429,12 @@ void UI_DisplayMain(void)
 
             sprintf(String, over1GHz ? "F%u+" : "F%u", f);
             //if (gSetting_set_gui) {
-                UI_PrintStringSmallNormalInverse(String, x, 0, line + 1);
+    // 根据RX状态选择显示样式  
+    if (FUNCTION_IsRx() && gEeprom.RX_VFO == vfo_num && VfoState[vfo_num] == VFO_STATE_NORMAL) {  
+        UI_PrintStringSmallNormalInverse(String, x, 0, line + 1);  // RX时反色显示  
+    } else {  
+        UI_PrintStringSmallNormal(String, x, 0, line + 1);        // 正常时普通显示  
+    }  
             /*
             }
             else
