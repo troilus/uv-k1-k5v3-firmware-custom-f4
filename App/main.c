@@ -78,7 +78,7 @@ void Main(void)
     SYSTICK_Init();
     BOARD_Init();
 
-    boot_counter_10ms = 100;   // 1 sec
+    boot_counter_10ms = 150;   // 1.5 sec
 
 #ifdef ENABLE_UART
     UART_Init();
