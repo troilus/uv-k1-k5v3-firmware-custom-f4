@@ -1626,6 +1626,7 @@ void UI_DisplayMain(void)
                             } else {  
                                 UI_PrintString(String, 33, 0, line, 8);  
                             }  
+                        }
                         else {
 #ifdef ENABLE_FEAT_F4HWN
                             if (isMainOnly())// 单信道模式下右对齐显示
