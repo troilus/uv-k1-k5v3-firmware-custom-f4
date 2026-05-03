@@ -227,12 +227,16 @@ void UI_DisplayStatus()
     x += sizeof(gFontPttClassic) + 3;
 #endif*/
 
-    x = MAX(x1, 69u);
-    // FM indicator  
-    if (gFmRadioMode) {  
-        UI_PrintStringSmallBufferNormal("FM", line + x);  
-        x += 16; // 调整位置偏移  
-    } 
+#ifdef ENABLE_FEAT_F4HWN
+    // FM indicator
+    if (gFmRadioMode) {
+        UI_PrintStringSmallBufferNormal("FM", line + x);
+        x1 = x + 13;
+        x += 16;
+    }
+#endif
+
+    x = MAX(x1, 69u); 
 
     const void *src = NULL;   // Pointer to the font/bitmap to copy
     size_t size = 0;          // Size of the font/bitmap
