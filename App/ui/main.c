@@ -1379,7 +1379,7 @@ void UI_DisplayMain(void)
                 if(RxOnVfofrequency == frequency && !isMainOnly()) {
                     //UI_PrintStringSmallNormal(">>", 8, 0, line);
                     //memcpy(p_line0 + 14, BITMAP_VFO_Default, sizeof(BITMAP_VFO_Default));
-                    GUI_DisplaySmallest(">>", 8, RxLine == 0 ? 1 : 33, false, true);
+                    GUI_DisplaySmallest(">>>>>", 8, RxLine == 0 ? 1 : 33, false, true);
                 }
 
                 if(RxBlinkLed == 1)
