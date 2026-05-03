@@ -871,46 +871,18 @@ static void MAIN_Key_STAR(bool bKeyPressed, bool bKeyHeld)
         if (!bKeyPressed) // released
             return; 
 
-        /*
-        #ifdef ENABLE_FEAT_F4HWN_RESUME_STATE
-        if(gScanRangeStart == 0) // No ScanRange
-        {
-            gEeprom.CURRENT_STATE = 1;
-        }
-        else // ScanRange
-        {
-            gEeprom.CURRENT_STATE = 2;
-        }
-        SETTINGS_WriteCurrentState();
-        #endif
-        */
-        ACTION_Scan(false);// toggle scanning
-
-        gBeepToPlay = BEEP_1KHZ_60MS_OPTIONAL;
+        // Toggle backlight constant-on/off (like F+8)
+        processFKeyFunction(KEY_8, true);
         return;
     }
     
     if (!gWasFKeyPressed) // pressed without the F-key
     {   
-        if (gScanStateDir == SCAN_OFF 
-#ifdef ENABLE_NOAA
-            && !IS_NOAA_CHANNEL(gTxVfo->CHANNEL_SAVE)
-#endif
-#ifdef ENABLE_SCAN_RANGES
-            && gScanRangeStart == 0
-#endif      
-        )
-        {   // start entering a DTMF string
-            /*memcpy(gDTMF_InputBox, gDTMF_String, MIN(sizeof(gDTMF_InputBox), sizeof(gDTMF_String) - 1));
-            gDTMF_InputBox_Index  = 0;
-            gDTMF_InputMode       = true;
-
-            gKeyInputCountdown    = key_input_timeout_500ms;
-
-            gRequestDisplayScreen = DISPLAY_MAIN;*/
+        if (!bKeyHeld && !bKeyPressed) // short press release
+        {
+            // Toggle VFO A/B (like long press 2)
+            processFKeyFunction(KEY_2, true);
         }
-        else
-            gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
     }
     else
     {   // with the F-key
