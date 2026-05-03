@@ -87,7 +87,7 @@ void GENERIC_Key_F(bool bKeyPressed, bool bKeyHeld)
 
 #ifdef ENABLE_FMRADIO
         if (gFM_ScanState == FM_SCAN_OFF) { // not scanning
-            gBeepToPlay = BEEP_1KHZ_60MS_OPTIONAL;
+            //gBeepToPlay = BEEP_1KHZ_60MS_OPTIONAL;
             return;
         }
 #endif
