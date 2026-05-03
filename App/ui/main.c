@@ -1398,12 +1398,12 @@ void UI_DisplayMain(void)
                 sprintf(String, "%.4s", INPUTBOX_GetAsciiAlignRight() + 4);  // show the input text
 
             //if (gSetting_set_gui) {
-                    // 根据RX状态选择显示样式  
-    if (FUNCTION_IsRx() && gEeprom.RX_VFO == vfo_num && VfoState[vfo_num] == VFO_STATE_NORMAL) {  
-        UI_PrintStringSmallNormalInverse(String, x, 0, line + 1);  // RX时反色显示  
-    } else {  
-        UI_PrintStringSmallNormal(String, x, 0, line + 1);        // 正常时普通显示  
-    }  
+            // 只有选中的信道才反色显示  
+            if (activeTxVFO == vfo_num) {  
+                UI_PrintStringSmallNormalInverse(String, x, 0, line + 1);  
+            } else {  
+                UI_PrintStringSmallNormal(String, x, 0, line + 1);  
+            }  
             /*
             }
             else
@@ -1429,13 +1429,13 @@ void UI_DisplayMain(void)
 
             sprintf(String, over1GHz ? "F%u+" : "F%u", f);
             //if (gSetting_set_gui) {
-    // 根据RX状态选择显示样式  
-    if (FUNCTION_IsRx() && gEeprom.RX_VFO == vfo_num && VfoState[vfo_num] == VFO_STATE_NORMAL) {  
-        UI_PrintStringSmallNormalInverse(String, x, 0, line + 1);  // RX时反色显示  
-    } else {  
-        UI_PrintStringSmallNormal(String, x, 0, line + 1);        // 正常时普通显示  
-    }  
-            /*
+            // 只有选中的信道才反色显示  
+            if (activeTxVFO == vfo_num) {  
+                UI_PrintStringSmallNormalInverse(String, x, 0, line + 1);  
+            } else {  
+                UI_PrintStringSmallNormal(String, x, 0, line + 1);  
+            }  
+                    /*
             }
             else
             {
@@ -1619,10 +1619,13 @@ void UI_DisplayMain(void)
                             sprintf(String, "CH-%04u", gEeprom.ScreenChannel[vfo_num] + 1);
                         }
 
-                        if (gEeprom.CHANNEL_DISPLAY_MODE == MDF_NAME) {
-                            String[10] = 0;
-                            UI_PrintString(String, 33, 0, line, 8);
-                        }
+                        if (gEeprom.CHANNEL_DISPLAY_MODE == MDF_NAME) {  
+                            // 接收信号时反色显示信道名称  
+                            if (FUNCTION_IsRx() && gEeprom.RX_VFO == vfo_num && VfoState[vfo_num] == VFO_STATE_NORMAL) {  
+                                UI_PrintStringSmallNormalInverse(String, 33, 0, line, 8);  
+                            } else {  
+                                UI_PrintString(String, 33, 0, line, 8);  
+                            }  
                         else {
 #ifdef ENABLE_FEAT_F4HWN
                             if (isMainOnly())// 单信道模式下右对齐显示
@@ -1634,7 +1637,12 @@ void UI_DisplayMain(void)
                             else
                             {
                                 if(activeTxVFO == vfo_num) {
-                                    UI_PrintStringSmallBold(String, 32 + 4, 0, line);
+                                                    // 接收信号时反色显示信道名称  
+                                    if (FUNCTION_IsRx() && gEeprom.RX_VFO == vfo_num && VfoState[vfo_num] == VFO_STATE_NORMAL) {  
+                                        UI_PrintStringSmallNormalInverse(String, 32 + 4, 0, line);  
+                                    } else {  
+                                        UI_PrintStringSmallBold(String, 32 + 4, 0, line);  
+                                    }  
                                 }
                                 else
                                 {
@@ -1642,7 +1650,12 @@ void UI_DisplayMain(void)
                                 }
                             }
 #else
-                            UI_PrintStringSmallBold(String, 32 + 4, 0, line);
+                            // 接收信号时反色显示信道名称  
+                            if (FUNCTION_IsRx() && gEeprom.RX_VFO == vfo_num && VfoState[vfo_num] == VFO_STATE_NORMAL) {  
+                                UI_PrintStringSmallNormalInverse(String, 32 + 4, 0, line);  
+                            } else {  
+                                UI_PrintStringSmallBold(String, 32 + 4, 0, line);  
+                            }  
 #endif
 
 #ifdef ENABLE_FEAT_F4HWN
