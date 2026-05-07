@@ -1665,11 +1665,13 @@ void UI_DisplayMain(void)
                             else
                             {
                                 sprintf(String, "%03u.%05u", frequency / 100000, frequency % 100000);
-                                GUI_DisplaySmallest(String, 32 + 4, line + 1, false, true);
+                                uint8_t freq_y = (line + 2) * 8 - 4;  
+                                GUI_DisplaySmallest(String, 32 + 4, freq_y, false, true);
                             }
 #else                           // show the channel frequency below the channel number/name
                             sprintf(String, "%03u.%05u", frequency / 100000, frequency % 100000);
-                            GUI_DisplaySmallest(String, 32 + 4, line + 1, false, true);
+                            uint8_t freq_y = (line + 2) * 8 - 4;
+                            GUI_DisplaySmallest(String, 32 + 4, freq_y, false, true);
 #endif
                         }
 
