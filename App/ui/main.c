@@ -1634,15 +1634,15 @@ void UI_DisplayMain(void)
                             else
                             {
                                 if(activeTxVFO == vfo_num) {
-                                    UI_PrintStringSmallBold(String, 32 + 4, 0, line);
+                                    UI_PrintString(String, 32, 0, line, 8);
                                 }
                                 else
                                 {
-                                    UI_PrintStringSmallNormal(String, 32 + 4, 0, line);
+                                    UI_PrintString(String, 32, 0, line, 8);
                                 }
                             }
 #else
-                            UI_PrintStringSmallBold(String, 32 + 4, 0, line);
+                            UI_PrintString(String, 32, 0, line, 8);
 #endif
 
 #ifdef ENABLE_FEAT_F4HWN
