@@ -936,10 +936,11 @@ void DisplayRSSIBar(const bool now)
 #endif
 
 #ifdef ENABLE_FEAT_F4HWN
-    if (gSetting_set_gui)
+    if (1)
     {
-        sprintf(str, "%3d", rssi_dBm);
-        UI_PrintStringSmallNormal(str, LCD_WIDTH + 8, 0, line - 1);
+    // 使用像素级定位的函数
+    int pixel_y = (line - 1) * 8 + 2;  // 在当前行基础上 +2 像素
+    GUI_DisplaySmallest(str, LCD_WIDTH + 8, pixel_y, false, true);
     }
     else
     {
@@ -1634,11 +1635,17 @@ void UI_DisplayMain(void)
                             else
                             {
                                 if(activeTxVFO == vfo_num) {
-                                    UI_PrintString(String, 32, 0, line, 8);
+                        // 双信道模式下也右对齐显示
+            size_t len = strlen(String);
+            uint8_t start_pos = (len * 8 >= (LCD_WIDTH - 32)) ? 32 : (LCD_WIDTH - len * 8);
+            UI_PrintString(String, start_pos, 0, line, 8);
                                 }
                                 else
                                 {
-                                    UI_PrintString(String, 32, 0, line, 8);
+            // 双信道模式下也右对齐显示
+            size_t len = strlen(String);
+            uint8_t start_pos = (len * 8 >= (LCD_WIDTH - 32)) ? 32 : (LCD_WIDTH - len * 8);
+            UI_PrintString(String, start_pos, 0, line, 8);
                                 }
                             }
 #else
@@ -1665,13 +1672,21 @@ void UI_DisplayMain(void)
                             else
                             {
                                 sprintf(String, "%03u.%05u", frequency / 100000, frequency % 100000);
-                                uint8_t freq_y = (line + 2) * 8 - 4;  
-                                GUI_DisplaySmallest(String, 32 + 4, freq_y, false, true);
+                                uint8_t freq_y = (line + 2) * 8 - 3;  
+                                    // 计算右对齐的X坐标
+    uint8_t str_len = strlen(String);
+    uint8_t str_width = str_len * 4; // 3x5字体每个字符4像素
+    uint8_t freq_x = LCD_WIDTH - str_width - 4; // 右对齐，右边距4像素
+                                GUI_DisplaySmallest(String, freq_x, freq_y, false, true);
                             }
 #else                           // show the channel frequency below the channel number/name
                             sprintf(String, "%03u.%05u", frequency / 100000, frequency % 100000);
-                            uint8_t freq_y = (line + 2) * 8 - 4;
-                            GUI_DisplaySmallest(String, 32 + 4, freq_y, false, true);
+                            uint8_t freq_y = (line + 2) * 8 - 3;
+                                // 计算右对齐的X坐标
+    uint8_t str_len = strlen(String);
+    uint8_t str_width = str_len * 4; // 3x5字体每个字符4像素
+    uint8_t freq_x = LCD_WIDTH - str_width - 4; // 右对齐，右边距4像素
+                            GUI_DisplaySmallest(String, freq_x, freq_y, false, true);
 #endif
                         }
 
@@ -1805,8 +1820,11 @@ void UI_DisplayMain(void)
             break;
 
             default:
-            sprintf(String, "%d.%02uK", vfoInfo->StepFrequency / 100, vfoInfo->StepFrequency % 100);
-            shift = -10;
+            // 信道模式不显示频率步进
+            if (!IS_MR_CHANNEL(gEeprom.ScreenChannel[vfo_num])) {
+                sprintf(String, "%d.%02uK", vfoInfo->StepFrequency / 100, vfoInfo->StepFrequency % 100);
+                shift = -10;
+            }
         }
 
         if (gSetting_set_gui)
@@ -1816,33 +1834,38 @@ void UI_DisplayMain(void)
 
             if (isMainOnly() && !gDTMF_InputMode)
             {
-                if(shift == 0)
-                {
-                    UI_PrintStringSmallNormal(String, 2, 0, 6);
-                }
+                // 信道模式下不显示频率步进
+                if (!IS_MR_CHANNEL(gEeprom.ScreenChannel[vfo_num])) {
+                    if(shift == 0)
+                    {
+                        UI_PrintStringSmallNormal(String, 2, 0, 6);
+                    }
 
-                if((vfoInfo->StepFrequency / 100) < 100)
-                {
-                    sprintf(String, "%d.%02uK", vfoInfo->StepFrequency / 100, vfoInfo->StepFrequency % 100);
+                    if((vfoInfo->StepFrequency / 100) < 100)
+                    {
+                        sprintf(String, "%d.%02uK", vfoInfo->StepFrequency / 100, vfoInfo->StepFrequency % 100);
+                    }
+                    else
+                    {
+                        sprintf(String, "%dK", vfoInfo->StepFrequency / 100);               
+                    }
+                    UI_PrintStringSmallNormal(String, 46, 0, 6);
                 }
-                else
-                {
-                    sprintf(String, "%dK", vfoInfo->StepFrequency / 100);               
-                }
-                UI_PrintStringSmallNormal(String, 46, 0, 6);
             }
         }
         else
         {
             if ((s != NULL) && (s[0] != '\0')) {
-                GUI_DisplaySmallest(s, 58, line == 0 ? 17 : 49, false, true);
+                GUI_DisplaySmallest(s, 58, line == 0 ? 19 : 51, false, true);
             }
 
             if ((t != NULL) && (t[0] != '\0')) {
-                GUI_DisplaySmallest(t, 3, line == 0 ? 17 : 49, false, true);
+                GUI_DisplaySmallest(t, 3, line == 0 ? 19 : 51, false, true);
             }
 
-            GUI_DisplaySmallest(String, 68 + shift, line == 0 ? 17 : 49, false, true);
+            if (!IS_MR_CHANNEL(gEeprom.ScreenChannel[vfo_num])) {
+                GUI_DisplaySmallest(String, 68 + shift, line == 0 ? 19 : 51, false, true);
+            }
 
             //sprintf(String, "%d.%02u", vfoInfo->StepFrequency / 100, vfoInfo->StepFrequency % 100);
             //GUI_DisplaySmallest(String, 91, line == 0 ? 2 : 34, false, true);
@@ -1881,8 +1904,8 @@ void UI_DisplayMain(void)
             {
                 const char pwr_long[][5] = {"LOW1", "LOW2", "LOW3", "LOW4", "LOW5", "MID", "HIGH"};
                 //sprintf(String, "%s", pwr_long[currentPower]);
-                //GUI_DisplaySmallest(String, 24, line == 0 ? 17 : 49, false, true);
-                GUI_DisplaySmallest(pwr_long[currentPower], 24, line == 0 ? 17 : 49, false, true);
+                //GUI_DisplaySmallest(String, 24, line == 0 ? 19 : 51, false, true);
+                GUI_DisplaySmallest(pwr_long[currentPower], 24, line == 0 ? 19 : 51, false, true);
             }
 
             if(userPower == true)
@@ -1916,7 +1939,7 @@ void UI_DisplayMain(void)
             #ifdef ENABLE_FEAT_F4HWN_RESCUE_OPS
             if(i == 3)
             {
-                GUI_DisplaySmallest(dir_list[i], 43, line == 0 ? 17 : 49, false, true);
+                GUI_DisplaySmallest(dir_list[i], 43, line == 0 ? 19 : 51, false, true);
             }
             else
             {
@@ -1941,7 +1964,7 @@ void UI_DisplayMain(void)
             }
             else
             {
-                GUI_DisplaySmallest("R", 51, line == 0 ? 17 : 49, false, true);
+                GUI_DisplaySmallest("R", 51, line == 0 ? 19 : 51, false, true);
             }
         }
 #else
@@ -1965,7 +1988,7 @@ void UI_DisplayMain(void)
             else
             {
                 const char *bandWidthNames[] = {"WIDE", "NAR", "NAR+"};
-                GUI_DisplaySmallest(bandWidthNames[vfoInfo->CHANNEL_BANDWIDTH + narrower], 91, line == 0 ? 17 : 49, false, true);
+                GUI_DisplaySmallest(bandWidthNames[vfoInfo->CHANNEL_BANDWIDTH + narrower], 91, line == 0 ? 19 : 51, false, true);
             }
         #else
             if (gSetting_set_gui)
@@ -1976,7 +1999,7 @@ void UI_DisplayMain(void)
             else
             {
                 const char *bandWidthNames[] = {"WIDE", "NAR"};
-                GUI_DisplaySmallest(bandWidthNames[vfoInfo->CHANNEL_BANDWIDTH], 91, line == 0 ? 17 : 49, false, true);
+                GUI_DisplaySmallest(bandWidthNames[vfoInfo->CHANNEL_BANDWIDTH], 91, line == 0 ? 19 : 51, false, true);
             }
         #endif
 #else
@@ -2019,7 +2042,7 @@ void UI_DisplayMain(void)
                 {
                     sprintf(String, "SQL%d", gEeprom.SQUELCH_LEVEL);
                 }
-                GUI_DisplaySmallest(String, 110, line == 0 ? 17 : 49, false, true);
+                GUI_DisplaySmallest(String, 110, line == 0 ? 19 : 51, false, true);
             }
         }
         */
@@ -2033,7 +2056,7 @@ void UI_DisplayMain(void)
            if (gSetting_set_gui) {
                 UI_PrintStringSmallNormal(String, LCD_WIDTH + 98, 0, line + 1);
            } else {
-                GUI_DisplaySmallest(String, 110, line == 0 ? 17 : 49, false, true);
+                GUI_DisplaySmallest(String, 110, line == 0 ? 19 : 51, false, true);
            }
         }
 #endif

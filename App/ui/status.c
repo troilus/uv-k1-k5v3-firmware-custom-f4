@@ -65,7 +65,7 @@ void UI_DisplayStatus()
     unsigned int x    = 0;
 
 #ifdef ENABLE_NOAA
-    // NOAA indicator
+    /*// NOAA indicator
     if (!(gScanStateDir != SCAN_OFF || SCANNER_IsScanning()) && gIsNoaaMode) { // NOASS SCAN indicator
         memcpy(line + x, BITMAP_NOAA, sizeof(BITMAP_NOAA));
     }
@@ -79,7 +79,7 @@ void UI_DisplayStatus()
     if (gCurrentFunction == FUNCTION_POWER_SAVE) {
         memcpy(line + x, gFontPowerSave, sizeof(gFontPowerSave));
     }
-    x += 8;
+    x += 8;*/
 #endif
 
     unsigned int x1 = x;
@@ -162,7 +162,7 @@ void UI_DisplayStatus()
             else
         #endif
             {
-                if(!gAirCopyBootMode) {
+               /* if(!gAirCopyBootMode) {
                     const void *src = NULL;    // Pointer to the font/bitmap to copy
                     size_t sSize = 0;          // Size of the font/bitmap
                     uint8_t sOff = 2;          // Offset relative to the reference position
@@ -196,7 +196,7 @@ void UI_DisplayStatus()
                     if (src) {
                         memcpy(line + x + sOff, src, sSize);
                     }
-                }
+                }*/
             }
         }
         x += sizeof(gFontDWR) + 3;
