@@ -169,21 +169,24 @@ const t_menu_item MenuList[] =
         {"AM Fix",      MENU_AM_FIX        },
     #endif
 #endif
-#ifdef ENABLE_FEAT_F4HWN
-    {"TXLock",      MENU_TX_LOCK       }, 
+
+#ifdef ENABLE_F_CAL_MENU
+    {"FrCali",      MENU_F_CALI        }, // reference xtal calibration
+#endif
+    {"350 En",      MENU_350EN         }, // was "350EN"
+#ifndef ENABLE_FEAT_F4HWN
+    {"ScraEn",      MENU_SCREN         }, // was "SCREN"
 #endif
 #ifndef ENABLE_FEAT_F4HWN
     {"Tx 200",      MENU_200TX         }, // was "200TX"
     {"Tx 350",      MENU_350TX         }, // was "350TX"
     {"Tx 500",      MENU_500TX         }, // was "500TX"
 #endif
-    {"350 En",      MENU_350EN         }, // was "350EN"
-#ifndef ENABLE_FEAT_F4HWN
-    {"ScraEn",      MENU_SCREN         }, // was "SCREN"
+#ifdef ENABLE_FEAT_F4HWN
+    {"TXLock",      MENU_TX_LOCK       }, 
 #endif
-#ifdef ENABLE_F_CAL_MENU
-    {"FrCali",      MENU_F_CALI        }, // reference xtal calibration
-#endif
+
+
     {"BatCal",      MENU_BATCAL        }, // battery voltage calibration
     {"BatTyp",      MENU_BATTYP        }, // battery type 1600/2200mAh
     {"SetNav",      MENU_SET_NAV       }, // set navigation (LEFT / RIGHT or UP / DOWN)
@@ -292,6 +295,9 @@ const char gSubMenu_PONMSG[][8] =
 #endif
     "MESSAGE",
     "VOLTAGE",
+#ifdef ENABLE_FEAT_F4HWN_LOGO
+    "LOGO",
+#endif
     "NONE"
 };
 
@@ -417,6 +423,14 @@ const char gSubMenu_SCRAMBLER[][7] =
         "CLASSIC"
     };
 
+    #ifdef ENABLE_FEAT_F4HWN_SCAN_FASTER
+        const char gSubMenu_SET_SCN[][7] =
+        {
+            "NORMAL",
+            "FAST"
+        };
+    #endif
+
     #ifdef ENABLE_FEAT_F4HWN_AUDIO
         const char gSubMenu_SET_AUD_FM[][6] =
         {
@@ -499,6 +513,9 @@ const t_sidefunction gSubMenu_SIDEFUNCTIONS[] =
     #ifdef ENABLE_FEAT_F4HWN_RESCUE_OPS
         {"POWER\nHIGH",    ACTION_OPT_POWER_HIGH},
         {"REMOVE\nOFFSET",  ACTION_OPT_REMOVE_OFFSET},
+    #endif
+    #ifdef ENABLE_FEAT_F4HWN_BEAM
+        {"BEAM",            ACTION_OPT_BEAM},
     #endif
 #endif
 };
@@ -595,6 +612,8 @@ void UI_DisplayMenu(void)
     unsigned int       i;
     char               String[64];  // bigger cuz we can now do multi-line in one string (use '\n' char)
     char               top_right_badge[16];
+
+    const int m = UI_MENU_GetCurrentMenuId();
 
 #ifdef ENABLE_DTMF_CALLING
     char               Contact[16];
@@ -709,7 +728,7 @@ void UI_DisplayMenu(void)
         uint8_t gaugeMax = 0;
     //#endif
 
-    switch (UI_MENU_GetCurrentMenuId())
+    switch (m)
     {
         case MENU_SQL:
             sprintf(String, "%d", gSubMenuSelection);
@@ -1062,7 +1081,7 @@ void UI_DisplayMenu(void)
         case MENU_S_LIST:
             if (gSubMenuSelection == MR_CHANNELS_LIST + 1)
                 strcpy(String, "ALL");
-            else if (gSubMenuSelection == 0 && UI_MENU_GetCurrentMenuId() == MENU_LIST_CH)
+            else if (gSubMenuSelection == 0 && m == MENU_LIST_CH)
                 strcpy(String, "OFF");
             else {
                 const char *name = gListName[gSubMenuSelection - 1];
@@ -1351,6 +1370,12 @@ void UI_DisplayMenu(void)
             strcpy(String, gSubMenu_SET_MET[gSubMenuSelection]); // Same as SET_MET
             break;
 
+        #ifdef ENABLE_FEAT_F4HWN_SCAN_FASTER
+            case MENU_SET_SCN:
+                strcpy(String, gSubMenu_SET_SCN[gSubMenuSelection]);
+                break;
+        #endif
+
         #ifdef ENABLE_FEAT_F4HWN_AUDIO
             case MENU_SET_AUD:
                 if(gTxVfo->Modulation == MODULATION_AM) {
@@ -1469,16 +1494,16 @@ void UI_DisplayMenu(void)
         }
     }
 
-    if (UI_MENU_GetCurrentMenuId() == MENU_S_PRI_CH_1 || UI_MENU_GetCurrentMenuId() == MENU_S_PRI_CH_2)
+    if (m == MENU_S_PRI_CH_1 || m == MENU_S_PRI_CH_2)
     {
 
     }
 
-    if ((UI_MENU_GetCurrentMenuId() == MENU_R_CTCS || UI_MENU_GetCurrentMenuId() == MENU_R_DCS) && gCssBackgroundScan)
+    if ((m == MENU_R_CTCS || m == MENU_R_DCS) && gCssBackgroundScan)
         UI_PrintString("SCAN", menu_item_x1, menu_item_x2, 4, 8);
 
 #ifdef ENABLE_DTMF_CALLING
-    if (UI_MENU_GetCurrentMenuId() == MENU_D_LIST && gIsDtmfContactValid) {
+    if (m == MENU_D_LIST && gIsDtmfContactValid) {
         Contact[11] = 0;
         memcpy(&gDTMF_ID, Contact + 8, 4);
         sprintf(String, "ID:%4s", gDTMF_ID);
@@ -1486,38 +1511,46 @@ void UI_DisplayMenu(void)
     }
 #endif
 
-    if (UI_MENU_GetCurrentMenuId() == MENU_R_CTCS ||
-        UI_MENU_GetCurrentMenuId() == MENU_T_CTCS ||
-        UI_MENU_GetCurrentMenuId() == MENU_R_DCS  ||
-        UI_MENU_GetCurrentMenuId() == MENU_T_DCS
-#ifdef ENABLE_DTMF_CALLING
-        || UI_MENU_GetCurrentMenuId() == MENU_D_LIST
-#endif
-    ) {
-        if (UI_MENU_GetCurrentMenuId() == MENU_R_CTCS ||
-            UI_MENU_GetCurrentMenuId() == MENU_T_CTCS) {
-            const uint8_t approved_index =
-                (gSubMenuSelection > 0) ? DCS_GetCtcssApprovedIndex(gSubMenuSelection - 1) : 0xFF;
+    if (m == MENU_R_CTCS ||
+        m == MENU_T_CTCS) {
+        const uint8_t approved_index =
+            (gSubMenuSelection > 0) ? DCS_GetCtcssApprovedIndex(gSubMenuSelection - 1) : 0xFF;
 
-            if (gSubMenuSelection == 0)
-                sprintf(top_right_badge, "00/00");
-            else if (approved_index != 0xFF)
-                sprintf(top_right_badge, "%02u/%02u", (unsigned)gSubMenuSelection, approved_index + 1);
-            else
-                sprintf(top_right_badge, "%02u/--", (unsigned)gSubMenuSelection);
-        } else {
-            sprintf(top_right_badge, "%03d", gSubMenuSelection);
-        }
+        if (gSubMenuSelection == 0)
+            sprintf(top_right_badge, "00/00");
+        else if (approved_index != 0xFF)
+            sprintf(top_right_badge, "%02u/%02u", (unsigned)gSubMenuSelection, (unsigned)approved_index + 1);
+        else
+            sprintf(top_right_badge, "%02u/--", (unsigned)gSubMenuSelection);
     }
+    
+    if (m == MENU_R_DCS ||
+        m == MENU_T_DCS) {
+        const uint8_t approved_index =
+            (gSubMenuSelection > 0) ? DCS_GetDcsApprovedIndex(gSubMenuSelection - 1) : 0xFF;
+
+        if (gSubMenuSelection == 0)
+            sprintf(top_right_badge, "000/00");
+        else if (approved_index != 0xFF)
+            sprintf(top_right_badge, "%03u/%02u", (unsigned)gSubMenuSelection, (unsigned)approved_index + 1);
+        else
+            sprintf(top_right_badge, "%03u/--", (unsigned)gSubMenuSelection);
+    }
+
+#ifdef ENABLE_DTMF_CALLING
+    if (m == MENU_D_LIST) {
+        sprintf(top_right_badge, "%03d", gSubMenuSelection);
+    }
+#endif
 
     if (top_right_badge[0] != '\0') {
         UI_MENU_DrawTopRightRoundedBadge(top_right_badge, 1, true, menu_item_x1, menu_item_x2);
     }
 
-    if ((UI_MENU_GetCurrentMenuId() == MENU_RESET    ||
-         UI_MENU_GetCurrentMenuId() == MENU_MEM_CH   ||
-         UI_MENU_GetCurrentMenuId() == MENU_MEM_NAME ||
-         UI_MENU_GetCurrentMenuId() == MENU_DEL_CH) && gAskForConfirmation)
+    if ((m == MENU_RESET    ||
+         m == MENU_MEM_CH   ||
+         m == MENU_MEM_NAME ||
+         m == MENU_DEL_CH) && gAskForConfirmation)
     {   // display confirmation
         char *pPrintStr = (gAskForConfirmation == 1) ? "SURE?" : "WAIT!";
         UI_PrintString(pPrintStr, menu_item_x1, menu_item_x2, 5, 8);
