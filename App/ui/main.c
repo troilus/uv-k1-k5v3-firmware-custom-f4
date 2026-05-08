@@ -1398,7 +1398,7 @@ void UI_DisplayMain(void)
                 sprintf(String, "%.4s", INPUTBOX_GetAsciiAlignRight() + 4);  // show the input text
 
             //if (gSetting_set_gui) {
-                UI_PrintStringSmallNormalInverse(String, x, 0, line + 1);
+                UI_PrintStringSmallNormal(String, x, 0, line + 1);
             /*
             }
             else
@@ -1424,7 +1424,7 @@ void UI_DisplayMain(void)
 
             sprintf(String, over1GHz ? "F%u+" : "F%u", f);
             //if (gSetting_set_gui) {
-                UI_PrintStringSmallNormalInverse(String, x, 0, line + 1);
+                UI_PrintStringSmallNormal(String, x, 0, line + 1);
             /*
             }
             else
@@ -2162,14 +2162,15 @@ void UI_DisplayMain(void)
     if (isMainOnly() && !gDTMF_InputMode)
     {
         sprintf(String, "VFO %s", activeTxVFO ? "B" : "A");
-        GUI_DisplaySmallest(String, 107, 50, false, true);
+        UI_PrintStringSmallNormal(String, 92, 0, 6);
+        /*GUI_DisplaySmallest(String, 107, 50, false, true);
 
         gFrameBuffer[6][105] ^= 0x7C;
         for (uint8_t x = 106; x < 127; x++) {
             gFrameBuffer[6][x] ^= 0xFE;
         }
         gFrameBuffer[6][127] ^= 0x7C;
-
+*/
         /*
         UI_PrintStringSmallBold(String, 92, 0, 6);
         for (uint8_t i = 92; i < 128; i++)
