@@ -64,7 +64,7 @@ void UI_DisplayStatus()
     uint8_t     *line = gStatusLine;
     unsigned int x    = 0;
 
-#ifdef ENABLE_NOAA
+/*#ifdef ENABLE_NOAA
     // NOAA indicator
     if (!(gScanStateDir != SCAN_OFF || SCANNER_IsScanning()) && gIsNoaaMode) { // NOASS SCAN indicator
         memcpy(line + x, BITMAP_NOAA, sizeof(BITMAP_NOAA));
@@ -80,7 +80,7 @@ void UI_DisplayStatus()
         memcpy(line + x, gFontPowerSave, sizeof(gFontPowerSave));
     }
     x += 8;
-#endif
+#endif*/
 
     unsigned int x1 = x;
 
