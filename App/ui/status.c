@@ -162,7 +162,7 @@ void UI_DisplayStatus()
             else
         #endif
             {
-                if(!gAirCopyBootMode) {
+                /*if(!gAirCopyBootMode) {
                     const void *src = NULL;    // Pointer to the font/bitmap to copy
                     size_t sSize = 0;          // Size of the font/bitmap
                     uint8_t sOff = 2;          // Offset relative to the reference position
@@ -196,7 +196,7 @@ void UI_DisplayStatus()
                     if (src) {
                         memcpy(line + x + sOff, src, sSize);
                     }
-                }
+                }*/
             }
         }
         x += sizeof(gFontDWR) + 3;
