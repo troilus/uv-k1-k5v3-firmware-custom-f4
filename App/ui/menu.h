@@ -240,10 +240,38 @@ extern uint8_t           gMenuCursor;
 
 extern int32_t           gSubMenuSelection;
                          
-extern char              edit_original[17];
-extern char              edit[17];
+extern char              edit_original[24];
+extern char              edit[24];
 extern int               edit_index;
 extern bool              edit_is_uppercase;
+
+enum {
+    MEM_NAME_INPUT_LOWER = 0,
+    MEM_NAME_INPUT_UPPER,
+    MEM_NAME_INPUT_DIGIT,
+    MEM_NAME_INPUT_SYMBOL,
+    MEM_NAME_INPUT_PINYIN
+};
+extern uint8_t           gMemNameInputMode;
+extern uint8_t           gMemNameCandidateCount;
+extern char              gMemNameCandidates[6];
+extern uint8_t           gMemNameSymbolPage;
+extern const char        gMemNameSymbolCharset[];
+extern const uint8_t     gMemNameSymbolCharsetCount;
+
+#ifdef ENABLE_CHINESE
+#define PINYIN_MAX_LEN      8
+#define CN_CANDIDATE_MAX    6
+extern char              gPinyinBuffer[PINYIN_MAX_LEN + 1];
+extern uint8_t           gPinyinLen;
+extern uint8_t           gPinyinKeyIndex[PINYIN_MAX_LEN];
+extern uint16_t          gCNCandidates[CN_CANDIDATE_MAX];
+extern uint8_t           gCNCandidateCount;
+extern uint8_t           gCNCandidateOffset;
+extern uint8_t           gCNCandidateTotal;
+extern uint8_t           gPinyinTimeout_500ms;
+extern uint8_t           gPinyinLookupNoMatch;
+#endif
 
 void UI_DisplayMenu(void);
 int UI_MENU_GetCurrentMenuId();

@@ -20,6 +20,9 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+/* Unified MR channel name @ SPI Flash 0x004000 slot (16 B): max UTF-8/ASCII payload */
+#define CHANNEL_NAME_MAX_BYTES 15u
+
 #include "frequencies.h"
 #include <helper/battery.h>
 #include "radio.h"
@@ -341,6 +344,9 @@ uint32_t SETTINGS_FetchChannelFrequency(const uint16_t channel);
 bool     SETTINGS_FetchChannelScanInfo(const uint16_t channel, uint32_t *frequency, ModulationMode_t *modulation);
 bool     SETTINGS_FetchChannelScanDisplayInfo(const uint16_t channel, ChannelScanDisplayInfo_t *info);
 void     SETTINGS_FetchChannelName(char *s, const uint16_t channel);
+#ifdef ENABLE_CHINESE
+bool     SETTINGS_ChannelNameHasCjkUtf8(const char *s);
+#endif
 void     SETTINGS_FactoryReset(bool bIsAll);
 #ifdef ENABLE_FMRADIO
     void SETTINGS_SaveFM(void);
@@ -361,5 +367,25 @@ void SETTINGS_WriteBuildOptions(void);
 #endif
 #ifdef ENABLE_FEAT_F4HWN
     void SETTINGS_ResetTxLock(void);
+#endif
+
+#if defined(ENABLE_CHINESE) || defined(ENABLE_FEAT_F4HWN)
+// CN font SPI Flash layout (data written via web tool)
+#define CN_FONT_FLASH_BASE      0x010200u
+#define CN_FONT_CHAR_COUNT      1309u
+#define CN_FONT_BITMAP_SIZE     31416u
+#define CN_FONT_INDEX_SIZE      5236u
+#define CN_FONT_PY_OFFSET       36652u
+#define CN_FONT_PY_COUNT        329u
+#define CN_FONT_VERSION         2u
+#define CN_FONT_VERSION_OFFSET  40996u
+#define CN_FONT_PY_TOTAL_SIZE   4344u
+#endif
+
+#ifdef ENABLE_CHINESE
+void SETTINGS_InitCNFont(void);
+int16_t SETTINGS_CNCharToIndex(uint16_t unicode);
+void SETTINGS_ReadCNFontBitmap(uint16_t charIndex, uint16_t *bitmap);
+int SETTINGS_CNGetPinyinCandidates(const char *pinyin, uint16_t *unicodeOut, int maxCount, int startOffset);
 #endif
 #endif

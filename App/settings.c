@@ -703,6 +703,8 @@ bool SETTINGS_FetchChannelScanDisplayInfo(const uint16_t channel, ChannelScanDis
 
 void SETTINGS_FetchChannelName(char *s, const uint16_t channel)
 {
+    int i;
+
     if (s == NULL)
         return;
 
@@ -714,18 +716,26 @@ void SETTINGS_FetchChannelName(char *s, const uint16_t channel)
     if (!RADIO_CheckValidChannel(channel, false, 0))
         return;
 
-    // 0x0F50
-    PY25Q16_ReadBuffer(0x004000 + (channel * 16), s, 10);
+    PY25Q16_ReadBuffer(0x004000 + (channel * 16), s, CHANNEL_NAME_MAX_BYTES);
 
-    int i;
-    for (i = 0; i < 10; i++)
-        if (s[i] < 32 || s[i] > 127)
-            break;                // invalid char
+    for (i = 0; i < (int)CHANNEL_NAME_MAX_BYTES; i++)
+    {
+        uint8_t c = (uint8_t)s[i];
+        if (c == 0 || c == 0xFF)
+            break;
+        if (c >= 0xE4 && c <= 0xEF)
+        {
+            i += 2;
+            continue;
+        }
+        if (c < 32 || c > 127)
+            break;
+    }
+    s[i] = 0;
 
-    s[i--] = 0;                   // null term
-
-    while (i >= 0 && s[i] == 32)  // trim trailing spaces
-        s[i--] = 0;               // null term
+    i--;
+    while (i >= 0 && s[i] == 32)
+        s[i--] = 0;
 }
 
 void SETTINGS_FactoryReset(bool bIsAll)
@@ -1230,8 +1240,10 @@ void SETTINGS_SaveChannelName(uint16_t channel, const char * name)
 {
     uint16_t offset = channel * 16;
     uint8_t buf[16] = {0};
-    memcpy(buf, name, MIN(strlen(name), 10u));
-    // 0x0F50
+    size_t len = strlen(name);
+    if (len > CHANNEL_NAME_MAX_BYTES)
+        len = CHANNEL_NAME_MAX_BYTES;
+    memcpy(buf, name, len);
     PY25Q16_WriteBuffer(0x004000 + offset, buf, 0x10, false);
 }
 
@@ -1435,3 +1447,121 @@ void SETTINGS_ResetTxLock(void)
 }
 
 #endif
+
+#ifdef ENABLE_CHINESE
+
+bool SETTINGS_ChannelNameHasCjkUtf8(const char *s)
+{
+    if (s == NULL)
+        return false;
+    while (*s)
+    {
+        uint8_t c = (uint8_t)*s;
+        if (c >= 0xE4 && c <= 0xEF)
+            return true;
+        s++;
+    }
+    return false;
+}
+
+// CN Font SPI Flash functions
+// Font data is written to SPI Flash at CN_FONT_FLASH_BASE (0x010200)
+// Layout: [bitmaps][unicode_index][pinyin_table]
+
+void SETTINGS_InitCNFont(void)
+{
+    uint8_t ver;
+    uint16_t probe[2];
+    PY25Q16_ReadBuffer(CN_FONT_FLASH_BASE + CN_FONT_VERSION_OFFSET, &ver, 1);
+    PY25Q16_ReadBuffer(CN_FONT_FLASH_BASE, (uint8_t *)probe, 4);
+
+    if (ver == CN_FONT_VERSION && probe[0] == 0x1100 && probe[1] == 0x2100)
+        return;
+
+    // Font not valid - will be written via web tool
+}
+
+int16_t SETTINGS_CNCharToIndex(uint16_t unicode)
+{
+    uint32_t entry;
+    for (uint16_t i = 0; i < CN_FONT_CHAR_COUNT; i++)
+    {
+        PY25Q16_ReadBuffer(CN_FONT_FLASH_BASE + CN_FONT_BITMAP_SIZE + (i * 4),
+                           (uint8_t *)&entry, 4);
+        uint16_t stored_unicode = (uint16_t)(entry >> 16);
+        uint16_t stored_index = (uint16_t)(entry & 0xFFFF);
+        if (stored_unicode == unicode)
+            return (int16_t)stored_index;
+    }
+    return -1;
+}
+
+void SETTINGS_ReadCNFontBitmap(uint16_t charIndex, uint16_t *bitmap)
+{
+    PY25Q16_ReadBuffer(CN_FONT_FLASH_BASE + (charIndex * 2u),
+                       (uint8_t *)bitmap, 24);
+}
+
+int SETTINGS_CNGetPinyinCandidates(const char *pinyin, uint16_t *unicodeOut, int maxCount, int startOffset)
+{
+    uint16_t offset = 0;
+    int count = 0;
+    int total = 0;
+    size_t pinyin_len = strlen(pinyin);
+
+    for (uint16_t i = 0; i < CN_FONT_PY_COUNT && offset < CN_FONT_PY_TOTAL_SIZE; i++)
+    {
+        uint8_t str_len;
+        PY25Q16_ReadBuffer(CN_FONT_FLASH_BASE + CN_FONT_PY_OFFSET + offset,
+                           &str_len, 1);
+        offset++;
+
+        if (str_len == pinyin_len)
+        {
+            char syllable[8];
+            PY25Q16_ReadBuffer(CN_FONT_FLASH_BASE + CN_FONT_PY_OFFSET + offset,
+                               (uint8_t *)syllable, str_len);
+            syllable[str_len] = 0;
+
+            if (memcmp(syllable, pinyin, pinyin_len) == 0)
+            {
+                offset += str_len;
+                uint8_t char_count;
+                PY25Q16_ReadBuffer(CN_FONT_FLASH_BASE + CN_FONT_PY_OFFSET + offset,
+                                   &char_count, 1);
+                offset++;
+                total = char_count;
+
+                for (uint8_t j = 0; j < char_count; j++)
+                {
+                    uint8_t idx_bytes[2];
+                    PY25Q16_ReadBuffer(CN_FONT_FLASH_BASE + CN_FONT_PY_OFFSET + offset,
+                                       idx_bytes, 2);
+                    uint16_t font_idx = (uint16_t)((idx_bytes[0] << 8) | idx_bytes[1]);
+
+                    if (j >= startOffset && count < maxCount)
+                    {
+                        uint32_t entry;
+                        PY25Q16_ReadBuffer(CN_FONT_FLASH_BASE + CN_FONT_BITMAP_SIZE + (font_idx * 4),
+                                           (uint8_t *)&entry, 4);
+                        unicodeOut[count++] = (uint16_t)(entry >> 16);
+                    }
+
+                    offset += 2;
+                }
+                return total;
+            }
+        }
+
+        offset += str_len;
+        uint8_t char_count;
+        PY25Q16_ReadBuffer(CN_FONT_FLASH_BASE + CN_FONT_PY_OFFSET + offset,
+                           &char_count, 1);
+        offset++;
+        offset += char_count * 2;
+    }
+
+    return 0;
+}
+
+#endif /* ENABLE_CHINESE */

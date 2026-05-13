@@ -41,6 +41,9 @@
 #include "ui/inputbox.h"
 #include "ui/main.h"
 #include "ui/ui.h"
+#ifdef ENABLE_CHINESE
+    #include "ui/cn_helper.h"
+#endif
 #include "audio.h"
 #include "menu.h"
 
@@ -1659,10 +1662,34 @@ void UI_DisplayMain(void)
                         }
 
                         if (gEeprom.CHANNEL_DISPLAY_MODE == MDF_NAME) {
-                            String[10] = 0;
-                            UI_PrintString(String, 33, 0, line, 8);
+#ifdef ENABLE_CHINESE
+                            if (SETTINGS_ChannelNameHasCjkUtf8(String)) {
+                                UI_PrintStringSmallChannelNameBand(String, 33, LCD_WIDTH - 1, (uint8_t)(line * 8));
+                            } else
+#endif
+                            {
+                                String[10] = 0;
+                                UI_PrintString(String, 33, 0, line, 8);
+                            }
                         }
                         else {
+#ifdef ENABLE_CHINESE
+                            if (SETTINGS_ChannelNameHasCjkUtf8(String)) {
+                                // CJK name in MDF_NAME_FREQ mode: use pixel rendering
+                                uint8_t name_pixel_y = (uint8_t)(line * 8);
+#ifdef ENABLE_FEAT_F4HWN
+                                if (!isMainOnly()) {
+                                    // dual VFO: show CH-XXXX instead to avoid layout clash
+                                    sprintf(String, "CH-%04u", gEeprom.ScreenChannel[vfo_num] + 1);
+                                    UI_PrintStringSmallBold(String, 32 + 4, 0, line);
+                                } else
+#endif
+                                {
+                                    UI_PrintStringSmallChannelNameBand(String, 32, LCD_WIDTH - 1, name_pixel_y);
+                                }
+                            } else
+#endif
+                            {
 #ifdef ENABLE_FEAT_F4HWN
                             if (isMainOnly())// 单信道模式下右对齐显示
                             {

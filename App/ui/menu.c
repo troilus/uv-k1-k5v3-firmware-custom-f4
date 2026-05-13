@@ -41,6 +41,9 @@
 #include "inputbox.h"
 #include "menu.h"
 #include "ui.h"
+#ifdef ENABLE_CHINESE
+    #include "cn_helper.h"
+#endif
 #include "welcome.h"
 
 
@@ -542,10 +545,29 @@ uint8_t UI_MENU_GetMenuIdx(uint8_t id)
 int32_t gSubMenuSelection;
 
 // edit box
-char    edit_original[17]; // a copy of the text before editing so that we can easily test for changes/difference
-char    edit[17];
+char    edit_original[24]; // a copy of the text before editing so that we can easily test for changes/difference
+char    edit[24];
 int     edit_index;
 bool    edit_is_uppercase = false;
+
+uint8_t gMemNameInputMode;
+uint8_t gMemNameCandidateCount;
+char    gMemNameCandidates[6];
+uint8_t gMemNameSymbolPage;
+const char gMemNameSymbolCharset[] = ".,!?@#$%&*+-/=_:;()[]{}<>\"'\\|~^`";
+const uint8_t gMemNameSymbolCharsetCount = (uint8_t)(sizeof(gMemNameSymbolCharset) - 1u);
+
+#ifdef ENABLE_CHINESE
+char     gPinyinBuffer[PINYIN_MAX_LEN + 1];
+uint8_t  gPinyinLen;
+uint8_t  gPinyinKeyIndex[PINYIN_MAX_LEN];
+uint16_t gCNCandidates[CN_CANDIDATE_MAX];
+uint8_t  gCNCandidateCount;
+uint8_t  gCNCandidateOffset;
+uint8_t  gCNCandidateTotal;
+uint8_t  gPinyinTimeout_500ms;
+uint8_t  gPinyinLookupNoMatch;
+#endif
 
 static void UI_MENU_DrawTopRightRoundedBadge(const char *text, const uint8_t line, const bool center_in_area, const uint8_t area_x1, const uint8_t area_x2)
 {
@@ -970,41 +992,149 @@ void UI_DisplayMenu(void)
             {
                 const uint32_t frequency = SETTINGS_FetchChannelFrequency(gSubMenuSelection);
 
-                //if (!gIsInSubMenu || edit_index < 0)
                 if (!gIsInSubMenu)
                     edit_index = -1;
                 if (edit_index < 0)
                 {   // show the channel name
                     SETTINGS_FetchChannelName(String, gSubMenuSelection);
                     char *pPrintStr = String[0] ? String : "--";
-                    UI_PrintString(pPrintStr, menu_item_x1, menu_item_x2, 2, 8);
+#ifdef ENABLE_CHINESE
+                    if (SETTINGS_ChannelNameHasCjkUtf8(pPrintStr)) {
+                        UI_PrintStringSmallChannelNameBand(pPrintStr, menu_item_x1, menu_item_x2, 16);
+                    } else
+#endif
+                    {
+                        UI_PrintString(pPrintStr, menu_item_x1, menu_item_x2, 2, 8);
+                    }
                 }
                 else
                 {   // show the channel name being edited
-                    //UI_PrintString(edit, menu_item_x1, 0, 2, 8);
+#ifdef ENABLE_CHINESE
+                    UI_PrintStringSmallChannelNameBand(edit, menu_item_x1, menu_item_x2, 16);
+                    // draw CJK-aware cursor
+                    {
+                        uint8_t cx = menu_item_x1;
+                        size_t bi = 0;
+                        while (bi < (size_t)edit_index && bi < (size_t)CHANNEL_NAME_MAX_BYTES && cx + 6 <= menu_item_x2) {
+                            uint8_t cw = ((uint8_t)edit[bi] >= 0xE4 && (uint8_t)edit[bi] <= 0xEF) ? 13u : 7u;
+                            cx += cw;
+                            bi += (((uint8_t)edit[bi] >= 0xE4 && (uint8_t)edit[bi] <= 0xEF) ? 3u : 1u);
+                        }
+                        // draw cursor arrow below current position
+                        uint8_t ul_fb_row = 29 / 8u;
+                        uint8_t ul_fb_bit = (uint8_t)(1u << (29u % 8u));
+                        if (ul_fb_row < FRAME_LINES)
+                            gFrameBuffer[ul_fb_row][cx + 3] |= ul_fb_bit;
+                    }
+
+                    // input mode label / pinyin buffer
+                    if (gPinyinLen > 0)
+                    {
+                        char pinyin_display[PINYIN_MAX_LEN + 2];
+                        memcpy(pinyin_display, gPinyinBuffer, gPinyinLen);
+                        pinyin_display[gPinyinLen] = '_';
+                        pinyin_display[gPinyinLen + 1] = 0;
+                        UI_PrintStringSmallNormal(pinyin_display, LCD_WIDTH - 1, 0, 4);
+                    }
+                    else
+                    {
+                        const char *mode_label = "a";
+                        switch (gMemNameInputMode) {
+                            case MEM_NAME_INPUT_LOWER:  mode_label = "a";  break;
+                            case MEM_NAME_INPUT_UPPER:  mode_label = "A";  break;
+                            case MEM_NAME_INPUT_DIGIT:  mode_label = "1";  break;
+                            case MEM_NAME_INPUT_SYMBOL: mode_label = ",";  break;
+                            case MEM_NAME_INPUT_PINYIN: mode_label = "PY"; break;
+                        }
+                        UI_PrintStringSmallNormal(mode_label, LCD_WIDTH - 1, 0, 4);
+                    }
+
+                    // CJK candidates
+                    if (gCNCandidateCount > 0)
+                    {
+                        const unsigned strip_w = (unsigned)(menu_item_x2 - menu_item_x1);
+                        const unsigned slot_w = strip_w / 6u;
+                        for (uint8_t i = 0; i < gCNCandidateCount; i++)
+                        {
+                            char num[2];
+                            char utf8[4];
+                            uint16_t unicode = gCNCandidates[i];
+                            const uint8_t cx = (uint8_t)(menu_item_x1 + (unsigned)i * slot_w);
+
+                            num[0] = (char)('1' + i);
+                            num[1] = 0;
+                            UI_PrintStringSmallAtPixel(num, cx, (uint8_t)(cx + 8), 40, 47, 0);
+
+                            utf8[0] = (char)(0xE0 | (unicode >> 12));
+                            utf8[1] = (char)(0x80 | ((unicode >> 6) & 0x3F));
+                            utf8[2] = (char)(0x80 | (unicode & 0x3F));
+                            utf8[3] = 0;
+                            UI_PrintStringSmallAtPixel(utf8, (uint8_t)(cx + 8), (uint8_t)(cx + 20), 40, 51, 0);
+                        }
+                    }
+                    else if (gMemNameInputMode == MEM_NAME_INPUT_SYMBOL && gMemNameCandidateCount > 0)
+                    {
+                        // symbol 6-pack
+                        static const uint8_t slot_total = 6u;
+                        const unsigned avail = (unsigned)(menu_item_x2 - menu_item_x1);
+                        for (uint8_t si = 0; si < slot_total; si++)
+                        {
+                            char slot_str[3];
+                            slot_str[0] = (char)('1' + si);
+                            slot_str[1] = ' ';
+                            slot_str[2] = 0;
+                            if (si < gMemNameCandidateCount)
+                                slot_str[1] = gMemNameCandidates[si];
+                            const uint8_t sx = (uint8_t)(menu_item_x1 + (avail * si) / slot_total);
+                            UI_PrintStringSmallAtPixel(slot_str, sx, (uint8_t)(sx + 16), 40, 47, 0);
+                        }
+                    }
+                    else if (gMemNameCandidateCount > 0)
+                    {
+                        // letter candidates
+                        const unsigned strip_w = (unsigned)(menu_item_x2 - menu_item_x1);
+                        const unsigned slot_w = strip_w / 4u;
+                        for (uint8_t i = 0; i < gMemNameCandidateCount; i++)
+                        {
+                            char num[2];
+                            char ch[2];
+                            const uint8_t cx = (uint8_t)(menu_item_x1 + (unsigned)i * slot_w);
+
+                            num[0] = (char)('1' + i);
+                            num[1] = 0;
+                            UI_PrintStringSmallAtPixel(num, cx, (uint8_t)(cx + 8), 40, 47, 0);
+
+                            ch[0] = gMemNameCandidates[i];
+                            ch[1] = 0;
+                            UI_PrintStringSmallAtPixel(ch, (uint8_t)(cx + 8), (uint8_t)(cx + 16), 40, 47, 0);
+                        }
+                    }
+#else
                     UI_PrintString(edit, menu_item_x1, menu_item_x2, 2, 8);
                     if (edit_index < 10) {
-                        // UI_PrintString("^", menu_item_x1 - 1 + (8 * edit_index),0, 4, 8); // show the cursor
-                        uint8_t x = menu_item_x1 - 1;
-                        for (uint8_t i = 0; i < 10; i++) 
                         {
-                            if (i != edit_index) 
+                            uint8_t x = menu_item_x1 - 1;
+                            for (uint8_t i = 0; i < 10; i++)
                             {
-                                if (edit[i] != 'g' && edit[i] != 'j')
+                                if (i != edit_index)
                                 {
-                                    UI_DrawLineBuffer(gFrameBuffer, x, 29, x + 6, 29, 1);
+                                    if (edit[i] != 'g' && edit[i] != 'j')
+                                    {
+                                        UI_DrawLineBuffer(gFrameBuffer, x, 29, x + 6, 29, 1);
+                                    }
                                 }
+                                else
+                                {
+                                    UI_DrawLineBuffer(gFrameBuffer, x + 2, 30, x + 4, 30, 1);
+                                    UI_DrawPixelBuffer(gFrameBuffer, x + 3, 29, 1);
+                                }
+                                x += 8;
                             }
-                            else 
-                            {
-                                UI_DrawLineBuffer(gFrameBuffer, x + 2, 30, x + 4, 30, 1);
-                                UI_DrawPixelBuffer(gFrameBuffer, x + 3, 29, 1);
-                            }
-                            x += 8;
                         }
-                        
+
                         UI_PrintStringSmallNormal(edit_is_uppercase ? "ABC" : "abc", 77, 0, 4);
                     }
+#endif
                 }
 
                 if (!gAskForConfirmation)

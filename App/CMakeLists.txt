@@ -150,6 +150,9 @@ enable_feature(ENABLE_BIG_FREQ)
 enable_feature(ENABLE_SMALL_BOLD)
 enable_feature(ENABLE_CUSTOM_MENU_LAYOUT)
 enable_feature(ENABLE_KEEP_MEM_NAME)
+enable_feature(ENABLE_CHINESE
+    ui/cn_helper.c
+)
 enable_feature(ENABLE_WIDE_RX)
 enable_feature(ENABLE_TX_WHEN_AM)
 enable_feature(ENABLE_F_CAL_MENU)
