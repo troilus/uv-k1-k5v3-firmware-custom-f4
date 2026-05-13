@@ -1737,6 +1737,7 @@ void UI_DisplayMain(void)
                             sprintf(String, "%03u.%05u", frequency / 100000, frequency % 100000);
                             UI_PrintStringSmallNormal(String, 32 + 4, 0, line + 1);
 #endif
+                            }
                         }
 
                         break;
