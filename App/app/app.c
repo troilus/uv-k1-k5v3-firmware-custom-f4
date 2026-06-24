@@ -2160,6 +2160,17 @@ static void ProcessKey(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
                 goto Skip;
             }
 
+            if (!bKeyPressed && gTxOtherActive &&
+                (Key == KEY_SIDE1 || Key == KEY_SIDE2))
+            {
+                gFlagPrepareTX = false;
+                APP_EndTransmission();
+                gEeprom.TX_VFO = gTxOtherBus;
+                gTxOtherActive = false;
+                gFlagReconfigureVfos = true;
+                goto Skip;
+            }
+
             if (Key == KEY_SIDE2) { // transmit 1750Hz tone
                 Code = 0xFE;
             }
