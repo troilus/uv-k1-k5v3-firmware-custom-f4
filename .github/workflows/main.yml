@@ -1,6 +1,7 @@
 name: Build Firmware
 
 on:
+  workflow_dispatch:
   push:
     branches: [ main ]
 
@@ -15,7 +16,7 @@ jobs:
     - name: Compile firmware
       run: |
         chmod +x compile-with-docker.sh
-        ./compile-with-docker.sh
+        ./compile-with-docker.sh Fusion -DAUTHOR_STRING_2=BD1AHN
 
     - name: Upload firmware artifact
       uses: actions/upload-artifact@v4
