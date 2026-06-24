@@ -120,6 +120,7 @@ enum ACTION_OPT_t {
         ACTION_OPT_POWER_HIGH,
         ACTION_OPT_REMOVE_OFFSET,
     #endif
+    ACTION_OPT_TX_OTHER,
 #endif
 #ifdef ENABLE_REGA
     ACTION_OPT_REGA_ALARM,

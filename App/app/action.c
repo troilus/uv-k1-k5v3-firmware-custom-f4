@@ -127,6 +127,7 @@ void (*action_opt_table[])(void) = {
         [ACTION_OPT_POWER_HIGH] = &ACTION_Power_High,
         [ACTION_OPT_REMOVE_OFFSET] = &ACTION_Remove_Offset,
     #endif
+    [ACTION_OPT_TX_OTHER] = &ACTION_TxOther,
 #else
     [ACTION_OPT_RXMODE] = &FUNCTION_NOP,
 #endif
@@ -386,6 +387,7 @@ void ACTION_Handle(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
             case ACTION_OPT_POWER_HIGH:
             case ACTION_OPT_REMOVE_OFFSET:
         #endif
+            case ACTION_OPT_TX_OTHER:
     #endif
                 gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
                 return;
@@ -736,4 +738,17 @@ void ACTION_Remove_Offset(void)
     gVfoConfigureMode = VFO_CONFIGURE_RELOAD;
 }
 #endif
+
+void ACTION_TxOther(void)
+{
+    if (gEeprom.DUAL_WATCH == DUAL_WATCH_OFF &&
+        gEeprom.CROSS_BAND_RX_TX == CROSS_BAND_OFF)
+        return;
+
+    gTxOtherBus = gEeprom.TX_VFO;
+    gEeprom.TX_VFO = !gEeprom.TX_VFO;
+    RADIO_SelectVfos();
+    gTxOtherActive = true;
+    gFlagPrepareTX = true;
+}
 #endif

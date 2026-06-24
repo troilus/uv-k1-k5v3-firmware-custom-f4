@@ -873,6 +873,7 @@ const t_sidefunction gSubMenu_SIDEFUNCTIONS[] =
         {"POWER\nHIGH",    ACTION_OPT_POWER_HIGH},
         {"REMOVE\nOFFSET",  ACTION_OPT_REMOVE_OFFSET},
     #endif
+    {"TX\nOTH",         ACTION_OPT_TX_OTHER},
 #endif
 };
 

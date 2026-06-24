@@ -387,6 +387,8 @@ extern bool                  gRequestSaveSettings;
 #endif
 extern uint8_t               gKeypadLocked;
 extern bool                  gFlagPrepareTX;
+extern bool                  gTxOtherActive;
+extern uint8_t               gTxOtherBus;
 
 extern bool                  gFlagAcceptSetting;   // accept menu setting
 extern bool                  gFlagRefreshSetting;  // refresh menu display

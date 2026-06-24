@@ -842,6 +842,12 @@ void APP_EndTransmission(void)
          //turn the monitor back on
         gFlagReconfigureVfos = true;
     }
+
+    if (gTxOtherActive) {
+        gEeprom.TX_VFO = gTxOtherBus;
+        gTxOtherActive = false;
+        gFlagReconfigureVfos = true;
+    }
 }
 
 #ifdef ENABLE_VOX

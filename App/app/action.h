@@ -50,6 +50,7 @@ void ACTION_SwitchDemodul(void);
         void ACTION_Power_High(void);
         void ACTION_Remove_Offset(void);
     #endif
+    void ACTION_TxOther(void);
 #endif
 
 void ACTION_Handle(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld);
