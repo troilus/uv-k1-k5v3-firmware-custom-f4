@@ -127,6 +127,7 @@ void (*action_opt_table[])(void) = {
         [ACTION_OPT_POWER_HIGH] = &ACTION_Power_High,
         [ACTION_OPT_REMOVE_OFFSET] = &ACTION_Remove_Offset,
     #endif
+    [ACTION_OPT_TX_OTHER] = &FUNCTION_NOP,
 #else
     [ACTION_OPT_RXMODE] = &FUNCTION_NOP,
 #endif
