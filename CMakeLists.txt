@@ -85,6 +85,9 @@ target_link_libraries(${EXE_NAME} Core App)
 target_compile_definitions(${EXE_NAME} PRIVATE $<$<CONFIG:Debug>:DEBUG>)
 target_link_libraries(${EXE_NAME} ${TOOLCHAIN_LINK_LIBRARIES})
 
+# Convert string literals from UTF-8 (source) to GB2312 (binary) for Chinese display
+target_compile_options(${EXE_NAME} PRIVATE -fexec-charset=GB2312)
+
 if(ENABLE_LTO)
     target_compile_options(${EXE_NAME} PRIVATE -flto=auto)
 endif()
