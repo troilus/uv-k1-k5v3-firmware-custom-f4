@@ -17,12 +17,18 @@
 #include <string.h>
 
 #include "driver/st7565.h"
+#include "driver/py25q16.h"
 #include "external/printf/printf.h"
 #include "font.h"
 #include "ui/helper.h"
 #include "ui/inputbox.h"
 #include "misc.h"
 #include "settings.h"
+
+#define FONT16_SIZE      32
+#define FONT8_SIZE        8
+#define FLASH_FONT16_BASE  0x0A0000
+#define FLASH_FONT8_BASE   0x0E0000
 
 
 void UI_GenerateChannelString(char *pString, const uint16_t Channel)
@@ -73,6 +79,21 @@ void UI_PrintStringBuffer(const char *pString, uint8_t * buffer, uint32_t char_w
     const unsigned int char_spacing = char_width + 1;
     for (size_t i = 0; i < Length; i++) {
         const unsigned int index = pString[i] - ' ' - 1;
+
+        if ((uint8_t)pString[i] >= 0xA1 && (uint8_t)pString[i] <= 0xF7 && (i + 1) < Length){
+            uint8_t hi = (uint8_t)pString[i];
+            uint8_t lo = (uint8_t)pString[i + 1];
+            if (lo >= 0xA1 && lo <= 0xFE) {
+                uint32_t idx = (hi - 0xA1) * 94 + (lo - 0xA1);
+                uint32_t addr = FLASH_FONT8_BASE + idx * FONT8_SIZE;
+                uint8_t cnDot[FONT8_SIZE];
+                PY25Q16_ReadBuffer(addr, cnDot, FONT8_SIZE);
+                const uint32_t offset = i * char_spacing + 1;
+                memcpy(buffer + offset + 3, cnDot, FONT8_SIZE);
+            }
+            i++;
+        }
+
         if (pString[i] > ' ' && pString[i] < 127) {
             const uint32_t offset = i * char_spacing + 1;
             memcpy(buffer + offset, font + index * char_width, char_width);
@@ -91,6 +112,21 @@ void UI_PrintString(const char *pString, uint8_t Start, uint8_t End, uint8_t Lin
     for (i = 0; i < Length; i++)
     {
         const unsigned int ofs   = (unsigned int)Start + (i * Width);
+
+        if ((uint8_t)pString[i] >= 0xA1 && (uint8_t)pString[i] <= 0xF7 && (i + 1) < Length){
+            uint8_t hi = (uint8_t)pString[i];
+            uint8_t lo = (uint8_t)pString[i + 1];
+            if (lo >= 0xA1 && lo <= 0xFE) {
+                uint32_t idx = (hi - 0xA1) * 94 + (lo - 0xA1);
+                uint32_t addr = FLASH_FONT16_BASE + idx * FONT16_SIZE;
+                uint8_t cnDot[FONT16_SIZE];
+                PY25Q16_ReadBuffer(addr, cnDot, FONT16_SIZE);
+                memcpy(gFrameBuffer[Line + 0] + ofs, cnDot + 0, 16);
+                memcpy(gFrameBuffer[Line + 1] + ofs, cnDot + 16, 16);
+            }
+            i++;
+        }
+
         if (pString[i] > ' ' && pString[i] < 127)
         {
             const unsigned int index = pString[i] - ' ' - 1;
