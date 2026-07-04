@@ -15,9 +15,11 @@ jobs:
       run: |
         chmod +x compile-with-docker.sh
         ./compile-with-docker.sh Fusion
+        ls -la build/Fusion/  # 列出所有生成的文件
 
     - name: Upload firmware artifact
       uses: actions/upload-artifact@v4
       with:
         name: firmware-artifact
-        path: build/Fusion/f4hwn.fusion.bin
+        path: build/Fusion/*.bin
+        if-no-files-found: warn
