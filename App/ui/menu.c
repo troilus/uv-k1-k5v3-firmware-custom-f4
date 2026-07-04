@@ -48,28 +48,28 @@ const t_menu_item MenuList[] =
 {
 //   text,          menu ID
     {"SQL",         MENU_SQL           },
-    {"模式",        MENU_AM            }, // was "AM"
-    {"步进",        MENU_STEP          },
-    {"功率",       MENU_TXP           }, // was "TXP"
+    {"Mode",        MENU_AM            }, // was "AM"
+    {"STEP",        MENU_STEP          },
+    {"Power",       MENU_TXP           }, // was "TXP"
     {"RxDCS",       MENU_R_DCS         }, // was "R_DCS"
     {"RxCTCS",      MENU_R_CTCS        }, // was "R_CTCS"
     {"TxDCS",       MENU_T_DCS         }, // was "T_DCS"
     {"TxCTCS",      MENU_T_CTCS        }, // was "T_CTCS"
     {"TxDir",      MENU_SFT_D         }, // was "SFT_D"
     {"TxOffs",      MENU_OFFSET        }, // was "OFFSET"
-    {"宽窄带",         MENU_W_N           },
-    {"存信道",      MENU_MEM_CH        }, // was "MEM-CH"
-    {"删信道",      MENU_DEL_CH        }, // was "DEL-CH"
-    {"信道名",      MENU_MEM_NAME      },
+    {"W/N",         MENU_W_N           },
+    {"ChSave",      MENU_MEM_CH        }, // was "MEM-CH"
+    {"ChDele",      MENU_DEL_CH        }, // was "DEL-CH"
+    {"ChName",      MENU_MEM_NAME      },
     {"VOX",         MENU_VOX           },
 #ifdef ENABLE_FEAT_F4HWN
-    {"信息",      MENU_VOL           }, // was "VOL"
+    {"SysInf",      MENU_VOL           }, // was "VOL"
 #else
-    {"电压",      MENU_VOL           }, // was "VOL"
+    {"BatVol",      MENU_VOL           }, // was "VOL"
 #endif
     // hidden menu items from here on
     // enabled if pressing both the PTT and upper side button at power-on
-    {"F锁",      MENU_F_LOCK        },
+    {"F Lock",      MENU_F_LOCK        },
     {"RxMode",      MENU_TDR           },
 #ifdef ENABLE_FEAT_F4HWN
     {"SetPwr",      MENU_SET_PWR       },
@@ -77,7 +77,7 @@ const t_menu_item MenuList[] =
     {"SetTOT",      MENU_SET_TOT       },
     {"SetEOT",      MENU_SET_EOT       },
     {"SetCtr",      MENU_SET_CTR       },
-    {"反色",      MENU_SET_INV       },
+    {"SetInv",      MENU_SET_INV       },
     {"SetLck",      MENU_SET_LCK       },
     {"SetMet",      MENU_SET_MET       },
     {"SetGUI",      MENU_SET_GUI       },
