@@ -775,7 +775,13 @@ static void CheckRadioInterrupts(void)
 
         if (interrupts.sqlLost) {
             g_SquelchLost = true;
-            BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, true);
+            if (gEeprom.RX_VFO == 0) {
+                BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, true);
+                BK4819_ToggleGpioOut(BK4819_GPIO5_PIN1_RED, false);
+            } else {
+                BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, true);
+                BK4819_ToggleGpioOut(BK4819_GPIO5_PIN1_RED, true);
+            }
             #ifdef ENABLE_FEAT_F4HWN_RX_TX_TIMER
                 gRxTimerCountdown_500ms = 7200;
             #endif
@@ -784,6 +790,7 @@ static void CheckRadioInterrupts(void)
         if (interrupts.sqlFound) {
             g_SquelchLost = false;
             BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, false);
+            BK4819_ToggleGpioOut(BK4819_GPIO5_PIN1_RED, false);
         }
 
 #ifdef ENABLE_AIRCOPY

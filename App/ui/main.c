@@ -669,6 +669,7 @@ void UI_DisplayAudioBar(void)
         RxBlinkLed = 0;
         RxBlinkLedCounter = 0;
         BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, false);
+        BK4819_ToggleGpioOut(BK4819_GPIO5_PIN1_RED, false);
         unsigned int line;
         if (isMainOnly())
         {
@@ -802,6 +803,7 @@ void UI_DisplayAudioScope(void)
     RxBlinkLed = 0;
     RxBlinkLedCounter = 0;
     BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, false);
+    BK4819_ToggleGpioOut(BK4819_GPIO5_PIN1_RED, false);
     const unsigned int line = isMainOnly() ? 5 : 3;
 #else
     const unsigned int line = 3;
