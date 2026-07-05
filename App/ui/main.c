@@ -54,6 +54,9 @@ center_line_t center_line = CENTER_LINE_NONE;
     // static int8_t RxBlink;
     static int8_t RxBlinkLed = 0;
     static int8_t RxBlinkLedCounter;
+    static uint8_t RxBlinkLedVfo;
+    static uint8_t RxBlinkPhase;
+    static uint16_t RxBlinkTimer;
     static int8_t RxLine;
     static uint32_t RxOnVfofrequency;
 
@@ -666,9 +669,12 @@ void UI_DisplayAudioBar(void)
             return;
 
 #ifdef ENABLE_FEAT_F4HWN
-        RxBlinkLed = 0;
-        RxBlinkLedCounter = 0;
+        if (RxBlinkLed != 2) {
+            RxBlinkLed = 0;
+            RxBlinkLedCounter = 0;
+        }
         BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, false);
+        BK4819_ToggleGpioOut(BK4819_GPIO5_PIN1_RED, false);
         unsigned int line;
         if (isMainOnly())
         {
@@ -799,9 +805,12 @@ void UI_DisplayAudioScope(void)
 #endif
 
 #ifdef ENABLE_FEAT_F4HWN
-    RxBlinkLed = 0;
-    RxBlinkLedCounter = 0;
+    if (RxBlinkLed != 2) {
+        RxBlinkLed = 0;
+        RxBlinkLedCounter = 0;
+    }
     BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, false);
+    BK4819_ToggleGpioOut(BK4819_GPIO5_PIN1_RED, false);
     const unsigned int line = isMainOnly() ? 5 : 3;
 #else
     const unsigned int line = 3;
@@ -1088,6 +1097,67 @@ void UI_MAIN_PrintAGC(bool now)
 }
 #endif
 
+#ifdef ENABLE_FEAT_F4HWN
+void UI_MAIN_HandleRxBlink10ms(void)
+{
+    if (RxBlinkLed != 2) {
+        RxBlinkPhase = 0;
+        RxBlinkTimer = 0;
+        return;
+    }
+
+    if (gCurrentFunction == FUNCTION_TRANSMIT) {
+        BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, false);
+        BK4819_ToggleGpioOut(BK4819_GPIO5_PIN1_RED, false);
+        RxBlinkLed = 0;
+        RxBlinkPhase = 0;
+        RxBlinkTimer = 0;
+        return;
+    }
+
+    if (RxBlinkPhase > 7)
+        return;
+
+    if (RxBlinkPhase == 0) {
+        RxBlinkPhase = 1;
+        RxBlinkTimer = 10;
+        if (RxBlinkLedVfo == 0)
+            BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, true);
+        else {
+            BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, true);
+            BK4819_ToggleGpioOut(BK4819_GPIO5_PIN1_RED, true);
+        }
+        return;
+    }
+
+    if (--RxBlinkTimer > 0)
+        return;
+
+    RxBlinkPhase++;
+
+    if (RxBlinkPhase > 7) {
+        BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, false);
+        BK4819_ToggleGpioOut(BK4819_GPIO5_PIN1_RED, false);
+        return;
+    }
+
+    if (RxBlinkPhase % 2 == 1) {
+        if (RxBlinkLedVfo == 0)
+            BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, true);
+        else {
+            BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, true);
+            BK4819_ToggleGpioOut(BK4819_GPIO5_PIN1_RED, true);
+        }
+    } else {
+        BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, false);
+        BK4819_ToggleGpioOut(BK4819_GPIO5_PIN1_RED, false);
+    }
+
+    static const uint16_t phaseTicks[] = {0, 10, 10, 10, 50, 10, 10, 10};
+    RxBlinkTimer = phaseTicks[RxBlinkPhase];
+}
+#endif
+
 void UI_MAIN_TimeSlice500ms(void)
 {
     if(gScreenToDisplay==DISPLAY_MAIN) {
@@ -1099,25 +1169,13 @@ void UI_MAIN_TimeSlice500ms(void)
         if(FUNCTION_IsRx()) {
             DisplayRSSIBar(true);
         }
-#ifdef ENABLE_FEAT_F4HWN // Blink Green Led for white...
+#ifdef ENABLE_FEAT_F4HWN // Rx blink (beep only, LED controlled by 10ms handler)
         else if(gSetting_set_eot > 0 && RxBlinkLed == 2)
         {
             if(RxBlinkLedCounter <= 8)
             {
-                if(RxBlinkLedCounter % 2 == 0)
+                if(RxBlinkLedCounter % 2 == 1)
                 {
-                    if(gSetting_set_eot > 1 )
-                    {
-                        BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, false);
-                    }
-                }
-                else
-                {
-                    if(gSetting_set_eot > 1 )
-                    {
-                        BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, true);
-                    }
-
                     if(gSetting_set_eot == 1 || gSetting_set_eot == 3)
                     {
                         switch(RxBlinkLedCounter)
@@ -1375,6 +1433,7 @@ void UI_DisplayMain(void)
 #ifdef ENABLE_FEAT_F4HWN
                     RxBlinkLed = 1;
                     RxBlinkLedCounter = 0;
+                    RxBlinkLedVfo = gEeprom.RX_VFO;
                     RxLine = line;
                     RxOnVfofrequency = frequency;
                     // if(!isMainVFO)

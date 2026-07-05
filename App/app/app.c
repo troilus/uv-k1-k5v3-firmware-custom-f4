@@ -1405,6 +1405,10 @@ void APP_TimeSlice10ms(void)
     if (gCurrentFunction != FUNCTION_POWER_SAVE || !gRxIdleMode)
         CheckRadioInterrupts();
 
+#ifdef ENABLE_FEAT_F4HWN
+    UI_MAIN_HandleRxBlink10ms();
+#endif
+
     if (gCurrentFunction == FUNCTION_TRANSMIT)
     {   // transmitting
 #if defined(ENABLE_AUDIO_BAR) && !defined(ENABLE_FEAT_F4HWN_AUDIO_SCOPE)

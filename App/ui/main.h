@@ -51,6 +51,9 @@ void UI_DisplayAudioBar(void);
 void UI_DisplayAudioScope(void);
 #endif
 void UI_MAIN_TimeSlice500ms(void);
+#ifdef ENABLE_FEAT_F4HWN
+void UI_MAIN_HandleRxBlink10ms(void);
+#endif
 void UI_DisplayMain(void);
 
 #ifdef ENABLE_FEAT_F4HWN_SCAN_PROGRESS
