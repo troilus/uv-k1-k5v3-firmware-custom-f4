@@ -1,0 +1,798 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UV-K5/K1 信道编辑器</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Segoe UI', system-ui, sans-serif; background: #1a1a2e; color: #e0e0e0; padding: 16px; }
+h1 { font-size: 20px; margin-bottom: 12px; display: flex; align-items: center; gap: 10px; }
+h1 small { font-size: 12px; color: #888; font-weight: normal; }
+#connect-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+#connect-bar button { padding: 6px 16px; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; }
+#connect-bar button:disabled { opacity: .5; cursor: default; }
+.btn-connect { background: #2d7d46; color: #fff; }
+.btn-connect:hover:not(:disabled) { background: #3a9e5a; }
+.btn-disconnect { background: #8b3a3a; color: #fff; }
+.btn-disconnect:hover:not(:disabled) { background: #b04a4a; }
+#status { font-size: 13px; color: #aaa; margin-left: 8px; }
+#status.ok { color: #4ade80; }
+#status.err { color: #f87171; }
+#progress-wrap { display: none; margin-bottom: 12px; }
+#progress-wrap.active { display: block; }
+#progress-bar { height: 6px; background: #333; border-radius: 3px; overflow: hidden; }
+#progress-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #4ade80, #22d3ee); transition: width .2s; }
+#progress-text { font-size: 12px; color: #888; margin-top: 4px; }
+#toolbar { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+#toolbar button { padding: 5px 14px; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; }
+#toolbar button:disabled { opacity: .4; cursor: default; }
+.btn-read { background: #2563eb; color: #fff; }
+.btn-read:hover:not(:disabled) { background: #3b82f6; }
+.btn-write { background: #d97706; color: #fff; }
+.btn-write:hover:not(:disabled) { background: #f59e0b; }
+.btn-write-all { background: #7c3aed; color: #fff; }
+.btn-write-all:hover:not(:disabled) { background: #8b5cf6; }
+#search { flex: 1; min-width: 160px; padding: 5px 10px; border: 1px solid #444; border-radius: 4px; background: #222; color: #e0e0e0; font-size: 13px; }
+#search::placeholder { color: #666; }
+#table-wrap { border: 1px solid #333; border-radius: 6px; overflow: auto; max-height: calc(100vh - 220px); }
+#table-wrap table { width: 100%; border-collapse: collapse; font-size: 13px; }
+#table-wrap thead { position: sticky; top: 0; z-index: 1; }
+#table-wrap th { background: #16213e; padding: 8px 6px; text-align: left; font-weight: 600; cursor: pointer; user-select: none; white-space: nowrap; border-bottom: 2px solid #333; }
+#table-wrap th:hover { background: #1a2744; }
+#table-wrap th .sort { color: #666; margin-left: 4px; }
+#table-wrap th .sort.active { color: #4ade80; }
+#table-wrap td { padding: 4px 6px; border-bottom: 1px solid #2a2a3e; white-space: nowrap; }
+#table-wrap tr:hover td { background: #1e1e3a; }
+#table-wrap tr.modified td { background: #2a2a1e !important; }
+#table-wrap td.num { color: #888; font-size: 11px; width: 40px; }
+#table-wrap td.freq { font-family: 'Consolas', monospace; }
+#table-wrap td.name { max-width: 100px; overflow: hidden; text-overflow: ellipsis; }
+#table-wrap td.actions { text-align: center; }
+#table-wrap td.actions button { padding: 2px 8px; border: none; border-radius: 3px; cursor: pointer; font-size: 11px; background: #2563eb; color: #fff; }
+#table-wrap td.actions button:hover { background: #3b82f6; }
+.empty { color: #555; text-align: center; padding: 40px !important; }
+.empty a { color: #3b82f6; cursor: pointer; text-decoration: underline; }
+#edit-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 100; justify-content: center; align-items: center; }
+#edit-overlay.active { display: flex; }
+#edit-modal { background: #1e1e3a; border: 1px solid #444; border-radius: 8px; padding: 20px; width: 420px; max-width: 90vw; max-height: 90vh; overflow-y: auto; }
+#edit-modal h2 { font-size: 16px; margin-bottom: 12px; }
+.form-row { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
+.form-row label { width: 80px; font-size: 13px; color: #aaa; flex-shrink: 0; }
+.form-row input,.form-row select { flex: 1; padding: 5px 8px; border: 1px solid #444; border-radius: 4px; background: #222; color: #e0e0e0; font-size: 13px; }
+.form-row input:focus,.form-row select:focus { outline: none; border-color: #3b82f6; }
+.form-row input[type=checkbox] { flex: none; width: auto; }
+.form-actions { display: flex; gap: 8px; margin-top: 12px; justify-content: flex-end; }
+.form-actions button { padding: 6px 20px; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; }
+.btn-save { background: #2d7d46; color: #fff; }
+.btn-save:hover { background: #3a9e5a; }
+.btn-cancel { background: #555; color: #fff; }
+.btn-cancel:hover { background: #666; }
+.toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); padding: 10px 24px; border-radius: 6px; font-size: 14px; z-index: 200; animation: fadeIn .2s; }
+.toast.info { background: #2563eb; color: #fff; }
+.toast.success { background: #2d7d46; color: #fff; }
+.toast.error { background: #8b3a3a; color: #fff; }
+.toast.warning { background: #d97706; color: #fff; }
+@keyframes fadeIn { from { opacity: 0; transform: translateX(-50%) translateY(10px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+#modified-badge { font-size: 12px; color: #f59e0b; display: none; margin-left: 8px; }
+#device-info { font-size: 12px; color: #888; margin-left: 16px; }
+</style>
+</head>
+<body>
+
+<h1>UV-K5 / K1 信道编辑器 <small>v1.0</small></h1>
+
+<div id="connect-bar">
+  <button id="btn-connect" class="btn-connect">连接对讲机</button>
+  <button id="btn-disconnect" class="btn-disconnect" disabled>断开</button>
+  <span id="status">未连接</span>
+  <span id="device-info"></span>
+  <span id="modified-badge">✎ 有未保存的修改</span>
+</div>
+
+<div id="progress-wrap">
+  <div id="progress-bar"><div id="progress-fill"></div></div>
+  <div id="progress-text"></div>
+</div>
+
+<div id="toolbar">
+  <button id="btn-read" class="btn-read" disabled>读取全部信道</button>
+  <button id="btn-write-sel" class="btn-write" disabled>保存已修改</button>
+  <button id="btn-write-all" class="btn-write-all" disabled>全部写入</button>
+  <input type="text" id="search" placeholder="&#128269; 搜索频率/名称/信道号…">
+</div>
+
+<div id="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th style="width:32px"><input type="checkbox" id="sel-all"></th>
+        <th data-sort="num" style="width:44px">#</th>
+        <th data-sort="name">名称</th>
+        <th data-sort="rxFreq">RX 频率</th>
+        <th data-sort="txFreq">TX 频率</th>
+        <th data-sort="offset">偏移</th>
+        <th data-sort="rxTone">RX 亚音</th>
+        <th data-sort="txTone">TX 亚音</th>
+        <th data-sort="mod">调制</th>
+        <th data-sort="bw">带宽</th>
+        <th data-sort="power">功率</th>
+        <th data-sort="step">步进</th>
+        <th style="width:60px">操作</th>
+      </tr>
+    </thead>
+    <tbody id="tbody"></tbody>
+  </table>
+</div>
+
+<div id="edit-overlay">
+  <div id="edit-modal">
+    <h2>编辑信道 #<span id="edit-num"></span></h2>
+    <div class="form-row"><label>信道名称</label><input id="f-name" maxlength="10"></div>
+    <div class="form-row"><label>RX 频率 (MHz)</label><input id="f-rx" type="text" placeholder="例如 434.50000"></div>
+    <div class="form-row"><label>TX 偏移 (MHz)</label><input id="f-offset" type="text" placeholder="例如 0.60000"></div>
+    <div class="form-row"><label>偏移方向</label>
+      <select id="f-dir">
+        <option value="0">关 (同频)</option>
+        <option value="1">+ 上差</option>
+        <option value="2">- 下差</option>
+      </select>
+    </div>
+    <div class="form-row"><label>RX 亚音</label>
+      <select id="f-rx-tone-type" style="width:auto;flex:none">
+        <option value="0">关</option>
+        <option value="1">CTCSS</option>
+        <option value="2">DCS</option>
+      </select>
+      <select id="f-rx-tone" style="flex:2"></select>
+    </div>
+    <div class="form-row"><label>TX 亚音</label>
+      <select id="f-tx-tone-type" style="width:auto;flex:none">
+        <option value="0">关</option>
+        <option value="1">CTCSS</option>
+        <option value="2">DCS</option>
+      </select>
+      <select id="f-tx-tone" style="flex:2"></select>
+    </div>
+    <div class="form-row"><label>调制方式</label>
+      <select id="f-mod">
+        <option value="0">FM</option>
+        <option value="1">AM</option>
+        <option value="2">USB</option>
+      </select>
+    </div>
+    <div class="form-row"><label>带宽</label>
+      <select id="f-bw">
+        <option value="0">宽频 (25kHz)</option>
+        <option value="1">窄带 (12.5kHz)</option>
+      </select>
+    </div>
+    <div class="form-row"><label>发射功率</label>
+      <select id="f-power">
+        <option value="0">高 (H)</option>
+        <option value="1">中 (L1)</option>
+        <option value="2">低 (L2)</option>
+        <option value="3">超低 (L3)</option>
+      </select>
+    </div>
+    <div class="form-row"><label>频率步进</label>
+      <select id="f-step"></select>
+    </div>
+    <div class="form-row"><label><input type="checkbox" id="f-bcl"> 繁忙信道锁定</label></div>
+    <div class="form-row"><label><input type="checkbox" id="f-tx-lock"> 禁止发射</label></div>
+    <div class="form-row"><label><input type="checkbox" id="f-reverse"> 频差反置</label></div>
+    <div class="form-actions">
+      <button id="btn-edit-cancel" class="btn-cancel">取消</button>
+      <button id="btn-edit-save" class="btn-save">保存</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// UV-K5/K1 Channel Editor
+// ============================================================
+// Protocol & data format based on firmware analysis:
+//   Channel record: 16 bytes (RX freq LE u32, TX offset LE u32,
+//     RX code, TX code, codeTypes, mod|dir, flags, dtmf, step, scrambling)
+//   Names at flash 0x4000 + ch*16  (10 chars)
+//   Attributes at flash 0x8000 + ch*2
+// Serial packet: 0xABCD + size + payload + CRC16/XMODEM + 0xDCBA
+//   XOR obfuscated with 16-byte table
+// ============================================================
+
+// ---- Constants ----
+const OBFUS_TBL = new Uint8Array([0x16,0x6c,0x14,0xe6,0x2e,0x91,0x0d,0x40,0x21,0x35,0xd5,0x40,0x13,0x03,0xe9,0x80]);
+const CTCSS_VALS = [670,693,719,744,770,797,825,854,885,915,948,974,1000,1035,1072,1109,1148,1188,1230,1273,1318,1365,1413,1462,1514,1567,1598,1622,1655,1679,1713,1738,1773,1799,1835,1862,1899,1928,1966,1995,2035,2065,2107,2181,2257,2291,2336,2418,2503,2541];
+const DCS_VALS   = [0x0013,0x0015,0x0016,0x0019,0x001a,0x001e,0x0023,0x0027,0x0029,0x002b,0x002c,0x0035,0x0039,0x003a,0x003b,0x003c,0x004c,0x004d,0x004e,0x0052,0x0055,0x0059,0x005a,0x005c,0x0063,0x0065,0x006a,0x006d,0x006e,0x0072,0x0075,0x007a,0x007c,0x0085,0x008a,0x0093,0x0095,0x0096,0x00a3,0x00a4,0x00a5,0x00a6,0x00a9,0x00aa,0x00ad,0x00b1,0x00b3,0x00b5,0x00b6,0x00b9,0x00bc,0x00c6,0x00c9,0x00cd,0x00d5,0x00d9,0x00da,0x00e3,0x00e6,0x00e9,0x00ee,0x00f4,0x00f5,0x00f9,0x0109,0x010a,0x010b,0x0113,0x0119,0x011a,0x0125,0x0126,0x012a,0x012c,0x012d,0x0132,0x0134,0x0135,0x0136,0x0143,0x0146,0x014e,0x0153,0x0156,0x015a,0x0166,0x0175,0x0186,0x018a,0x0194,0x0197,0x0199,0x019a,0x01ac,0x01b2,0x01b4,0x01c3,0x01ca,0x01d3,0x01d9,0x01da,0x01dc,0x01e3,0x01ec];
+const MOD_NAMES = ['FM','AM','USB'];
+const STEP_NAMES = ['2.5k','5k','6.25k','10k','12.5k','25k','8.33k','0.01k','0.05k','0.1k','0.25k','0.5k','1k','1.25k','9k','15k','20k','30k','50k','100k','125k','200k','250k','500k'];
+const CHANNELS_MAX = 1024;
+const READ_SIZE = 128;
+const CHUNK_SIZE = 16; // bytes per channel record
+
+// ---- Utilities ----
+function crc16(data) {
+  let crc = 0;
+  for (let i = 0; i < data.length; i++) {
+    crc ^= data[i] << 8;
+    for (let j = 0; j < 8; j++) {
+      if (crc & 0x8000) crc = (crc << 1) ^ 0x1021;
+      else crc = crc << 1;
+      crc &= 0xFFFF;
+    }
+  }
+  return crc;
+}
+
+function obfuscate(buf, off, len) {
+  for (let i = 0; i < len; i++) buf[off + i] ^= OBFUS_TBL[i % 16];
+}
+
+function freqToMHz(v) { return (v / 100000).toFixed(5); }
+function mhzToFreq(s) { return Math.round(parseFloat(s.replace(',','.')) * 100000); }
+
+function $ (id) { return document.getElementById(id); }
+
+// ---- Serial Protocol ----
+class RadioSerial {
+  constructor() { this.port = null; this.reader = null; this.writer = null; }
+
+  async connect(baud = 38400) {
+    this.port = await navigator.serial.requestPort();
+    await this.port.open({ baudRate: baud, dataBits: 8, stopBits: 1, parity: 'none', flowControl: 'none' });
+    this.writer = this.port.writable.getWriter();
+    this.reader = this.port.readable.getReader();
+  }
+
+  disconnect() {
+    try { if (this.reader) { this.reader.cancel(); this.reader = null; } } catch(e) {}
+    try { if (this.writer) { this.writer.close(); this.writer = null; } } catch(e) {}
+    try { if (this.port) { this.port.close(); this.port = null; } } catch(e) {}
+  }
+
+  _makePacket(payload) {
+    let len = payload.length;
+    if (len % 2) len++;
+    const buf = new Uint8Array(8 + len);
+    buf[0] = 0xAB; buf[1] = 0xCD;
+    buf[2] = len & 0xFF; buf[3] = (len >> 8) & 0xFF;
+    buf.set(payload, 4);
+    const crc = crc16(buf.subarray(4, 4 + len));
+    buf[4 + len] = crc & 0xFF; buf[5 + len] = (crc >> 8) & 0xFF;
+    buf[6 + len] = 0xDC; buf[7 + len] = 0xBA;
+    obfuscate(buf, 4, 2 + len);
+    return buf;
+  }
+
+  async send(payload) {
+    const pkt = this._makePacket(payload);
+    await this.writer.write(pkt);
+  }
+
+  async recv(timeoutMs = 4000) {
+    const buf = new Uint8Array(4096);
+    let pos = 0;
+    const deadline = Date.now() + timeoutMs;
+
+    while (Date.now() < deadline) {
+      if (pos >= buf.length) break;
+      const { value, done } = await this.reader.read();
+      if (done) break;
+      if (value) {
+        buf.set(value, pos);
+        pos += value.length;
+      }
+      for (let i = 0; i < pos - 7; i++) {
+        if (buf[i] === 0xAB && buf[i+1] === 0xCD) {
+          const msgLen = buf[i+2] | (buf[i+3] << 8);
+          const end = i + 6 + msgLen;
+          if (end + 1 < pos && buf[end] === 0xDC && buf[end+1] === 0xBA) {
+            const pkt = buf.slice(i + 4, i + 4 + msgLen + 2);
+            obfuscate(pkt, 0, pkt.length);
+            return pkt.slice(0, msgLen);
+          }
+        }
+      }
+      if (pos > 2048) { buf.copyWithin(0, pos - 256, pos); pos = 256; }
+    }
+    return null;
+  }
+
+  async getDeviceInfo() {
+    const ts = (Date.now() / 1000) | 0;
+    const p = new Uint8Array(8);
+    const dv = new DataView(p.buffer);
+    dv.setUint16(0, 0x0514, true);
+    dv.setUint16(2, 4, true);
+    dv.setUint32(4, ts, true);
+    await this.send(p);
+    const resp = await this.recv();
+    if (!resp) throw new Error('设备无响应');
+    const id = new DataView(resp.buffer).getUint16(0, true);
+    if (id !== 0x0515) throw new Error('响应异常: 0x' + id.toString(16));
+    const ver = String.fromCharCode(...resp.slice(4, 20)).replace(/\0.*$/,'');
+    return { version: ver, hasAesKey: !!resp[20], locked: !!resp[21] };
+  }
+
+  async readFlash(offset, size) {
+    const ts = (Date.now() / 1000) | 0;
+    const p = new Uint8Array(12);
+    const dv = new DataView(p.buffer);
+    dv.setUint16(0, 0x051B, true);
+    dv.setUint16(2, 8, true);
+    dv.setUint16(4, offset, true);
+    dv.setUint8(6, size);
+    dv.setUint8(7, 0);
+    dv.setUint32(8, ts, true);
+    await this.send(p);
+    const resp = await this.recv(5000);
+    if (!resp) throw new Error('读取超时 @ 0x' + offset.toString(16));
+    const id = new DataView(resp.buffer).getUint16(0, true);
+    if (id !== 0x051C) throw new Error('读响应异常 @ 0x' + offset.toString(16));
+    return resp.slice(8);
+  }
+
+  async writeFlash(offset, data) {
+    const ts = (Date.now() / 1000) | 0;
+    const size = data.length;
+    const payloadSize = 12 + size;
+    const p = new Uint8Array(payloadSize);
+    const dv = new DataView(p.buffer);
+    dv.setUint16(0, 0x051D, true);
+    dv.setUint16(2, payloadSize - 4, true);
+    dv.setUint16(4, offset, true);
+    p[6] = size;
+    p[7] = 1;
+    dv.setUint32(8, ts, true);
+    p.set(data, 12);
+    await this.send(p);
+    const resp = await this.recv(5000);
+    if (!resp) throw new Error('写入超时 @ 0x' + offset.toString(16));
+    const id = new DataView(resp.buffer).getUint16(0, true);
+    if (id !== 0x051E) throw new Error('写响应异常 @ 0x' + offset.toString(16));
+  }
+}
+
+// ---- Channel data model ----
+class Channel {
+  constructor(num) {
+    this.num = num;
+    this.name = '';
+    this.rxFreq = 0;
+    this.txOffset = 0;
+    this.rxCode = 0;
+    this.txCode = 0;
+    this.rxCodeType = 0;
+    this.txCodeType = 0;
+    this.modulation = 0;
+    this.direction = 0;
+    this.freqReverse = false;
+    this.bandwidth = 0;
+    this.outputPower = 0;
+    this.bcl = false;
+    this.txLock = false;
+    this.dtmfDecode = false;
+    this.pttIdMode = 0;
+    this.stepSetting = 0;
+    this.scrambling = 0;
+    this._modified = false;
+  }
+
+  get isValid() { return this.rxFreq !== 0 && this.rxFreq !== 0xFFFFFFFF; }
+  get txFreq() {
+    if (this.direction === 1) return this.rxFreq + this.txOffset;
+    if (this.direction === 2) return this.rxFreq - this.txOffset;
+    return this.rxFreq;
+  }
+
+  static fromBinary(num, freq16, name16) {
+    const ch = new Channel(num);
+    const dv = new DataView(freq16.buffer, freq16.byteOffset, freq16.byteLength);
+    ch.rxFreq = dv.getUint32(0, true);
+    ch.txOffset = dv.getUint32(4, true);
+    ch.rxCode = freq16[8];
+    ch.txCode = freq16[9];
+    ch.rxCodeType = freq16[10] & 0x0F;
+    ch.txCodeType = freq16[10] >> 4;
+    ch.modulation = freq16[11] >> 4;
+    ch.direction = freq16[11] & 0x0F;
+    const f = freq16[12];
+    ch.freqReverse = !!(f & 1);
+    ch.bandwidth = (f >> 1) & 1;
+    ch.outputPower = (f >> 2) & 7;
+    ch.bcl = !!(f & 0x20);
+    ch.txLock = !!(f & 0x40);
+    const d = freq16[13];
+    ch.dtmfDecode = !!(d & 1);
+    ch.pttIdMode = (d >> 1) & 7;
+    ch.stepSetting = freq16[14];
+    ch.scrambling = freq16[15];
+    if (name16) {
+      let s = '';
+      for (let i = 0; i < 10; i++) {
+        if (name16[i] === 0 || name16[i] < 0x20) break;
+        s += String.fromCharCode(name16[i]);
+      }
+      ch.name = s.trimEnd();
+    }
+    return ch;
+  }
+
+  toBinary() {
+    const b = new Uint8Array(16);
+    const dv = new DataView(b.buffer);
+    dv.setUint32(0, this.rxFreq, true);
+    dv.setUint32(4, this.txOffset, true);
+    b[8] = this.rxCode;
+    b[9] = this.txCode;
+    b[10] = (this.txCodeType << 4) | (this.rxCodeType & 0x0F);
+    b[11] = (this.modulation << 4) | (this.direction & 0x0F);
+    b[12] = (this.txLock ? 0x40 : 0) | (this.bcl ? 0x20 : 0) | ((this.outputPower & 7) << 2) | ((this.bandwidth & 1) << 1) | (this.freqReverse ? 1 : 0);
+    b[13] = ((this.pttIdMode & 7) << 1) | (this.dtmfDecode ? 1 : 0);
+    b[14] = this.stepSetting;
+    b[15] = this.scrambling;
+    return b;
+  }
+
+  toNameBinary() {
+    const b = new Uint8Array(16);
+    for (let i = 0; i < 10 && i < this.name.length; i++) b[i] = this.name.charCodeAt(i);
+    return b;
+  }
+}
+
+// ---- Tone helpers ----
+function buildToneOptions(sel, type) {
+  sel.innerHTML = '';
+  if (type === 0) {
+    const o = document.createElement('option');
+    o.value = 0; o.textContent = '-- 关 --';
+    sel.appendChild(o);
+  } else if (type === 1) {
+    CTCSS_VALS.forEach((v, i) => {
+      const o = document.createElement('option');
+      o.value = i; o.textContent = (v / 10).toFixed(1) + 'Hz';
+      sel.appendChild(o);
+    });
+  } else {
+    DCS_VALS.forEach((v, i) => {
+      const o = document.createElement('option');
+      o.value = i; o.textContent = 'D' + v.toString(8).padStart(3,'0').toUpperCase();
+      sel.appendChild(o);
+    });
+  }
+}
+
+function getToneLabel(type, idx) {
+  if (type === 0 || idx >= 0xFF) return '-';
+  if (type === 1 && idx < CTCSS_VALS.length) return (CTCSS_VALS[idx] / 10).toFixed(1) + 'Hz';
+  if (type >= 2 && idx < DCS_VALS.length) return 'D' + DCS_VALS[idx].toString(8).padStart(3,'0').toUpperCase();
+  return '?';
+}
+
+// ---- App state ----
+const radio = new RadioSerial();
+let channels = [];
+let sortKey = 'num';
+let sortAsc = true;
+let editChannel = null;
+
+// ---- UI rendering ----
+function renderTable() {
+  const q = $('search').value.toLowerCase().trim();
+  const tbody = $('tbody');
+  tbody.innerHTML = '';
+
+  let list = channels.filter(ch => {
+    if (!q) return true;
+    return String(ch.num).includes(q) || ch.name.toLowerCase().includes(q) || freqToMHz(ch.rxFreq).includes(q);
+  });
+
+  list.sort((a, b) => {
+    let va, vb;
+    switch (sortKey) {
+      case 'num': va = a.num; vb = b.num; break;
+      case 'name': va = a.name; vb = b.name; break;
+      case 'rxFreq': va = a.rxFreq; vb = b.rxFreq; break;
+      case 'txFreq': va = a.txFreq; vb = b.txFreq; break;
+      case 'offset': va = a.txOffset; vb = b.txOffset; break;
+      case 'rxTone': va = a.rxCodeType * 1000 + a.rxCode; vb = b.rxCodeType * 1000 + b.rxCode; break;
+      case 'txTone': va = a.txCodeType * 1000 + a.txCode; vb = b.txCodeType * 1000 + b.txCode; break;
+      case 'mod': va = a.modulation; vb = b.modulation; break;
+      case 'bw': va = a.bandwidth; vb = b.bandwidth; break;
+      case 'power': va = a.outputPower; vb = b.outputPower; break;
+      case 'step': va = a.stepSetting; vb = b.stepSetting; break;
+      default: va = a.num; vb = b.num;
+    }
+    if (typeof va === 'string') return sortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
+    return sortAsc ? (va - vb) : (vb - va);
+  });
+
+  for (const ch of list) {
+    const tr = document.createElement('tr');
+    if (ch._modified) tr.className = 'modified';
+    tr.innerHTML = `<td><input type="checkbox" class="sel-ch" data-num="${ch.num}"></td>
+      <td class="num">${ch.num}</td>
+      <td class="name">${ch.name || '-'}</td>
+      <td class="freq">${ch.isValid ? freqToMHz(ch.rxFreq) : '-'}</td>
+      <td class="freq">${ch.isValid ? freqToMHz(ch.txFreq) : '-'}</td>
+      <td class="freq">${ch.txOffset ? freqToMHz(ch.txOffset) : '-'}</td>
+      <td>${getToneLabel(ch.rxCodeType, ch.rxCode)}</td>
+      <td>${getToneLabel(ch.txCodeType, ch.txCode)}</td>
+      <td>${MOD_NAMES[ch.modulation] || '?'}</td>
+      <td>${ch.bandwidth ? '窄' : '宽'}</td>
+      <td>${['高','L1','L2','L3'][ch.outputPower] || '?'}</td>
+      <td>${STEP_NAMES[ch.stepSetting] || '-'}</td>
+      <td class="actions"><button data-num="${ch.num}" class="btn-edit">编辑</button></td>`;
+    tbody.appendChild(tr);
+  }
+
+  if (!list.length) {
+    const msg = channels.length === 0
+      ? '尚未读取数据，点击 <a onclick="doRead()">读取全部信道</a>'
+      : '无匹配信道';
+    tbody.innerHTML = '<tr><td colspan="13" class="empty">' + msg + '</td></tr>';
+  }
+  document.querySelectorAll('#table-wrap th .sort').forEach(el => {
+    const k = el.parentElement.dataset.sort;
+    el.textContent = k === sortKey ? (sortAsc ? '▲' : '▼') : '▽';
+  });
+  updateModifiedBadge();
+}
+
+function updateModifiedBadge() {
+  const cnt = channels.filter(c => c._modified).length;
+  const el = $('modified-badge');
+  el.style.display = cnt > 0 ? 'inline' : 'none';
+  el.textContent = '✎ ' + cnt + ' 个已修改';
+  $('btn-write-sel').disabled = cnt === 0;
+  $('btn-write-all').disabled = channels.length === 0;
+}
+
+function showToast(msg, type) {
+  const el = document.createElement('div');
+  el.className = 'toast ' + type;
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 3000);
+}
+
+function setProgress(pct, text) {
+  if (pct < 0) { $('progress-wrap').classList.remove('active'); return; }
+  $('progress-wrap').classList.add('active');
+  $('progress-fill').style.width = Math.min(pct, 100) + '%';
+  $('progress-text').textContent = text || '';
+}
+
+// ---- Read / Write operations ----
+async function doRead() {
+  const btn = $('btn-read');
+  btn.disabled = true;
+  try {
+    setProgress(0, '正在读取设备信息…');
+    const info = await radio.getDeviceInfo();
+    $('device-info').textContent = info.version;
+    showToast('已连接: ' + info.version, 'success');
+
+    const freqBuf = new Uint8Array(CHANNELS_MAX * CHUNK_SIZE);
+    const nameBuf = new Uint8Array(CHANNELS_MAX * CHUNK_SIZE);
+
+    const totalSteps = Math.ceil(CHANNELS_MAX * CHUNK_SIZE / READ_SIZE) * 2;
+    let step = 0;
+
+    async function readRange(offset, dest, len) {
+      let pos = 0;
+      while (pos < len) {
+        const sz = Math.min(READ_SIZE, len - pos);
+        const data = await radio.readFlash(offset + pos, sz);
+        dest.set(data, pos);
+        pos += sz;
+        step++;
+        setProgress(step * 100 / totalSteps, '读取中… ' + step + '/' + totalSteps);
+      }
+    }
+
+    await readRange(0x000000, freqBuf, CHANNELS_MAX * CHUNK_SIZE);
+    await readRange(0x004000, nameBuf, CHANNELS_MAX * CHUNK_SIZE);
+
+    channels = [];
+    for (let i = 0; i < CHANNELS_MAX; i++) {
+      const fd = freqBuf.slice(i * CHUNK_SIZE, i * CHUNK_SIZE + CHUNK_SIZE);
+      const nd = nameBuf.slice(i * CHUNK_SIZE, i * CHUNK_SIZE + CHUNK_SIZE);
+      channels.push(Channel.fromBinary(i, fd, nd));
+    }
+    renderTable();
+    $('btn-read').textContent = '重新读取';
+    showToast('成功读取 ' + CHANNELS_MAX + ' 个信道', 'success');
+  } catch (e) {
+    showToast('读取失败: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    setProgress(-1);
+  }
+}
+
+async function doWrite(chList) {
+  if (!chList.length) return;
+  try {
+    const total = chList.length;
+    for (let i = 0; i < total; i++) {
+      const ch = chList[i];
+      await radio.writeFlash(ch.num * CHUNK_SIZE, ch.toBinary());
+      await radio.writeFlash(0x004000 + ch.num * CHUNK_SIZE, ch.toNameBinary());
+      setProgress((i + 1) * 100 / total, '写入中… ' + (i + 1) + '/' + total);
+      ch._modified = false;
+    }
+    renderTable();
+    showToast('成功写入 ' + total + ' 个信道', 'success');
+  } catch (e) {
+    showToast('写入失败: ' + e.message, 'error');
+  } finally {
+    setProgress(-1);
+  }
+}
+
+// ---- Edit modal ----
+function openEdit(num) {
+  const ch = channels.find(c => c.num === num);
+  if (!ch) return;
+  editChannel = ch;
+
+  $('edit-num').textContent = ch.num;
+  $('f-name').value = ch.name;
+  $('f-rx').value = freqToMHz(ch.rxFreq);
+  $('f-offset').value = ch.txOffset ? freqToMHz(ch.txOffset) : '0.00000';
+  $('f-dir').value = ch.direction;
+
+  const rtt = $('f-rx-tone-type');
+  const ttt = $('f-tx-tone-type');
+  rtt.value = ch.rxCodeType;
+  ttt.value = ch.txCodeType;
+  buildToneOptions($('f-rx-tone'), ch.rxCodeType);
+  buildToneOptions($('f-tx-tone'), ch.txCodeType);
+  if (ch.rxCodeType > 0 && ch.rxCode < (ch.rxCodeType === 1 ? CTCSS_VALS.length : DCS_VALS.length))
+    $('f-rx-tone').value = ch.rxCode;
+  if (ch.txCodeType > 0 && ch.txCode < (ch.txCodeType === 1 ? CTCSS_VALS.length : DCS_VALS.length))
+    $('f-tx-tone').value = ch.txCode;
+
+  $('f-mod').value = ch.modulation;
+  $('f-bw').value = ch.bandwidth;
+  $('f-power').value = ch.outputPower;
+
+  const stepSel = $('f-step');
+  stepSel.innerHTML = '';
+  STEP_NAMES.forEach((n, i) => {
+    const o = document.createElement('option');
+    o.value = i; o.textContent = n;
+    stepSel.appendChild(o);
+  });
+  stepSel.value = ch.stepSetting;
+
+  $('f-bcl').checked = ch.bcl;
+  $('f-tx-lock').checked = ch.txLock;
+  $('f-reverse').checked = ch.freqReverse;
+  $('edit-overlay').classList.add('active');
+}
+
+function closeEdit() {
+  $('edit-overlay').classList.remove('active');
+  editChannel = null;
+}
+
+function saveEdit() {
+  if (!editChannel) return;
+  const ch = editChannel;
+
+  const rxStr = $('f-rx').value.trim();
+  if (!rxStr || isNaN(parseFloat(rxStr))) {
+    showToast('请输入有效的 RX 频率', 'warning');
+    return;
+  }
+
+  ch.name = $('f-name').value.trim();
+  ch.rxFreq = mhzToFreq(rxStr);
+  const offStr = $('f-offset').value.trim();
+  ch.txOffset = (!offStr || parseFloat(offStr) === 0) ? 0 : mhzToFreq(offStr);
+  ch.direction = parseInt($('f-dir').value);
+  ch.rxCodeType = parseInt($('f-rx-tone-type').value);
+  ch.txCodeType = parseInt($('f-tx-tone-type').value);
+  ch.rxCode = parseInt($('f-rx-tone').value) || 0;
+  ch.txCode = parseInt($('f-tx-tone').value) || 0;
+  ch.modulation = parseInt($('f-mod').value);
+  ch.bandwidth = parseInt($('f-bw').value);
+  ch.outputPower = parseInt($('f-power').value);
+  ch.stepSetting = parseInt($('f-step').value);
+  ch.bcl = $('f-bcl').checked;
+  ch.txLock = $('f-tx-lock').checked;
+  ch.freqReverse = $('f-reverse').checked;
+  ch._modified = true;
+  renderTable();
+  closeEdit();
+  showToast('信道 ' + ch.num + ' 已修改', 'success');
+}
+
+// ---- Event wiring ----
+(async function init() {
+  if (!navigator.serial) {
+    $('status').textContent = '浏览器不支持 WebSerial（请使用 Chrome/Edge 桌面版）';
+    $('status').className = 'err';
+    $('btn-connect').disabled = true;
+    return;
+  }
+  $('status').textContent = '就绪 — 点击"连接对讲机"';
+})();
+
+$('btn-connect').addEventListener('click', async () => {
+  try {
+    await radio.connect(38400);
+    $('status').textContent = '已连接';
+    $('status').className = 'ok';
+    $('btn-connect').disabled = true;
+    $('btn-disconnect').disabled = false;
+    $('btn-read').disabled = false;
+    showToast('USB 连接成功', 'success');
+  } catch (e) {
+    if (e.name === 'NotFoundError') return;
+    showToast('连接失败: ' + e.message, 'error');
+  }
+});
+
+$('btn-disconnect').addEventListener('click', () => {
+  radio.disconnect();
+  $('status').textContent = '已断开';
+  $('status').className = '';
+  $('device-info').textContent = '';
+  $('btn-connect').disabled = false;
+  $('btn-disconnect').disabled = true;
+  $('btn-read').disabled = true;
+  $('btn-write-sel').disabled = true;
+  $('btn-write-all').disabled = true;
+  $('btn-read').textContent = '读取全部信道';
+});
+
+$('btn-read').addEventListener('click', doRead);
+$('btn-write-sel').addEventListener('click', () => doWrite(channels.filter(c => c._modified)));
+$('btn-write-all').addEventListener('click', () => {
+  if (channels.length === 0) { showToast('没有可写入的数据', 'warning'); return; }
+  doWrite(channels);
+});
+
+$('search').addEventListener('input', renderTable);
+
+document.querySelectorAll('#table-wrap th[data-sort]').forEach(th => {
+  th.addEventListener('click', () => {
+    const k = th.dataset.sort;
+    if (k === sortKey) sortAsc = !sortAsc;
+    else { sortKey = k; sortAsc = true; }
+    renderTable();
+  });
+});
+
+$('sel-all').addEventListener('change', function() {
+  document.querySelectorAll('.sel-ch').forEach(cb => cb.checked = this.checked);
+});
+
+$('tbody').addEventListener('click', e => {
+  const btn = e.target.closest('.btn-edit');
+  if (btn) openEdit(parseInt(btn.dataset.num));
+});
+
+$('f-rx-tone-type').addEventListener('change', function() {
+  buildToneOptions($('f-rx-tone'), parseInt(this.value));
+});
+$('f-tx-tone-type').addEventListener('change', function() {
+  buildToneOptions($('f-tx-tone'), parseInt(this.value));
+});
+$('btn-edit-save').addEventListener('click', saveEdit);
+$('btn-edit-cancel').addEventListener('click', closeEdit);
+$('edit-overlay').addEventListener('click', e => {
+  if (e.target === $('edit-overlay')) closeEdit();
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeEdit();
+  if (e.key === 'Enter' && $('edit-overlay').classList.contains('active')) saveEdit();
+});
+</script>
+</body>
+</html>
