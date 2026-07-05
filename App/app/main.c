@@ -718,6 +718,7 @@ static void MAIN_Key_EXIT(bool bKeyPressed, bool bKeyHeld)
 {
     if (!bKeyHeld && bKeyPressed) { // exit key pressed
         gBeepToPlay = BEEP_1KHZ_60MS_OPTIONAL;  // beep when key is pressed
+        ACTION_RxMode();                        // toggle RX MODE (single/dual channel)
         return;                                 // don't use the key till it's released
     }
 

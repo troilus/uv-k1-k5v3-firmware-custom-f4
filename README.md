@@ -25,6 +25,7 @@
 24. 禁用睡眠
 25. 修改菜单顺序、常用菜单隐藏、菜单字符修改
 26. 中文信道名显示（@bd1jst）
+27. exit键快捷切换单双信道
 
 中文字库：https://gitee.com/oldlicn/uv-k1_font-tool
 
