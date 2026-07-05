@@ -790,7 +790,8 @@ static void CheckRadioInterrupts(void)
         if (interrupts.sqlFound) {
             g_SquelchLost = false;
             BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, false);
-            BK4819_ToggleGpioOut(BK4819_GPIO5_PIN1_RED, false);
+            if (gCurrentFunction != FUNCTION_TRANSMIT)
+                BK4819_ToggleGpioOut(BK4819_GPIO5_PIN1_RED, false);
         }
 
 #ifdef ENABLE_AIRCOPY
