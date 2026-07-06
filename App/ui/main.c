@@ -1108,7 +1108,6 @@ void UI_MAIN_HandleRxBlink10ms(void)
 
     if (gCurrentFunction == FUNCTION_TRANSMIT) {
         BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, false);
-        BK4819_ToggleGpioOut(BK4819_GPIO5_PIN1_RED, false);
         RxBlinkLed = 0;
         RxBlinkPhase = 0;
         RxBlinkTimer = 0;
