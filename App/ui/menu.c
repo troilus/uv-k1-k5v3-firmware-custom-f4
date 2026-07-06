@@ -42,6 +42,7 @@
 #include "menu.h"
 #include "ui.h"
 #include "welcome.h"
+#include "bitmaps.h"
 
 
 const t_menu_item MenuList[] =
@@ -659,49 +660,38 @@ void UI_DisplayMenu(void)
     UI_PrintStringSmallNormal(String, 2, 0, 6);
 
 #else
-    {   // new menu layout .. experimental & unfinished
-        const int menu_index = gMenuCursor;  // current selected menu item
-        i = 1;
+    {   // all items use BIG font, XOR highlight for selected
+        const int menu_index = gMenuCursor;
 
-        if (!gIsInSubMenu) {
-            while (i < 2)
-            {   // leading menu items - small text
-                const int k = menu_index + i - 2;
-                if (k < 0)
-                    UI_PrintStringSmallNormal(MenuList[gMenuListCount + k].name, 0, 0, i);  // wrap-a-round
-                else if (k >= 0 && k < (int)gMenuListCount)
-                    UI_PrintStringSmallNormal(MenuList[k].name, 0, 0, i);
-                i++;
-            }
+        if (menu_index > 0)
+            UI_PrintString(MenuList[menu_index - 1].name, 0, 0, 0, 8);
+        else if (gMenuListCount > 1)
+            UI_PrintString(MenuList[gMenuListCount - 1].name, 0, 0, 0, 8);
 
-            // current menu item - keep big n fat
-            if (menu_index >= 0 && menu_index < (int)gMenuListCount)
-                UI_PrintString(MenuList[menu_index].name, 0, 0, 2, 8);
-            i++;
+        if (menu_index >= 0 && menu_index < (int)gMenuListCount)
+            UI_PrintString(MenuList[menu_index].name, 0, 0, 2, 8);
 
-            while (i < 4)
-            {   // trailing menu item - small text
-                const int k = menu_index + i - 2;
-                if (k >= 0 && k < (int)gMenuListCount)
-                    UI_PrintStringSmallNormal(MenuList[k].name, 0, 0, 1 + i);
-                else if (k >= (int)gMenuListCount)
-                    UI_PrintStringSmallNormal(MenuList[gMenuListCount - k].name, 0, 0, 1 + i);  // wrap-a-round
-                i++;
-            }
+        if (menu_index < (int)(gMenuListCount - 1))
+            UI_PrintString(MenuList[menu_index + 1].name, 0, 0, 4, 8);
+        else if (gMenuListCount > 1)
+            UI_PrintString(MenuList[0].name, 0, 0, 4, 8);
 
-            // draw the menu index number/count
+        for (i = 0; i < (8 * menu_list_width); i++)
+        {
+            gFrameBuffer[2][i] ^= 0xFF;
+            gFrameBuffer[3][i] ^= 0xFF;
+        }
+
+        for (i = 0; i < 7; i++)
+            gFrameBuffer[i][(8 * menu_list_width) + 1] = 0xAA;
+
+        if (gIsInSubMenu)
+            memcpy(gFrameBuffer[0] + (8 * menu_list_width) + 1, BITMAP_CurrentIndicator, sizeof(BITMAP_CurrentIndicator));
+
 #ifndef ENABLE_FEAT_F4HWN
-            sprintf(String, "%2u.%u", 1 + gMenuCursor, gMenuListCount);
-            UI_PrintStringSmallNormal(String, 2, 0, 6);
+        sprintf(String, "%2u.%u", 1 + gMenuCursor, gMenuListCount);
+        UI_PrintStringSmallNormal(String, 2, 0, 6);
 #endif
-        }
-        else if (menu_index >= 0 && menu_index < (int)gMenuListCount)
-        {   // current menu item
-//          strcat(String, ":");
-            UI_PrintString(MenuList[menu_index].name, 0, 0, 0, 8);
-//          UI_PrintStringSmallNormal(String, 0, 0, 0);
-        }
-
 #ifdef ENABLE_FEAT_F4HWN
         sprintf(String, "%02u/%u", 1 + gMenuCursor, gMenuListCount);
         UI_PrintStringSmallNormal(String, 6, 0, 6);
