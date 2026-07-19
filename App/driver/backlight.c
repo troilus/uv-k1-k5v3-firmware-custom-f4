@@ -32,7 +32,9 @@
 #endif
 
 #define PWM_FREQ 4000
-#define DUTY_CYCLE_LEVELS 64
+// 32 levels keep every step of the value[] table distinct after
+// quantization while halving the DMA duty cycle buffer (128 bytes saved)
+#define DUTY_CYCLE_LEVELS 32
 
 #define DUTY_CYCLE_ON_VALUE GPIO_PIN_MASK(GPIO_PIN_BACKLIGHT)
 #define DUTY_CYCLE_OFF_VALUE (DUTY_CYCLE_ON_VALUE << 16)
@@ -56,8 +58,8 @@ static int16_t fadeStep = 0;
     const uint8_t value[] = {
         0,    // 0 off
         8,    // 1 visible in the dark
-        14,   // 2
-        22,   // 3
+        16,   // 2
+        24,   // 3
         32,   // 4
         48,   // 5
         72,   // 6
