@@ -60,14 +60,16 @@ void UI_GenerateChannelStringEx(char *pString, const bool bShowPrefix, const uin
     }
 
     if (bShowPrefix) {
-        // BUG here? Prefixed NULLs are allowed
-        sprintf(pString, "CH-%04u", ChannelNumber + 1);
+        if (ChannelNumber + 1 <= 999)
+            sprintf(pString, "M%u", ChannelNumber + 1);
+        else
+            sprintf(pString, "%u", ChannelNumber + 1);
     } else if (ChannelNumber == MR_CHANNEL_LAST + 1) {
         strcpy(pString, "None");
     } else if (ChannelNumber == 0xFFFF) {
         strcpy(pString, "NULL");
     } else {
-        sprintf(pString, "%04u", ChannelNumber + 1);
+        sprintf(pString, "%u", ChannelNumber + 1);
     }
 }
 

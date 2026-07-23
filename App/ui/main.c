@@ -1389,8 +1389,13 @@ void UI_DisplayMain(void)
         {   // channel mode
             const unsigned int x = 1;
             const bool inputting = gInputBoxIndex != 0 && gEeprom.TX_VFO == vfo_num;
-            if (!inputting || gScanStateDir != SCAN_OFF)
-                sprintf(String, "%04u", gEeprom.ScreenChannel[vfo_num] + 1);
+            if (!inputting || gScanStateDir != SCAN_OFF) {
+                const uint16_t ch = gEeprom.ScreenChannel[vfo_num] + 1;
+                if (ch <= 999)
+                    sprintf(String, "M%u", ch);
+                else
+                    sprintf(String, "%u", ch);
+            }
             else
                 sprintf(String, "%.4s", INPUTBOX_GetAsciiAlignRight() + 4);  // show the input text
 
@@ -1593,9 +1598,15 @@ void UI_DisplayMain(void)
                         break;
 
                     case MDF_CHANNEL:   // show the channel number
-                        sprintf(String, "CH-%04u", gEeprom.ScreenChannel[vfo_num] + 1);
+                    {
+                        const uint16_t ch = gEeprom.ScreenChannel[vfo_num] + 1;
+                        if (ch <= 999)
+                            sprintf(String, "M%u", ch);
+                        else
+                            sprintf(String, "%u", ch);
                         UI_PrintString(String, 36, 0, line, 8);
                         break;
+                    }
 
                     case MDF_NAME:      // show the channel name
                     case MDF_NAME_FREQ: // show the channel name and frequency
@@ -1603,7 +1614,11 @@ void UI_DisplayMain(void)
                         SETTINGS_FetchChannelName(String, gEeprom.ScreenChannel[vfo_num]);
                         if (String[0] == 0)
                         {   // no channel name, show the channel number instead
-                            sprintf(String, "CH-%04u", gEeprom.ScreenChannel[vfo_num] + 1);
+                            const uint16_t ch = gEeprom.ScreenChannel[vfo_num] + 1;
+                            if (ch <= 999)
+                                sprintf(String, "M%u", ch);
+                            else
+                                sprintf(String, "%u", ch);
                         }
 
                         if (gEeprom.CHANNEL_DISPLAY_MODE == MDF_NAME) {
