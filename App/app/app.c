@@ -642,24 +642,6 @@ static void DualwatchAlternate(void)
         }
     }
 
-#ifdef ENABLE_FMRADIO
-    if (gFmRadioMode)
-    {
-        // FM dual watch: only reconfigure BK4819 frequency & squelch,
-        // without touching audio path (BK1080 keeps playing FM)
-        const uint32_t Frequency = gRxVfo->pRX->Frequency;
-        BK4819_SetFrequency(Frequency);
-        BK4819_SetupSquelch(
-            gRxVfo->SquelchOpenRSSIThresh,    gRxVfo->SquelchCloseRSSIThresh,
-            gRxVfo->SquelchOpenNoiseThresh,   gRxVfo->SquelchCloseNoiseThresh,
-            gRxVfo->SquelchCloseGlitchThresh, gRxVfo->SquelchOpenGlitchThresh);
-        BK4819_PickRXFilterPathBasedOnFrequency(Frequency);
-
-        gDualWatchCountdown_10ms = fm_dual_watch_toggle_10ms;
-        return;
-    }
-#endif
-
     RADIO_SetupRegisters(false);
 
     #ifdef ENABLE_NOAA
@@ -1097,6 +1079,9 @@ void APP_Update(void)
 #endif
 #ifdef ENABLE_VOICE
         && gVoiceWriteIndex == 0
+#endif
+#ifdef ENABLE_FMRADIO
+        && !gFmRadioMode
 #endif
 #ifdef ENABLE_DTMF_CALLING
         && gDTMF_CallState == DTMF_CALL_STATE_NONE
