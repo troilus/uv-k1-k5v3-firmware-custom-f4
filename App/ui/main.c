@@ -590,64 +590,46 @@ static void DrawLevelBar(uint8_t xpos, uint8_t line, uint8_t level, uint8_t bars
     uint8_t *p_line = gFrameBuffer[line];
     level = MIN(level, bars);
 
-    for(uint8_t i = 0; i < level; i++) {
 #ifdef ENABLE_FEAT_F4HWN
-        if(gSetting_set_met)
-        {
-            const char hollowBar[] = {
-                0b00111110,
-                0b00100010,
-                0b00100010,
-                0b00111110
-            };
+    const char hollowBar[] = {
+        0b00111110,
+        0b00100010,
+        0b00100010,
+        0b00111110
+    };
 
-            const char simpleBar[] = {
-                0b00111110,
-                0b00111110,
-                0b00111110,
-                0b00111110
-            };
+    const char simpleBar[] = {
+        0b00111110,
+        0b00111110,
+        0b00111110,
+        0b00111110
+    };
 
-            if(i < bars - 4) {
-                memcpy(p_line + (xpos + i * 5), &simpleBar, ARRAY_SIZE(simpleBar));
-            }
-            else {
-                memcpy(p_line + (xpos + i * 5), &hollowBar, ARRAY_SIZE(hollowBar));
-            }
-        }
-        else
-        {
-            const char hollowBar[] = {
-                0b00111110,
-                0b00100010,
-                0b00100010,
-                0b00111110
-            };
-
-            const char simpleBar[] = {
-                0b00111110,
-                0b00111110,
-                0b00111110,
-                0b00111110
-            };
-
-            if(i < bars - 4) {
-                memcpy(p_line + (xpos + i * 5), &simpleBar, ARRAY_SIZE(simpleBar));
-            }
-            else {
-                memcpy(p_line + (xpos + i * 5), &hollowBar, ARRAY_SIZE(hollowBar));
-            }
-        }
-#else
-        if(i < bars - 4) {
-            for(uint8_t j = 0; j < 4; j++)
-                p_line[xpos + i * 5 + j] = (~(0x7F >> (i+1))) & 0x7F;
+    for(uint8_t i = 0; i < bars; i++) {
+        if(i < level) {
+            memcpy(p_line + (xpos + i * 5), &simpleBar, sizeof(simpleBar));
         }
         else {
-            memcpy(p_line + (xpos + i * 5), &hollowBar, ARRAY_SIZE(hollowBar));
+            memcpy(p_line + (xpos + i * 5), &hollowBar, sizeof(hollowBar));
         }
-#endif
     }
+#else
+    const char simpleBar[] = {
+        0b01111111,
+        0b01111111,
+        0b01111111,
+        0b01111111
+    };
+
+    for(uint8_t i = 0; i < bars; i++) {
+        if(i < level) {
+            memcpy(p_line + (xpos + i * 5), &simpleBar, sizeof(simpleBar));
+        }
+        else {
+            memcpy(p_line + (xpos + i * 5), &hollowBar, sizeof(hollowBar));
+        }
+    }
+#endif
 }
 #endif
 
