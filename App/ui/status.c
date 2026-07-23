@@ -273,10 +273,10 @@ void UI_DisplayStatus()
         memcpy(line + x + 1, src, size);
     }
 
-    // Battery
-    unsigned int x2 = LCD_WIDTH - sizeof(BITMAP_BatteryLevel1) - 0;
+    // Battery voltage/percentage text
+    unsigned int x2 = LCD_WIDTH;
 
-    UI_DrawBattery(line + x2, gBatteryDisplayLevel, gLowBatteryBlink);
+    //UI_DrawBattery(line + x2, gBatteryDisplayLevel, gLowBatteryBlink);
 
     bool BatTxt = true;
 
