@@ -595,15 +595,21 @@ static void DrawLevelBar(uint8_t xpos, uint8_t line, uint8_t level, uint8_t bars
         if(gSetting_set_met)
         {
             const char hollowBar[] = {
-                0b01111111,
-                0b01000001,
-                0b01000001,
-                0b01111111
+                0b00111110,
+                0b00100010,
+                0b00100010,
+                0b00111110
+            };
+
+            const char simpleBar[] = {
+                0b00111110,
+                0b00111110,
+                0b00111110,
+                0b00111110
             };
 
             if(i < bars - 4) {
-                for(uint8_t j = 0; j < 4; j++)
-                    p_line[xpos + i * 5 + j] = (~(0x7F >> (i + 1))) & 0x7F;
+                memcpy(p_line + (xpos + i * 5), &simpleBar, ARRAY_SIZE(simpleBar));
             }
             else {
                 memcpy(p_line + (xpos + i * 5), &hollowBar, ARRAY_SIZE(hollowBar));
