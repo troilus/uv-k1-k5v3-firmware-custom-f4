@@ -346,11 +346,11 @@ const char gSubMenu_RX_TX[][6] =
     "TX/RX"
 };
 
-const char gSubMenu_BAT_TXT[][8] =
+const char gSubMenu_BAT_TXT[][12] =
 {
-    "NONE",
-    "VOLTAGE",
-    "PERCENT",
+    "无",
+    "电压",
+    "百分比",
     "BOTH"
 };
 
