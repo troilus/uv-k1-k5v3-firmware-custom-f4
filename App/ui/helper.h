@@ -40,6 +40,9 @@ void UI_DrawPixelBuffer(uint8_t (*buffer)[128], uint8_t x, uint8_t y, bool black
     void GUI_DisplaySmallest(const char *pString, uint8_t x, uint8_t y, bool statusbar, bool fill);
     void UI_DisplayUnlockKeyboard(uint8_t shift);
     bool IsEmptyName(const char *name, uint8_t len);
+    void UI_DrawHLine(uint8_t (*buffer)[128], uint8_t x1, uint8_t x2, uint8_t y, bool solid);
+    void UI_DrawVLine(uint8_t (*buffer)[128], uint8_t x, uint8_t y1, uint8_t y2, bool solid);
+    void UI_DrawChannelFrame(void);
 #endif
 void UI_DrawLineBuffer(uint8_t (*buffer)[128], int16_t x1, int16_t y1, int16_t x2, int16_t y2, bool black);
 void UI_DrawRectangleBuffer(uint8_t (*buffer)[128], int16_t x1, int16_t y1, int16_t x2, int16_t y2, bool black);
