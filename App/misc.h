@@ -91,6 +91,7 @@ extern const uint8_t         fm_radio_countdown_500ms;
 extern const uint16_t        fm_play_countdown_scan_10ms;
 extern const uint16_t        fm_play_countdown_noscan_10ms;
 extern const uint16_t        fm_restore_countdown_10ms;
+extern const uint16_t        fm_dual_watch_toggle_10ms;
 
 extern const uint8_t        vfo_state_resume_countdown_500ms;
 
