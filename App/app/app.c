@@ -1424,7 +1424,7 @@ static void HandleRxEndBlink(void)
                 BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, true);
                 BK4819_ToggleGpioOut(BK4819_GPIO5_PIN1_RED, true);
             }
-            gRxEndBlinkTimer = 5;
+            gRxEndBlinkTimer = 10;
         }
         return;
     }
@@ -1449,18 +1449,18 @@ static void HandleRxEndBlink(void)
             return;
         }
 
-        if (gRxEndBlinkCount % 2 == 0) {
+        if (gRxEndBlinkCount % 4 == 0 || gRxEndBlinkCount % 4 == 2) {
             if (gRxEndBlinkVfo == 0)
                 BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, true);
             else {
                 BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, true);
                 BK4819_ToggleGpioOut(BK4819_GPIO5_PIN1_RED, true);
             }
-            gRxEndBlinkTimer = 5;
+            gRxEndBlinkTimer = 10;
         } else {
             BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, false);
             BK4819_ToggleGpioOut(BK4819_GPIO5_PIN1_RED, false);
-            gRxEndBlinkTimer = 10;
+            gRxEndBlinkTimer = (gRxEndBlinkCount % 4 == 3) ? 50 : 10;
         }
     }
 }
