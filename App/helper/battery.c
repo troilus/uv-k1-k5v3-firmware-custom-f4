@@ -198,9 +198,6 @@ void BATTERY_GetReadings(const bool bDisplayBatteryLevel)
         else
         {
             gLowBattery = false;
-
-            if (bDisplayBatteryLevel)
-                UI_DisplayBattery(gBatteryDisplayLevel, gLowBatteryBlink);
         }
 
         if(!gLowBatteryConfirmed)
@@ -217,8 +214,6 @@ void BATTERY_TimeSlice500ms(void)
     }
 
     gLowBatteryBlink = ++lowBatteryCountdown & 1;
-
-    UI_DisplayBattery(0, gLowBatteryBlink);
 
     if (gCurrentFunction == FUNCTION_TRANSMIT) {
         return;

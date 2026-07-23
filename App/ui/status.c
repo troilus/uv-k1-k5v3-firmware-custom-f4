@@ -273,41 +273,31 @@ void UI_DisplayStatus()
         memcpy(line + x + 1, src, size);
     }
 
-    // Battery voltage/percentage text
+    // Battery voltage/percentage display
     unsigned int x2 = LCD_WIDTH;
 
-    //UI_DrawBattery(line + x2, gBatteryDisplayLevel, gLowBatteryBlink);
-
-    bool BatTxt = true;
-
     switch (gSetting_battery_text) {
+        case 1:
+        case 3:
+        {
+            const uint16_t v = (gBatteryVoltageAverage <= 999) ? gBatteryVoltageAverage : 999;
+            sprintf(str, "%u.%02uV", v / 100, v % 100);
+            UI_PrintStringSmallBufferNormal(str, line + 0);
+            break;
+        }
         default:
-        case 0:
-            BatTxt = false;
-            break;
-
-        case 1:    // voltage
-            const uint16_t voltage = (gBatteryVoltageAverage <= 999) ? gBatteryVoltageAverage : 999; // limit to 9.99V
-            sprintf(str, "%u.%02u", voltage / 100, voltage % 100);
-            break;
-
-        case 2:     // percentage
-            //gBatteryVoltageAverage = 999;
-            sprintf(str, "%02u%%", BATTERY_VoltsToPercent(gBatteryVoltageAverage));
             break;
     }
 
-    if (BatTxt) {
-        x2 -= (7 * strlen(str));
-        UI_PrintStringSmallBufferNormal(str, line + x2);
-        /*
-        uint8_t shift = (strlen(str) < 5) ? 92 : 88;
-        GUI_DisplaySmallest(str, shift, 1, true, true);
-
-        for (uint8_t i = shift - 2; i < 110; i++) {
-            gStatusLine[i] ^= 0x7F; // invert
-        }
-        */
+    switch (gSetting_battery_text) {
+        case 2:
+        case 3:
+            sprintf(str, "%02u%%", BATTERY_VoltsToPercent(gBatteryVoltageAverage));
+            x2 -= (7 * strlen(str));
+            UI_PrintStringSmallBufferNormal(str, line + x2);
+            break;
+        default:
+            break;
     }
 
     // **************
