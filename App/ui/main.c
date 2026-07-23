@@ -1315,8 +1315,8 @@ void UI_DisplayMain(void)
                 if (activeTxVFO == vfo_num)
                 {   // show the TX symbol
                     mode = VFO_MODE_TX;
-                    //UI_PrintStringSmallBold("TX", 8, 0, line);
-                    GUI_DisplaySmallest("TX", 10, line == 0 ? 1 : 33, false, true);
+                    UI_PrintStringSmallBold("TX", 8, 0, line);
+                    //GUI_DisplaySmallest("TX", 10, line == 0 ? 1 : 33, false, true);
 
                 }
             }
