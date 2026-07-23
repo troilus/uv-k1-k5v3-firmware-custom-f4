@@ -1387,7 +1387,7 @@ void UI_DisplayMain(void)
 
         if (IS_MR_CHANNEL(gEeprom.ScreenChannel[vfo_num]))
         {   // channel mode
-            const unsigned int x = 1;
+            const unsigned int x = 2;
             const bool inputting = gInputBoxIndex != 0 && gEeprom.TX_VFO == vfo_num;
             if (!inputting || gScanStateDir != SCAN_OFF) {
                 const uint16_t ch = gEeprom.ScreenChannel[vfo_num] + 1;
