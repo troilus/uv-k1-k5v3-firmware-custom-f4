@@ -410,14 +410,22 @@ static void sort(int16_t *a, int16_t *b)
 
         if (ch1_selected) {
             UI_DrawHLine(gFrameBuffer, 0, 127, 0, true);
-            UI_DrawHLine(gFrameBuffer, 0, 127, 31, true);
-            UI_DrawVLine(gFrameBuffer, 0, 0, 31, true);
-            UI_DrawVLine(gFrameBuffer, 127, 0, 31, true);
+            UI_DrawHLine(gFrameBuffer, 0, 127, 32, true);
+            UI_DrawVLine(gFrameBuffer, 0, 0, 32, true);
+            UI_DrawVLine(gFrameBuffer, 127, 0, 32, true);
+
+            UI_DrawVLine(gFrameBuffer, 0, 32, 48, false);
+            UI_DrawVLine(gFrameBuffer, 127, 32, 48, false);
+            UI_DrawHLine(gFrameBuffer, 0, 127, 48, false);
         } else {
-            UI_DrawHLine(gFrameBuffer, 0, 127, 24, true);
-            UI_DrawHLine(gFrameBuffer, 0, 127, 56, true);
-            UI_DrawVLine(gFrameBuffer, 0, 24, 56, true);
-            UI_DrawVLine(gFrameBuffer, 127, 24, 56, true);
+            UI_DrawHLine(gFrameBuffer, 0, 127, 0, false);
+            UI_DrawVLine(gFrameBuffer, 0, 0, 16, false);
+            UI_DrawVLine(gFrameBuffer, 127, 0, 16, false);
+
+            UI_DrawHLine(gFrameBuffer, 0, 127, 16, true);
+            UI_DrawHLine(gFrameBuffer, 0, 127, 48, true);
+            UI_DrawVLine(gFrameBuffer, 0, 16, 48, true);
+            UI_DrawVLine(gFrameBuffer, 127, 16, 48, true);
         }
     }
 #endif
