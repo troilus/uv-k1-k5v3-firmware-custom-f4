@@ -2211,8 +2211,5 @@ void UI_DisplayMain(void)
     //#endif
 #endif
 
-    if (!isMainOnly())
-        UI_DrawChannelFrame();
-
     ST7565_BlitFullScreen();
 }

@@ -387,47 +387,6 @@ static void sort(int16_t *a, int16_t *b)
         }
         return true;
     }
-
-    void UI_DrawHLine(uint8_t (*buffer)[128], uint8_t x1, uint8_t x2, uint8_t y, bool solid)
-    {
-        for (uint8_t x = x1; x <= x2; x++) {
-            if (solid || (x & 3) < 2)
-                UI_DrawPixelBuffer(buffer, x, y, true);
-        }
-    }
-
-    void UI_DrawVLine(uint8_t (*buffer)[128], uint8_t x, uint8_t y1, uint8_t y2, bool solid)
-    {
-        for (uint8_t y = y1; y <= y2; y++) {
-            if (solid || (y & 3) < 2)
-                UI_DrawPixelBuffer(buffer, x, y, true);
-        }
-    }
-
-    void UI_DrawChannelFrame(void)
-    {
-        const bool ch1_selected = (gEeprom.TX_VFO == 0);
-
-        if (ch1_selected) {
-            UI_DrawHLine(gFrameBuffer, 0, 127, 0, true);
-            UI_DrawHLine(gFrameBuffer, 0, 127, 32, true);
-            UI_DrawVLine(gFrameBuffer, 0, 0, 32, true);
-            UI_DrawVLine(gFrameBuffer, 127, 0, 32, true);
-
-            UI_DrawVLine(gFrameBuffer, 0, 32, 48, false);
-            UI_DrawVLine(gFrameBuffer, 127, 32, 48, false);
-            UI_DrawHLine(gFrameBuffer, 0, 127, 48, false);
-        } else {
-            UI_DrawHLine(gFrameBuffer, 0, 127, 0, false);
-            UI_DrawVLine(gFrameBuffer, 0, 0, 16, false);
-            UI_DrawVLine(gFrameBuffer, 127, 0, 16, false);
-
-            UI_DrawHLine(gFrameBuffer, 0, 127, 16, true);
-            UI_DrawHLine(gFrameBuffer, 0, 127, 48, true);
-            UI_DrawVLine(gFrameBuffer, 0, 16, 48, true);
-            UI_DrawVLine(gFrameBuffer, 127, 16, 48, true);
-        }
-    }
 #endif
     
 void UI_DrawLineBuffer(uint8_t (*buffer)[128], int16_t x1, int16_t y1, int16_t x2, int16_t y2, bool black)
