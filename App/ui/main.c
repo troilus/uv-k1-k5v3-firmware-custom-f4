@@ -1358,8 +1358,8 @@ void UI_DisplayMain(void)
                             #endif
                         }
 
-                        GUI_DisplaySmallest(String, 10, RxLine == 0 ? 1 : 33, false, true);
-                        //UI_PrintStringSmallBold("RX", 8, 0, RxLine);
+                        //GUI_DisplaySmallest(String, 10, RxLine == 0 ? 1 : 33, false, true);
+                        UI_PrintStringSmallBold(String, 8, 0, RxLine);
                     // }
 #else
                     UI_PrintStringSmallBold("RX", 8, 0, line);
@@ -1371,9 +1371,9 @@ void UI_DisplayMain(void)
             }
             else {
                 if(RxOnVfofrequency == frequency && !isMainOnly()) {
-                    //UI_PrintStringSmallNormal(">>", 8, 0, line);
+                    UI_PrintStringSmallNormal(">>", 8, 0, line);
                     //memcpy(p_line0 + 14, BITMAP_VFO_Default, sizeof(BITMAP_VFO_Default));
-                    GUI_DisplaySmallest(">>>>", 8, RxLine == 0 ? 1 : 33, false, true);
+                    //GUI_DisplaySmallest(">>>>", 8, RxLine == 0 ? 1 : 33, false, true);
                 }
             }
 #endif

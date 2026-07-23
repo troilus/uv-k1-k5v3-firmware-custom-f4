@@ -196,13 +196,13 @@ const uint8_t BITMAP_VFO_NotDefault[7] =
 // Compact arrow
 const uint8_t BITMAP_VFO_Default[7] =
 {
+    0b01111111,
+    0b01111111,
     0b00111110,
     0b00111110,
     0b00011100,
     0b00011100,
-    0b00001000,
-    0b00001000,
-    0b00000000
+    0b00001000
 };
 
 // Compact empty arrow
