@@ -86,6 +86,14 @@ static bool flagSaveVfo;
 static bool flagSaveSettings;
 static bool flagSaveChannel;
 
+#ifdef ENABLE_FEAT_F4HWN
+static uint8_t  gRxEndBlinkState;      // 0=idle, 1=waiting, 2=flashing
+static uint8_t  gRxEndBlinkVfo;        // which VFO had the signal
+static uint16_t gRxEndBlinkTimer;      // countdown in 10ms ticks
+static uint8_t  gRxEndBlinkCount;      // flash step counter
+static bool     gRxEndBlinkPrevSquelch;// previous squelch state
+#endif
+
 static void ProcessKey(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld);
 
 
@@ -1375,6 +1383,89 @@ void CheckKeys(void)
     }
 }
 
+#ifdef ENABLE_FEAT_F4HWN
+static void HandleRxEndBlink(void)
+{
+    if (gSetting_set_eot == 0) {
+        gRxEndBlinkState = 0;
+        return;
+    }
+
+    if (gRxEndBlinkState == 0) {
+        if (gRxEndBlinkPrevSquelch && !g_SquelchLost) {
+            gRxEndBlinkState = 1;
+            gRxEndBlinkVfo = gEeprom.RX_VFO;
+            gRxEndBlinkTimer = 100;
+        }
+    }
+    gRxEndBlinkPrevSquelch = g_SquelchLost;
+
+    if (gCurrentFunction == FUNCTION_TRANSMIT) {
+        if (gRxEndBlinkState != 0) {
+            BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, false);
+            BK4819_ToggleGpioOut(BK4819_GPIO5_PIN1_RED, false);
+            gRxEndBlinkState = 0;
+        }
+        return;
+    }
+
+    if (gRxEndBlinkState == 1 && g_SquelchLost) {
+        gRxEndBlinkState = 0;
+        return;
+    }
+
+    if (gRxEndBlinkState == 1) {
+        if (--gRxEndBlinkTimer == 0) {
+            gRxEndBlinkState = 2;
+            gRxEndBlinkCount = 0;
+            if (gRxEndBlinkVfo == 0)
+                BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, true);
+            else {
+                BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, true);
+                BK4819_ToggleGpioOut(BK4819_GPIO5_PIN1_RED, true);
+            }
+            gRxEndBlinkTimer = 5;
+        }
+        return;
+    }
+
+    if (gRxEndBlinkState == 2) {
+        if (g_SquelchLost) {
+            BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, false);
+            BK4819_ToggleGpioOut(BK4819_GPIO5_PIN1_RED, false);
+            gRxEndBlinkState = 0;
+            return;
+        }
+
+        if (--gRxEndBlinkTimer > 0)
+            return;
+
+        gRxEndBlinkCount++;
+
+        if (gRxEndBlinkCount >= 16) {
+            BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, false);
+            BK4819_ToggleGpioOut(BK4819_GPIO5_PIN1_RED, false);
+            gRxEndBlinkState = 0;
+            return;
+        }
+
+        if (gRxEndBlinkCount % 2 == 0) {
+            if (gRxEndBlinkVfo == 0)
+                BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, true);
+            else {
+                BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, true);
+                BK4819_ToggleGpioOut(BK4819_GPIO5_PIN1_RED, true);
+            }
+            gRxEndBlinkTimer = 5;
+        } else {
+            BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, false);
+            BK4819_ToggleGpioOut(BK4819_GPIO5_PIN1_RED, false);
+            gRxEndBlinkTimer = 10;
+        }
+    }
+}
+#endif
+
 void APP_TimeSlice10ms(void)
 {
     gNextTimeslice = false;
@@ -1406,7 +1497,7 @@ void APP_TimeSlice10ms(void)
         CheckRadioInterrupts();
 
 #ifdef ENABLE_FEAT_F4HWN
-    UI_MAIN_HandleRxBlink10ms();
+    HandleRxEndBlink();
 #endif
 
     if (gCurrentFunction == FUNCTION_TRANSMIT)
