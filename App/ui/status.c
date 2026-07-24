@@ -265,17 +265,10 @@ void UI_DisplayStatus()
     // Draw scanlist name to the left of the F icon
     if (gScanStateDir != SCAN_OFF || SCANNER_IsScanning()) {
         if (scanlist_str[0] != '\0') {
-            uint8_t sl_width = strlen(scanlist_str) * 4;
+            uint8_t sl_width = strlen(scanlist_str) * 7;
             uint8_t sl_x = x + 1 - sl_width - 4;
             if (sl_x > 2) {
-                GUI_DisplaySmallest(scanlist_str, sl_x, 1, true, true);
-                uint8_t byte_start = (sl_x - 2) / 8;
-                uint8_t byte_end = (sl_x + sl_width + 2) / 8;
-                if (byte_end > 15) byte_end = 15;
-                gStatusLine[byte_start] ^= 0x3E;
-                for (uint8_t i = byte_start + 1; i < byte_end; i++)
-                    gStatusLine[i] ^= 0x7F;
-                gStatusLine[byte_end] ^= 0x3E;
+                UI_PrintStringSmallBufferNormal(scanlist_str, line + sl_x);
             }
         }
     }
