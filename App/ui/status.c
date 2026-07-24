@@ -92,7 +92,8 @@ void UI_DisplayStatus()
     else
 #endif
     { // SCAN indicator
-        if (IS_MR_CHANNEL(gNextMrChannel) && !SCANNER_IsScanning()) { // channel mode
+        if (gScanStateDir != SCAN_OFF || SCANNER_IsScanning()) {
+            if (IS_MR_CHANNEL(gNextMrChannel) && !SCANNER_IsScanning()) { // channel mode
 
                 uint8_t end = 0;
 
@@ -130,6 +131,7 @@ void UI_DisplayStatus()
                 //UI_PrintStringSmallBufferNormal("S", line + x + 1);
             }
             x1 = x + 10;
+        }
     }
     x += 10;  // font character width
 

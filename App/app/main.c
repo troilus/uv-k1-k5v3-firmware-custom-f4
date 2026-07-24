@@ -326,7 +326,6 @@ static void processFKeyFunction(const KEY_Code_t Key, const bool beep)
                     gBackup_CROSS_BAND_RX_TX  = gEeprom.CROSS_BAND_RX_TX;
                     gEeprom.CROSS_BAND_RX_TX = CROSS_BAND_OFF;
                     CHFRSCANNER_Start(true, (Key == KEY_UP) ? SCAN_FWD : SCAN_REV);
-                    gRequestDisplayScreen = DISPLAY_SCANNER;
                 } // 扫描中忽略按键
 
                 gWasFKeyPressed = false;
