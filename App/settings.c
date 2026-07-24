@@ -416,6 +416,20 @@ gEeprom.FreqChannel[1]   = IS_FREQ_CHANNEL(Data16[5]) ? Data16[5] : (FREQ_CHANNE
     // Init list name
     PY25Q16_ReadBuffer(0x00880E, gListName, sizeof(gListName));
 
+    // Set default names if flash is uninitialized
+    if (gListName[0][0] == '\0' || gListName[0][0] == '\xff') {
+        const char defaultNames[][4] = {
+            "RPT", "DIR", "AIR", "RLY"
+        };
+        for (int i = 0; i < 4 && i < MR_CHANNELS_LIST; i++) {
+            memcpy(gListName[i], defaultNames[i], 4);
+        }
+        for (int i = 4; i < MR_CHANNELS_LIST; i++) {
+            memset(gListName[i], 0, 4);
+        }
+        PY25Q16_WriteBuffer(0x00880E, gListName, sizeof(gListName), false);
+    }
+
     // Init attr cache
     MR_InitChannelAttributesCache();
 
