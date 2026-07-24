@@ -57,6 +57,8 @@ static void convertTime(uint8_t *line, uint8_t type)
 void UI_DisplayStatus()
 {
     char str[8] = "";
+    uint8_t scanlist_end = 0;
+    char scanlist_str[8] = "";
 
     gUpdateStatus = false;
     UI_StatusClear();
@@ -95,45 +97,32 @@ void UI_DisplayStatus()
         if (gScanStateDir != SCAN_OFF || SCANNER_IsScanning()) {
             if (IS_MR_CHANNEL(gNextMrChannel) && !SCANNER_IsScanning()) { // channel mode
 
-                uint8_t end = 0;
-
                 if(gEeprom.SCAN_LIST_DEFAULT == MR_CHANNELS_LIST + 1)
                 {
-                    sprintf(str, gEeprom.SCAN_LIST_ENABLED ? "%s+" : "%s", "ALL");
-                    end = gEeprom.SCAN_LIST_ENABLED ? 18 : 14;
+                    sprintf(scanlist_str, gEeprom.SCAN_LIST_ENABLED ? "%s+" : "%s", "ALL");
+                    scanlist_end = gEeprom.SCAN_LIST_ENABLED ? 18 : 14;
                 }
                 else
                 {
                     const char *name = gListName[gEeprom.SCAN_LIST_DEFAULT - 1];
 
-                    // Check if name is valid
                     if (!IsEmptyName(name, sizeof(gListName[0]))) {
-                        sprintf(str, "%.3s%s", name, gEeprom.SCAN_LIST_ENABLED ? "+" : "");
-                        end = gEeprom.SCAN_LIST_ENABLED ? 18 : 14;
+                        sprintf(scanlist_str, "%.3s%s", name, gEeprom.SCAN_LIST_ENABLED ? "+" : "");
+                        scanlist_end = gEeprom.SCAN_LIST_ENABLED ? 18 : 14;
                     } 
                     else {
-                        sprintf(str, "%02d%s", gEeprom.SCAN_LIST_DEFAULT, gEeprom.SCAN_LIST_ENABLED ? "+" : "");
-                        end = gEeprom.SCAN_LIST_ENABLED ? 14 : 10;
+                        sprintf(scanlist_str, "%02d%s", gEeprom.SCAN_LIST_DEFAULT, gEeprom.SCAN_LIST_ENABLED ? "+" : "");
+                        scanlist_end = gEeprom.SCAN_LIST_ENABLED ? 14 : 10;
                     }
                 }
-
-                GUI_DisplaySmallest(str, 2, 1, true, true);
-
-                gStatusLine[0] ^= 0x3E;
-                for (uint8_t x = 1; x < end; x++)
-                {
-                    gStatusLine[x] ^= 0x7F;
-                }
-                gStatusLine[end] ^= 0x3E;
             }
             else {  // frequency mode
                 memcpy(line + x + 1, gFontS, sizeof(gFontS));
-                //UI_PrintStringSmallBufferNormal("S", line + x + 1);
             }
             x1 = x + 10;
         }
     }
-    x += 10;  // font character width
+    x += 10;
 
     #ifdef ENABLE_FEAT_F4HWN_DEBUG
         // Only for debug
@@ -271,6 +260,24 @@ void UI_DisplayStatus()
     // Perform the memcpy if a source was selected
     if (src) {
         memcpy(line + x + 1, src, size);
+    }
+
+    // Draw scanlist name to the left of the F icon
+    if (gScanStateDir != SCAN_OFF || SCANNER_IsScanning()) {
+        if (scanlist_str[0] != '\0') {
+            uint8_t sl_width = strlen(scanlist_str) * 4;
+            uint8_t sl_x = x + 1 - sl_width - 4;
+            if (sl_x > 2) {
+                GUI_DisplaySmallest(scanlist_str, sl_x, 1, true, true);
+                uint8_t byte_start = (sl_x - 2) / 8;
+                uint8_t byte_end = (sl_x + sl_width + 2) / 8;
+                if (byte_end > 15) byte_end = 15;
+                gStatusLine[byte_start] ^= 0x3E;
+                for (uint8_t i = byte_start + 1; i < byte_end; i++)
+                    gStatusLine[i] ^= 0x7F;
+                gStatusLine[byte_end] ^= 0x3E;
+            }
+        }
     }
 
     // Battery voltage/percentage display
