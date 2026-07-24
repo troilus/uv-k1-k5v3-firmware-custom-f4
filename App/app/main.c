@@ -309,27 +309,25 @@ static void processFKeyFunction(const KEY_Code_t Key, const bool beep)
 
             break;
 
-#ifdef ENABLE_FEAT_F4HWN // Set Squelch F + UP or Down and Step F + SIDE1 or F + SIDE2
+#ifdef ENABLE_FEAT_F4HWN // F+UP/DOWN 扫描信道（原静噪调节）
         case KEY_UP:
         case KEY_DOWN:
             {
-                bool isKeyUp = (Key == KEY_UP);
-
-                if (gScanStateDir != SCAN_OFF) {
-                    RADIO_NextValidList(isKeyUp ? 1 : -1);
-                    UI_MAIN_NotifyScanProgressDataChanged();
-                } else {
-                    // Adjust squelch: UP increments, DOWN decrements
-                    if (gSquelchLevelOriginal == 10)
-                        gSquelchLevelOriginal =  gEeprom.SQUELCH_LEVEL;
-
-                    if (isKeyUp) {
-                        if (gEeprom.SQUELCH_LEVEL < 9) gEeprom.SQUELCH_LEVEL++;
-                    } else {
-                        if (gEeprom.SQUELCH_LEVEL > 0) gEeprom.SQUELCH_LEVEL--;
-                    }
-                    gVfoConfigureMode = VFO_CONFIGURE;
-                }
+                if (gScanStateDir == SCAN_OFF) {
+                    // 原静噪调节代码参考（已替换为扫描）：
+                    // if (gSquelchLevelOriginal == 10)
+                    //     gSquelchLevelOriginal =  gEeprom.SQUELCH_LEVEL;
+                    // if (isKeyUp) {
+                    //     if (gEeprom.SQUELCH_LEVEL < 9) gEeprom.SQUELCH_LEVEL++;
+                    // } else {
+                    //     if (gEeprom.SQUELCH_LEVEL > 0) gEeprom.SQUELCH_LEVEL--;
+                    // }
+                    // gVfoConfigureMode = VFO_CONFIGURE;
+                    gBackup_CROSS_BAND_RX_TX  = gEeprom.CROSS_BAND_RX_TX;
+                    gEeprom.CROSS_BAND_RX_TX = CROSS_BAND_OFF;
+                    CHFRSCANNER_Start(true, (Key == KEY_UP) ? SCAN_FWD : SCAN_REV);
+                    gRequestDisplayScreen = DISPLAY_SCANNER;
+                } // 扫描中忽略按键
 
                 gWasFKeyPressed = false;
 
