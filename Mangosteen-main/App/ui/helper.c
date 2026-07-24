@@ -1,0 +1,612 @@
+/* Copyright 2023 Dual Tachyon
+ * https://github.com/DualTachyon
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *     Unless required by applicable law or agreed to in writing, software
+ *     distributed under the License is distributed on an "AS IS" BASIS,
+ *     WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *     See the License for the specific language governing permissions and
+ *     limitations under the License.
+ */
+
+#include <string.h>
+
+#include "bitmaps.h"
+#include "driver/st7565.h"
+#include "driver/py25q16.h"
+#include "external/printf/printf.h"
+#include "font.h"
+#include "ui/helper.h"
+#include "ui/inputbox.h"
+#include "misc.h"
+#include "settings.h"
+
+#ifndef FLASH_FONT16_BASE
+#define FLASH_FONT16_BASE  0x0A0000u
+#define FLASH_FONT8_BASE   0x0E0000u
+#define FONT16_SIZE        32u
+#define FONT8_SIZE         8u
+#endif
+
+
+void UI_GenerateChannelString(char *pString, const uint16_t Channel)
+{
+    unsigned int i;
+
+    if (gInputBoxIndex == 0)
+    {
+        sprintf(pString, "CH-%02u", Channel + 1);
+        return;
+    }
+
+    pString[0] = 'C';
+    pString[1] = 'H';
+    pString[2] = '-';
+    for (i = 0; i < 2; i++)
+        pString[i + 3] = (gInputBox[i] == 10) ? '-' : gInputBox[i] + '0';
+
+    pString[5] = 0;
+}
+
+void UI_GenerateChannelStringEx(char *pString, const bool bShowPrefix, const uint16_t ChannelNumber)
+{
+    if (gInputBoxIndex > 0) {
+        for (unsigned int i = 0; i < 4; i++) {
+            pString[i] = (gInputBox[i] == 10) ? '-' : gInputBox[i] + '0';
+        }
+
+        pString[4] = 0;
+        return;
+    }
+
+    if (bShowPrefix) {
+        // BUG here? Prefixed NULLs are allowed
+        sprintf(pString, "CH-%04u", ChannelNumber + 1);
+    } else if (ChannelNumber == MR_CHANNEL_LAST + 1) {
+        strcpy(pString, "None");
+    } else if (ChannelNumber == 0xFFFF) {
+        strcpy(pString, "NULL");
+    } else {
+        sprintf(pString, "%04u", ChannelNumber + 1);
+    }
+}
+
+void UI_PrintStringBuffer(const char *pString, uint8_t * buffer, uint32_t char_width, const uint8_t *font)
+{
+    const size_t Length = strlen(pString);
+    const unsigned int char_spacing = char_width + 1;
+    uint32_t cur = 1;
+
+    for (size_t i = 0; i < Length; i++) {
+        const uint8_t c = (uint8_t)pString[i];
+
+        if (c >= 0xA1 && c <= 0xF7 && (i + 1) < Length) {
+            const uint8_t lo = (uint8_t)pString[i + 1];
+            if (lo >= 0xA1 && lo <= 0xFE) {
+                const uint32_t idx = (uint32_t)(c - 0xA1) * 94u + (lo - 0xA1);
+                uint8_t cnDot[FONT8_SIZE];
+                PY25Q16_ReadBuffer(FLASH_FONT8_BASE + idx * FONT8_SIZE, cnDot, FONT8_SIZE);
+                memcpy(buffer + cur, cnDot, FONT8_SIZE);
+                cur += FONT8_SIZE;
+                i++;
+                continue;
+            }
+        }
+
+        if (c > ' ' && c < 127) {
+            const unsigned int index = c - ' ' - 1;
+            memcpy(buffer + cur, font + index * char_width, char_width);
+            cur += char_spacing;
+        } else if (c == ' ') {
+            cur += char_spacing;
+        }
+    }
+}
+
+bool UI_StringHasGb2312(const char *pString)
+{
+    const size_t Length = strlen(pString);
+
+    for (size_t i = 0; i < Length; i++) {
+        const uint8_t c = (uint8_t)pString[i];
+        if (c >= 0xA1 && c <= 0xF7 && (i + 1) < Length) {
+            const uint8_t lo = (uint8_t)pString[i + 1];
+            if (lo >= 0xA1 && lo <= 0xFE)
+                return true;
+        }
+    }
+    return false;
+}
+
+void UI_PrintString(const char *pString, uint8_t Start, uint8_t End, uint8_t Line, uint8_t Width)
+{
+    size_t i;
+    size_t Length = strlen(pString);
+    uint8_t cur = Start;
+    /* Mixed CN + ASCII: drop Latin/digits 1px to optically align with 16×16 楷体. */
+    const uint8_t ascii_dy = UI_StringHasGb2312(pString) ? 1u : 0u;
+
+    /* Approximate center using ASCII-width units (CN counts as 2 Width units). */
+    if (End > Start) {
+        unsigned units = 0;
+        for (i = 0; i < Length; ) {
+            const uint8_t c = (uint8_t)pString[i];
+            if (c >= 0xA1 && c <= 0xF7 && (i + 1) < Length &&
+                (uint8_t)pString[i + 1] >= 0xA1 && (uint8_t)pString[i + 1] <= 0xFE) {
+                units += 2;
+                i += 2;
+            } else {
+                units += 1;
+                i++;
+            }
+        }
+        Start += (uint8_t)((((End - Start) - (units * Width)) + 1) / 2);
+        cur = Start;
+    }
+
+    for (i = 0; i < Length; i++)
+    {
+        const uint8_t c = (uint8_t)pString[i];
+
+        if (c >= 0xA1 && c <= 0xF7 && (i + 1) < Length) {
+            const uint8_t lo = (uint8_t)pString[i + 1];
+            if (lo >= 0xA1 && lo <= 0xFE) {
+                const uint32_t idx = (uint32_t)(c - 0xA1) * 94u + (lo - 0xA1);
+                uint8_t cnDot[FONT16_SIZE];
+                PY25Q16_ReadBuffer(FLASH_FONT16_BASE + idx * FONT16_SIZE, cnDot, FONT16_SIZE);
+                memcpy(gFrameBuffer[Line + 0] + cur, cnDot + 0, 16);
+                memcpy(gFrameBuffer[Line + 1] + cur, cnDot + 16, 16);
+                cur = (uint8_t)(cur + 16);
+                i++;
+                continue;
+            }
+        }
+
+        if (c > ' ' && c < 127)
+        {
+            const unsigned int index = c - ' ' - 1;
+            if (ascii_dy == 0u) {
+                memcpy(gFrameBuffer[Line + 0] + cur, &gFontBig[index][0], 7);
+                memcpy(gFrameBuffer[Line + 1] + cur, &gFontBig[index][7], 7);
+            } else {
+                uint8_t col;
+                for (col = 0; col < 7u; col++) {
+                    uint16_t v = (uint16_t)gFontBig[index][col]
+                               | ((uint16_t)gFontBig[index][col + 7u] << 8);
+                    v <<= ascii_dy;
+                    gFrameBuffer[Line + 0][cur + col] = (uint8_t)(v & 0xFFu);
+                    gFrameBuffer[Line + 1][cur + col] = (uint8_t)((v >> 8) & 0xFFu);
+                }
+            }
+            cur = (uint8_t)(cur + Width);
+        } else if (c == ' ') {
+            cur = (uint8_t)(cur + Width);
+        }
+    }
+}
+
+void UI_PrintStringSmall(const char *pString, uint8_t Start, uint8_t End, uint8_t Line, uint8_t char_width, const uint8_t *font)
+{
+    const size_t Length = strlen(pString);
+    const unsigned int char_spacing = char_width + 1;
+
+    if (End > Start) {
+        Start += (((End - Start) - Length * char_spacing) + 1) / 2;
+    }
+
+    UI_PrintStringBuffer(pString, gFrameBuffer[Line] + Start, char_width, font);
+}
+
+
+void UI_PrintStringSmallNormal(const char *pString, uint8_t Start, uint8_t End, uint8_t Line)
+{
+    UI_PrintStringSmall(pString, Start, End, Line, ARRAY_SIZE(gFontSmall[0]), (const uint8_t *)gFontSmall);
+}
+
+void UI_PrintStringSmallNormalInverse(const char *pString, uint8_t Start, uint8_t End, uint8_t Line)
+{
+    // First draw the string normally
+    UI_PrintStringSmallNormal(pString, Start, End, Line);
+
+    // Now invert the framebuffer bits for the rendered area
+    uint8_t len = strlen(pString);
+    uint8_t char_width = 7; // small font is typically 6px wide
+
+    uint8_t x_start = Start;
+    uint8_t x_end   = Start + (len * char_width) + 1;
+
+    if (End != 0 && x_end > End)
+        x_end = End;
+
+    //gFrameBuffer[Line][x_start - 2] ^= 0x3E;
+    gFrameBuffer[Line][x_start - 1] ^= 0x7F;
+    //gFrameBuffer[Line][x_start - 1] ^= 0xFF;
+    for (uint8_t x = x_start; x < x_end; x++)
+    {
+        gFrameBuffer[Line][x] ^= 0xFF;
+        gFrameBuffer[Line - 1][x] ^= 0x80;
+    }
+    //gFrameBuffer[Line][x_end + 0] ^= 0xFF;
+    gFrameBuffer[Line][x_end + 0] ^= 0x7F;
+    //gFrameBuffer[Line][x_end + 1] ^= 0x3E;
+}
+
+
+void UI_PrintStringSmallBold(const char *pString, uint8_t Start, uint8_t End, uint8_t Line)
+{
+#ifdef ENABLE_SMALL_BOLD
+    const uint8_t *font = (uint8_t *)gFontSmallBold;
+    const uint8_t char_width = ARRAY_SIZE(gFontSmallBold[0]);
+#else
+    const uint8_t *font = (uint8_t *)gFontSmall;
+    const uint8_t char_width = ARRAY_SIZE(gFontSmall[0]);
+#endif
+
+    UI_PrintStringSmall(pString, Start, End, Line, char_width, font);
+}
+
+void UI_PrintStringSmallBufferNormal(const char *pString, uint8_t * buffer)
+{
+    UI_PrintStringBuffer(pString, buffer, ARRAY_SIZE(gFontSmall[0]), (uint8_t *)gFontSmall);
+}
+
+void UI_PrintStringSmallBufferBold(const char *pString, uint8_t * buffer)
+{
+#ifdef ENABLE_SMALL_BOLD
+    const uint8_t *font = (uint8_t *)gFontSmallBold;
+    const uint8_t char_width = ARRAY_SIZE(gFontSmallBold[0]);
+#else
+    const uint8_t *font = (uint8_t *)gFontSmall;
+    const uint8_t char_width = ARRAY_SIZE(gFontSmall[0]);
+#endif
+    UI_PrintStringBuffer(pString, buffer, char_width, font);
+}
+
+void UI_DisplayFrequency(const char *string, uint8_t X, uint8_t Y, bool center)
+{
+    const unsigned int char_width  = 13;
+    uint8_t           *pFb0        = gFrameBuffer[Y] + X;
+    uint8_t           *pFb1        = pFb0 + 128;
+    bool               bCanDisplay = false;
+
+    uint8_t len = strlen(string);
+    for(int i = 0; i < len; i++) {
+        char c = string[i];
+        if(c=='-') c = '9' + 1;
+        if (bCanDisplay || c != ' ')
+        {
+            bCanDisplay = true;
+            if(c>='0' && c<='9' + 1) {
+                memcpy(pFb0 + 2, gFontBigDigits[c-'0'],                  char_width - 3);
+                memcpy(pFb1 + 2, gFontBigDigits[c-'0'] + char_width - 3, char_width - 3);
+            }
+            else if(c=='.') {
+                *pFb1 = 0x60; pFb0++; pFb1++;
+                *pFb1 = 0x60; pFb0++; pFb1++;
+                *pFb1 = 0x60; pFb0++; pFb1++;
+                continue;
+            }
+
+        }
+        else if (center) {
+            pFb0 -= 6;
+            pFb1 -= 6;
+        }
+        pFb0 += char_width;
+        pFb1 += char_width;
+    }
+}
+
+/*
+void UI_DisplayFrequency(const char *string, uint8_t X, uint8_t Y, bool center)
+{
+    const unsigned int char_width  = 13;
+    uint8_t           *pFb0        = gFrameBuffer[Y] + X;
+    uint8_t           *pFb1        = pFb0 + 128;
+    bool               bCanDisplay = false;
+
+    if (center) {
+        uint8_t len = 0;
+        for (const char *ptr = string; *ptr; ptr++)
+            if (*ptr != ' ') len++; // Ignores spaces for centering
+
+        X -= (len * char_width) / 2; // Centering adjustment
+        pFb0 = gFrameBuffer[Y] + X;
+        pFb1 = pFb0 + 128;
+    }
+
+    for (; *string; string++) {
+        char c = *string;
+        if (c == '-') c = '9' + 1; // Remap of '-' symbol
+
+        if (bCanDisplay || c != ' ') {
+            bCanDisplay = true;
+            if (c >= '0' && c <= '9' + 1) {
+                memcpy(pFb0 + 2, gFontBigDigits[c - '0'], char_width - 3);
+                memcpy(pFb1 + 2, gFontBigDigits[c - '0'] + char_width - 3, char_width - 3);
+            } else if (c == '.') {
+                memset(pFb1, 0x60, 3); // Replaces the three assignments
+                pFb0 += 3;
+                pFb1 += 3;
+                continue;
+            }
+        }
+        pFb0 += char_width;
+        pFb1 += char_width;
+    }
+}
+*/
+
+void UI_DrawPixelBuffer(uint8_t (*buffer)[128], uint8_t x, uint8_t y, bool black)
+{
+    const uint8_t pattern = 1 << (y % 8);
+    if(black)
+        buffer[y/8][x] |= pattern;
+    else
+        buffer[y/8][x] &= ~pattern;
+}
+
+static void sort(int16_t *a, int16_t *b)
+{
+    if(*a > *b) {
+        int16_t t = *a;
+        *a = *b;
+        *b = t;
+    }
+}
+
+#ifdef ENABLE_FEAT_F4HWN
+    /*
+    void UI_DrawLineDottedBuffer(uint8_t (*buffer)[128], int16_t x1, int16_t y1, int16_t x2, int16_t y2, bool black)
+    {
+        if(x2==x1) {
+            sort(&y1, &y2);
+            for(int16_t i = y1; i <= y2; i+=2) {
+                UI_DrawPixelBuffer(buffer, x1, i, black);
+            }
+        } else {
+            const int multipl = 1000;
+            int a = (y2-y1)*multipl / (x2-x1);
+            int b = y1 - a * x1 / multipl;
+
+            sort(&x1, &x2);
+            for(int i = x1; i<= x2; i+=2)
+            {
+                UI_DrawPixelBuffer(buffer, i, i*a/multipl +b, black);
+            }
+        }
+    }
+    */
+
+    void PutPixel(uint8_t x, uint8_t y, bool fill) {
+      UI_DrawPixelBuffer(gFrameBuffer, x, y, fill);
+    }
+
+    void PutPixelStatus(uint8_t x, uint8_t y, bool fill) {
+      UI_DrawPixelBuffer(&gStatusLine, x, y, fill);
+    }
+
+    void GUI_DisplaySmallest(const char *pString, uint8_t x, uint8_t y,
+                                    bool statusbar, bool fill) {
+      uint8_t c;
+      uint8_t pixels;
+      const uint8_t *p = (const uint8_t *)pString;
+
+      while ((c = *p++) && c != '\0') {
+        c -= 0x20;
+        for (int i = 0; i < 3; ++i) {
+          pixels = gFont3x5[c][i];
+          for (int j = 0; j < 6; ++j) {
+            if (pixels & 1) {
+              if (statusbar)
+                PutPixelStatus(x + i, y + j, fill);
+              else
+                PutPixel(x + i, y + j, fill);
+            }
+            pixels >>= 1;
+          }
+        }
+        x += 4;
+      }
+    }
+
+    void GUI_DisplaySmallestInverse(const char *pString, uint8_t x, uint8_t Line,
+                                bool statusbar, bool fill, uint8_t end)
+    {
+        // First draw the string normally
+        GUI_DisplaySmallest(pString, x, (Line * 8) + 1, statusbar, fill);
+
+        // Now invert the framebuffer/statusline bits for the rendered area
+        uint8_t start = (x - 2);
+        uint8_t *buffer = statusbar ? gStatusLine : gFrameBuffer[Line];
+
+        buffer[start] ^= 0x3E;
+        for (uint8_t i = start + 1; i < end; i++) {
+            buffer[i] ^= 0x7F;
+        }
+        buffer[end] ^= 0x3E;
+    }
+
+    void UI_DisplayUnlockKeyboard(uint8_t shift) {
+        (void)shift;
+        // Superseded by UI_ShowMessageBox("Key Locked")
+    }
+
+    bool IsEmptyName(const char *name, uint8_t len) {
+        if (name[0] == '\0' || name[0] == '\xff')
+            return true;
+        for (uint8_t i = 0; i < len; i++) {
+            if (name[i] != ' ' && name[i] != '\xff' && name[i] != '\0')
+                return false;
+        }
+        return true;
+    }
+#endif
+    
+void UI_DrawLineBuffer(uint8_t (*buffer)[128], int16_t x1, int16_t y1, int16_t x2, int16_t y2, bool black)
+{
+    if(x2==x1) {
+        sort(&y1, &y2);
+        for(int16_t i = y1; i <= y2; i++) {
+            UI_DrawPixelBuffer(buffer, x1, i, black);
+        }
+    } else {
+        const int multipl = 1000;
+        int a = (y2-y1)*multipl / (x2-x1);
+        int b = y1 - a * x1 / multipl;
+
+        sort(&x1, &x2);
+        for(int i = x1; i<= x2; i++)
+        {
+            UI_DrawPixelBuffer(buffer, i, i*a/multipl +b, black);
+        }
+    }
+}
+
+void UI_DrawRectangleBuffer(uint8_t (*buffer)[128], int16_t x1, int16_t y1, int16_t x2, int16_t y2, bool black)
+{
+    UI_DrawLineBuffer(buffer, x1,y1, x1,y2, black);
+    UI_DrawLineBuffer(buffer, x1,y1, x2,y1, black);
+    UI_DrawLineBuffer(buffer, x2,y1, x2,y2, black);
+    UI_DrawLineBuffer(buffer, x1,y2, x2,y2, black);
+}
+
+
+void UI_DisplayPopup(const char *string)
+{
+    UI_DisplayClear();
+
+    // for(uint8_t i = 1; i < 5; i++) {
+    //  memset(gFrameBuffer[i]+8, 0x00, 111);
+    // }
+
+    // for(uint8_t x = 10; x < 118; x++) {
+    //  UI_DrawPixelBuffer(x, 10, true);
+    //  UI_DrawPixelBuffer(x, 46-9, true);
+    // }
+
+    // for(uint8_t y = 11; y < 37; y++) {
+    //  UI_DrawPixelBuffer(10, y, true);
+    //  UI_DrawPixelBuffer(117, y, true);
+    // }
+    // DrawRectangle(9,9, 118,38, true);
+    UI_PrintString(string, 9, 118, 2, 8);
+    UI_PrintStringSmallNormal("Press EXIT", 9, 118, 6);
+}
+
+void UI_ShowMessageBox(const char *text)
+{
+    gMessageBoxText = text;
+    gMessageBoxCountdown = 4; // ~2 seconds at 500 ms ticks
+    gUpdateDisplay = true;
+}
+
+static void UI_ClearPopupArea(int16_t x1, int16_t y1, int16_t x2, int16_t y2)
+{
+	/* Clear whole framebuffer pages covering the box (slightly tall/wide OK). */
+	const uint8_t line0 = (uint8_t)((uint16_t)y1 >> 3);
+	const uint8_t line1 = (uint8_t)(((uint16_t)y2 + 1u) >> 3);
+	const uint8_t width = (uint8_t)(x2 - x1 + 2);
+
+	for (uint8_t line = line0; line <= line1 && line < FRAME_LINES; line++)
+		memset(gFrameBuffer[line] + x1, 0, width);
+}
+
+static void UI_StrokePopupFrame(int16_t x1, int16_t y1, int16_t x2, int16_t y2)
+{
+    UI_DrawRectangleBuffer(gFrameBuffer, x1, y1, x2, y2, true);
+    UI_DrawLineBuffer(gFrameBuffer, x2 + 1, y1 + 1, x2 + 1, y2 + 1, true);
+    UI_DrawLineBuffer(gFrameBuffer, x1 + 1, y2 + 1, x2 + 1, y2 + 1, true);
+}
+
+void UI_DrawMessageBox(void)
+{
+    if (gMessageBoxCountdown == 0 || gMessageBoxText == NULL)
+        return;
+
+    const int16_t x1 = (LCD_WIDTH - 90) / 2;
+    const int16_t y1 = ((FRAME_LINES * 8) - 20) / 2;
+    const int16_t x2 = x1 + 89;
+    const int16_t y2 = y1 + 19;
+
+    UI_ClearPopupArea(x1, y1, x2, y2);
+
+    if (gUiLanguage == UI_LANGUAGE_CN) {
+        /* 16×16；当前文案均为 4 字=64px，下移 4px 在 20 高框内居中 */
+        UI_PrintString(gMessageBoxText, (uint8_t)(x1 + 2), (uint8_t)(x2 - 1), 2, 8);
+        const uint8_t text_x = (uint8_t)(x1 + 2 + (86 - 64 + 1) / 2);
+        for (uint8_t x = text_x; x < text_x + 64u; x++) {
+            uint32_t v = (uint32_t)gFrameBuffer[2][x]
+                       | ((uint32_t)gFrameBuffer[3][x] << 8)
+                       | ((uint32_t)gFrameBuffer[4][x] << 16);
+            v <<= 4;
+            gFrameBuffer[2][x] = (uint8_t)v;
+            gFrameBuffer[3][x] = (uint8_t)(v >> 8);
+            gFrameBuffer[4][x] = (uint8_t)(v >> 16);
+        }
+    } else {
+        UI_PrintStringSmallNormal(gMessageBoxText, (uint8_t)(x1 + 2), (uint8_t)(x2 - 1), 3);
+    }
+
+    UI_StrokePopupFrame(x1, y1, x2, y2);
+}
+
+/* Yan ID: phone icon left, callsign right — one landscape row. */
+void UI_DrawCallSignPopup(void)
+{
+    if (gYanId_RX[0] == 0 || gYanId_RX_timeout == 0)
+        return;
+
+    const int16_t box_w = 90;
+    const int16_t box_h = 20;
+    const int16_t x1 = (LCD_WIDTH - box_w) / 2;
+    const int16_t y1 = ((FRAME_LINES * 8) - box_h) / 2; /* 18 */
+    const int16_t x2 = x1 + box_w - 1;
+    const int16_t y2 = y1 + box_h - 1;
+    const uint8_t gap = 4;
+#ifdef ENABLE_SMALL_BOLD
+    const uint8_t pitch = (uint8_t)(ARRAY_SIZE(gFontSmallBold[0]) + 1u);
+#else
+    const uint8_t pitch = (uint8_t)(ARRAY_SIZE(gFontSmall[0]) + 1u);
+#endif
+    const uint8_t text_w = (uint8_t)(strlen(gYanId_RX) * pitch);
+    const uint8_t content_w = (uint8_t)(BITMAP_CALL_PHONE_WIDTH + gap + text_w);
+    const uint8_t icon_x = (uint8_t)(x1 + ((uint8_t)box_w - content_w) / 2u);
+    const uint8_t text_x = (uint8_t)(icon_x + BITMAP_CALL_PHONE_WIDTH + gap);
+
+    UI_ClearPopupArea(x1, y1, x2, y2);
+
+    /* Blit at line 2 (y=16), then ↓4px → y=20 (vertically centered in box). */
+    for (uint8_t page = 0; page < BITMAP_CALL_PHONE_PAGES; page++) {
+        memcpy(gFrameBuffer[2 + page] + icon_x,
+               &BITMAP_CALL_PHONE[(uint16_t)page * BITMAP_CALL_PHONE_WIDTH],
+               BITMAP_CALL_PHONE_WIDTH);
+    }
+    for (uint8_t x = icon_x; x < icon_x + BITMAP_CALL_PHONE_WIDTH; x++) {
+        uint32_t v = (uint32_t)gFrameBuffer[2][x]
+                   | ((uint32_t)gFrameBuffer[3][x] << 8)
+                   | ((uint32_t)gFrameBuffer[4][x] << 16);
+        v <<= 4;
+        gFrameBuffer[2][x] = (uint8_t)v;
+        gFrameBuffer[3][x] = (uint8_t)(v >> 8);
+        gFrameBuffer[4][x] = (uint8_t)(v >> 16);
+    }
+
+    UI_PrintStringSmallBold(gYanId_RX, text_x, 0, 3);
+    UI_StrokePopupFrame(x1, y1, x2, y2);
+}
+
+void UI_DisplayClear()
+{
+    memset(gFrameBuffer, 0, sizeof(gFrameBuffer));
+}
+
+void UI_StatusClear()
+{
+    memset(gStatusLine, 0, sizeof(gStatusLine));
+}
