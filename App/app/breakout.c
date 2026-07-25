@@ -287,6 +287,9 @@ static void OnKeyDown(uint8_t key)
         break;
     case KEY_EXIT:
         isPaused = false;
+        gKeyReading0 = KEY_INVALID;
+        gKeyReading1 = KEY_INVALID;
+        gDebounceCounter = 0;
         isInitialized = false;
         break;
     }

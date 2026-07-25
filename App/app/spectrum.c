@@ -576,6 +576,9 @@ static void DeInitSpectrum()
 {
     SetF(initialFreq);
     RestoreRegisters();
+    gKeyReading0 = KEY_INVALID;
+    gKeyReading1 = KEY_INVALID;
+    gDebounceCounter = 0;
     isInitialized = false;
 }
 
