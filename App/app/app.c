@@ -1431,8 +1431,6 @@ static void HandleRxEndBlink(void)
 
     if (gRxEndBlinkState == 2) {
         if (g_SquelchLost) {
-            BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, false);
-            BK4819_ToggleGpioOut(BK4819_GPIO5_PIN1_RED, false);
             gRxEndBlinkState = 0;
             return;
         }
