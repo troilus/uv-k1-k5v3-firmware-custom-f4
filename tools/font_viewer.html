@@ -1,0 +1,851 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UV-K5 字体查看器</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#1a1a2e;color:#e0e0e0;font-family:'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;min-height:100vh}
+.container{max-width:1400px;margin:0 auto;padding:20px}
+
+h1{font-size:24px;margin-bottom:8px;color:#fff}
+h1 small{font-size:14px;color:#888;font-weight:normal}
+h2{font-size:18px;margin-bottom:12px;color:#ccc;border-bottom:1px solid #333;padding-bottom:6px}
+
+.upload-zone{border:2px dashed #444;border-radius:12px;padding:40px;text-align:center;cursor:pointer;transition:all .2s;background:#16213e;margin-bottom:20px}
+.upload-zone:hover,.upload-zone.dragover{border-color:#0f3460;background:#1a2744}
+.upload-zone .icon{font-size:48px;margin-bottom:10px}
+.upload-zone p{color:#888}
+.upload-zone .filename{color:#4fc3f7;font-weight:bold;margin-top:8px}
+
+.toolbar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+.toolbar label{display:flex;align-items:center;gap:6px;color:#aaa}
+.toolbar select,.toolbar input[type=text]{background:#16213e;color:#e0e0e0;border:1px solid #444;border-radius:6px;padding:8px 12px;font-size:14px}
+.toolbar select:focus,.toolbar input[type=text]:focus{outline:none;border-color:#0f3460}
+.toolbar input[type=text]{flex:1;min-width:200px}
+.toolbar button{background:#0f3460;color:#fff;border:none;border-radius:6px;padding:8px 16px;cursor:pointer;transition:background .2s}
+.toolbar button:hover{background:#1a5276}
+.toolbar .status{color:#888;font-size:13px}
+
+.render-area{background:#0d1117;border-radius:10px;padding:16px;overflow:auto;min-height:80px;margin-bottom:20px;position:relative}
+.render-area canvas{display:block;image-rendering:pixelated}
+.render-area .placeholder{color:#555;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center}
+.render-area .placeholder .big{font-size:48px;display:block;margin-bottom:8px}
+
+.tabs{display:flex;gap:4px;margin-bottom:12px;flex-wrap:wrap}
+.tabs button{background:#16213e;color:#888;border:1px solid #333;border-radius:6px 6px 0 0;padding:8px 18px;cursor:pointer;font-size:13px;transition:all .2s}
+.tabs button:hover{color:#e0e0e0}
+.tabs button.active{background:#0f3460;color:#fff;border-color:#0f3460}
+
+.font-grid{background:#0d1117;border-radius:10px;padding:16px;overflow:auto}
+.font-grid .info{color:#666;font-size:12px;margin-bottom:8px}
+.font-grid .char-row{display:inline-flex;flex-direction:column;align-items:center;margin:4px;border:1px solid #222;border-radius:4px;padding:4px;background:#111}
+.font-grid .char-label{font-size:11px;color:#666;margin-bottom:2px;font-family:monospace}
+.font-grid .char-label .ascii{color:#444}
+.font-grid canvas{display:block;image-rendering:pixelated}
+.font-grid .section{margin-bottom:24px}
+
+.compare-mode{margin-bottom:16px}
+.compare-toggle{display:flex;align-items:center;gap:8px;color:#888;font-size:13px;cursor:pointer}
+.compare-toggle input[type=checkbox]{accent-color:#0f3460}
+.compare-panels{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:12px}
+.compare-panels .panel{border:1px solid #333;border-radius:8px;padding:12px;background:#111}
+.compare-panels .panel .panel-title{font-size:13px;color:#888;margin-bottom:8px}
+.compare-panels .panel .panel-title .tag{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;margin-left:6px}
+.compare-panels .panel .panel-title .tag.original{background:#1b5e20;color:#a5d6a7}
+.compare-panels .panel .panel-title .tag.ka52{background:#0d47a1;color:#90caf9}
+.compare-panels .diff-highlight{background:rgba(255,235,59,0.15);border-radius:4px}
+
+.diff-legend{display:flex;gap:16px;margin:8px 0;font-size:12px;color:#888}
+.diff-legend span{display:flex;align-items:center;gap:4px}
+.diff-legend .dot{width:12px;height:12px;border-radius:2px;display:inline-block}
+.diff-legend .dot.same{background:#1b5e20}
+.diff-legend .dot.diff{background:#e65100}
+.diff-legend .dot.missing{background:#b71c1c}
+
+@media(max-width:768px){
+  .compare-panels{grid-template-columns:1fr}
+  .toolbar{flex-direction:column}
+  .toolbar input[type=text]{width:100%}
+}
+</style>
+</head>
+<body>
+<div class="container">
+<h1>UV-K5 字体查看器 <small>导入 font.c 预览所有字符点阵</small></h1>
+
+<div class="upload-zone" id="uploadZone">
+  <div class="icon">📁</div>
+  <p>拖入 font.c 文件，或点击选择</p>
+  <input type="file" id="fileInput" accept=".c,.h,.txt" style="display:none">
+  <div class="filename" id="filename"></div>
+</div>
+
+<div class="compare-mode">
+  <label class="compare-toggle">
+    <input type="checkbox" id="compareCheck"> 开启对比模式（导入两份 font.c 对比差异）
+  </label>
+  <div id="comparePanel" style="display:none">
+    <div class="compare-panels">
+      <div class="panel" id="panelA">
+        <div class="panel-title">文件 A <span class="tag original">原始/左</span></div>
+        <div class="upload-zone" style="padding:16px;margin:0" id="uploadZoneA">
+          <div class="icon" style="font-size:24px">📁</div>
+          <p style="font-size:12px">拖入第一个 font.c</p>
+          <input type="file" id="fileInputA" accept=".c,.h,.txt" style="display:none">
+          <div class="filename" id="filenameA"></div>
+        </div>
+        <div id="panelARender" style="display:none">
+          <div class="diff-legend">
+            <span><span class="dot same"></span> 相同</span>
+            <span><span class="dot diff"></span> 不同</span>
+            <span><span class="dot missing"></span> 缺失</span>
+          </div>
+          <div id="gridA" class="font-grid" style="padding:8px"></div>
+        </div>
+      </div>
+      <div class="panel" id="panelB">
+        <div class="panel-title">文件 B <span class="tag ka52">KA52/右</span></div>
+        <div class="upload-zone" style="padding:16px;margin:0" id="uploadZoneB">
+          <div class="icon" style="font-size:24px">📁</div>
+          <p style="font-size:12px">拖入第二个 font.c</p>
+          <input type="file" id="fileInputB" accept=".c,.h,.txt" style="display:none">
+          <div class="filename" id="filenameB"></div>
+        </div>
+        <div id="panelBRender" style="display:none">
+          <div id="gridB" class="font-grid" style="padding:8px"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toolbar">
+  <label>字体: <select id="fontSelect">
+    <option value="gFontSmall">gFontSmall (8px 小字)</option>
+    <option value="gFontSmallBold">gFontSmallBold (粗体)</option>
+    <option value="gFontBig">gFontBig (14px 大字)</option>
+    <option value="gFontBigDigits">gFontBigDigits (频率数字)</option>
+    <option value="gFont3x5">gFont3x5 (3x5 极小)</option>
+  </select></label>
+  <label>倍率: <select id="scaleSelect">
+    <option value="2">2x</option>
+    <option value="3">3x</option>
+    <option value="4" selected>4x</option>
+    <option value="6">6x</option>
+    <option value="8">8x</option>
+  </select></label>
+  <label>间距: <input type="number" id="spacingInput" value="0" min="0" max="8" style="width:50px"> px</label>
+  <input type="text" id="textInput" placeholder="输入文字实时显示..." value="Hello UV-K5! 123">
+  <span class="status" id="renderStatus"></span>
+</div>
+
+<div class="render-area" id="renderArea">
+  <div class="placeholder" id="placeholder">
+    <span class="big">📟</span>
+    导入 font.c 后在此预览文字效果
+  </div>
+  <canvas id="renderCanvas" style="display:none"></canvas>
+</div>
+
+<h2>字体总览</h2>
+<div class="tabs" id="tabBar"></div>
+<div class="font-grid" id="overviewGrid">
+  <div class="info">请先导入 font.c 文件</div>
+</div>
+</div>
+
+<script>
+"use strict";
+
+// ====== C 预处理器及源码解析器 ======
+
+function removeComments(code) {
+  let r = '', i = 0;
+  while (i < code.length) {
+    if (code[i] === '/' && code[i+1] === '/') {
+      let end = code.indexOf('\n', i);
+      if (end === -1) end = code.length;
+      i = end;
+    } else if (code[i] === '/' && code[i+1] === '*') {
+      let end = code.indexOf('*/', i + 2);
+      if (end === -1) end = code.length;
+      i = end + 2;
+    } else {
+      r += code[i];
+      i++;
+    }
+  }
+  return r;
+}
+
+function extractActiveCode(code) {
+  let cleaned = removeComments(code);
+  let lines = cleaned.split('\n');
+  let stack = []; // { canEmit, didEmit }
+  let result = [];
+
+  function allActive() {
+    for (let s of stack) if (!s.canEmit) return false;
+    return true;
+  }
+
+  for (let line of lines) {
+    let trimmed = line.trim();
+    let isPP = trimmed.startsWith('#');
+
+    if (!isPP) {
+      if (allActive()) result.push(line);
+      continue;
+    }
+
+    let parts = trimmed.split(/\s+/);
+    let directive = parts[0];
+
+    if (directive === '#if' || directive === '#ifdef' || directive === '#ifndef') {
+      let condStr = parts.slice(1).join(' ');
+      let condTrue = evalCondition(condStr, directive);
+      stack.push({ canEmit: condTrue, didEmit: condTrue });
+      continue;
+    }
+
+    if (directive === '#elif') {
+      if (stack.length === 0) continue;
+      let top = stack[stack.length - 1];
+      let condStr = parts.slice(1).join(' ');
+      let condTrue = evalCondition(condStr, '#if');
+      if (top.didEmit) {
+        top.canEmit = false;
+      } else {
+        top.canEmit = condTrue;
+        if (condTrue) top.didEmit = true;
+      }
+      continue;
+    }
+
+    if (directive === '#else') {
+      if (stack.length === 0) continue;
+      let top = stack[stack.length - 1];
+      if (top.didEmit) {
+        top.canEmit = false;
+      } else {
+        top.canEmit = true;
+        top.didEmit = true;
+      }
+      continue;
+    }
+
+    if (directive === '#endif') {
+      if (stack.length > 0) stack.pop();
+      continue;
+    }
+
+    if (allActive()) result.push(line);
+  }
+  return result;
+}
+
+function evalCondition(cond, directive) {
+  if (directive === '#ifdef') return true;
+  if (directive === '#ifndef') return false;
+  let s = cond.replace(/defined\s*\(\s*\w+\s*\)/g, '1').replace(/\b\w+\b/g, m => {
+    if (/^\d+$/.test(m)) return m;
+    return '1';
+  });
+  try { return !!Function('"use strict"; return (' + s + ')')(); }
+  catch(e) { return true; }
+}
+
+function parseArrayData(code) {
+  let active = extractActiveCode(code);
+  if (!Array.isArray(active)) {
+    console.error('extractActiveCode returned non-array:', typeof active, active);
+    return {};
+  }
+  let fullText = active.join('\n');
+
+  let fonts = {};
+  let patterns = [
+    { name: 'gFontBig', regex: /const\s+uint8_t\s+gFontBig\s*\[[\d\s\-]+\]\[[\d\s\-]+\]\s*=\s*\{/ },
+    { name: 'gFontBigDigits', regex: /const\s+uint8_t\s+gFontBigDigits\s*\[[\d\s\-]+\]\[[\d\s\-]+\]\s*=\s*\{/ },
+    { name: 'gFontSmall', regex: /const\s+uint8_t\s+gFontSmall\s*\[[\d\s\-]+\]\[6\]\s*=\s*\{/ },
+    { name: 'gFontSmallBold', regex: /const\s+uint8_t\s+gFontSmallBold\s*\[[\d\s\-]+\]\[6\]\s*=\s*\{/ },
+    { name: 'gFont3x5', regex: /const\s+uint8_t\s+gFont3x5\s*\[?\s*\]?\s*\[3\]\s*=\s*\{/ }
+  ];
+
+  for (let p of patterns) {
+    let m = p.regex.exec(fullText);
+    if (!m) continue;
+    let start = m.index + m[0].length;
+    let depth = 1, i = start;
+    while (i < fullText.length && depth > 0) {
+      if (fullText[i] === '{') depth++;
+      else if (fullText[i] === '}') depth--;
+      i++;
+    }
+    let block = fullText.substring(start, i - 1);
+
+    let rows = parseHexRows(block);
+    if (rows.length > 0) fonts[p.name] = rows;
+  }
+  return fonts;
+}
+
+function parseHexRows(block) {
+  let rows = [];
+  let lines = block.split('\n');
+  for (let line of lines) {
+    let trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('//') || trimmed.startsWith('/*') || trimmed.endsWith('*/')) continue;
+    let braceStart = trimmed.indexOf('{');
+    let braceEnd = trimmed.lastIndexOf('}');
+    if (braceStart === -1 || braceEnd === -1) continue;
+    let inner = trimmed.substring(braceStart + 1, braceEnd);
+    let vals = [];
+    inner.split(',').forEach(t => {
+      t = t.trim();
+      if (t.startsWith('0x') || t.startsWith('0X')) {
+        let v = parseInt(t, 16);
+        if (!isNaN(v)) vals.push(v);
+      }
+    });
+    if (vals.length > 0) rows.push(vals);
+  }
+  return rows;
+}
+
+// ====== 字体渲染引擎 ======
+
+const FONT_META = {
+  gFontBig: {
+    label: 'gFontBig (14px 大字)',
+    charWidth: 7, charHeight: 16, bytesPerChar: 14,
+    skipSpace: true, asciiOffset: 33,
+    isBigDigit: false, is3x5: false,
+    renderChar: function(data, idx, canvas, scale, fg, bg) {
+      let w = this.charWidth, h = this.charHeight;
+      let cw = w * scale, ch = h * scale;
+      canvas.width = cw; canvas.height = ch;
+      let ctx = canvas.getContext('2d');
+      ctx.fillStyle = bg; ctx.fillRect(0, 0, cw, ch);
+      ctx.fillStyle = fg;
+      if (idx < 0 || idx >= data.length) return;
+      let row = data[idx];
+      if (!row || row.length < this.bytesPerChar) return;
+      for (let col = 0; col < w; col++) {
+        let topByte = row[col];
+        let botByte = row[col + w];
+        for (let bit = 0; bit < 8; bit++) {
+          if (topByte & (1 << bit)) {
+            ctx.fillRect(col * scale, bit * scale, scale, scale);
+          }
+          if (botByte & (1 << bit)) {
+            ctx.fillRect(col * scale, (bit + 8) * scale, scale, scale);
+          }
+        }
+      }
+    },
+    renderString: function(data, str, canvas, scale, spacing, fg, bg) {
+      let w = this.charWidth, h = this.charHeight;
+      let pw = w * scale, ph = h * scale;
+      let gap = spacing * scale;
+      let totalW = str.length * (pw + gap) - (str.length > 0 ? gap : 0);
+      canvas.width = Math.max(1, totalW); canvas.height = ph;
+      let ctx = canvas.getContext('2d');
+      ctx.fillStyle = bg; ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = fg;
+      for (let si = 0; si < str.length; si++) {
+        let ch = str.charCodeAt(si);
+        let idx = ch - this.asciiOffset;
+        if (ch === 32) { idx = -1; }
+        else if (idx < 0 || idx >= data.length) idx = -1;
+        let offX = si * (pw + gap);
+        if (idx >= 0 && data[idx]) {
+          let row = data[idx];
+          for (let col = 0; col < w; col++) {
+            let topByte = row[col];
+            let botByte = row[col + w];
+            for (let bit = 0; bit < 8; bit++) {
+              if (topByte & (1 << bit))
+                ctx.fillRect(offX + col * scale, bit * scale, scale, scale);
+              if (botByte & (1 << bit))
+                ctx.fillRect(offX + col * scale, (bit + 8) * scale, scale, scale);
+            }
+          }
+        }
+      }
+    }
+  },
+  gFontBigDigits: {
+    label: 'gFontBigDigits (频率数字)',
+    charWidth: 10, charHeight: 16, bytesPerChar: 20,
+    skipSpace: false, asciiOffset: 48,
+    isBigDigit: true, is3x5: false,
+    renderChar: function(data, idx, canvas, scale, fg, bg) {
+      let w = this.charWidth, h = this.charHeight;
+      let cw = w * scale, ch = h * scale;
+      canvas.width = cw; canvas.height = ch;
+      let ctx = canvas.getContext('2d');
+      ctx.fillStyle = bg; ctx.fillRect(0, 0, cw, ch);
+      ctx.fillStyle = fg;
+      if (idx < 0 || idx >= data.length) return;
+      let row = data[idx];
+      if (!row || row.length < this.bytesPerChar) return;
+      for (let col = 0; col < w; col++) {
+        let topByte = row[col];
+        let botByte = row[col + w];
+        for (let bit = 0; bit < 8; bit++) {
+          if (topByte & (1 << bit))
+            ctx.fillRect(col * scale, bit * scale, scale, scale);
+          if (botByte & (1 << bit))
+            ctx.fillRect(col * scale, (bit + 8) * scale, scale, scale);
+        }
+      }
+    },
+    renderString: function(data, str, canvas, scale, spacing, fg, bg) {
+      let w = this.charWidth, h = this.charHeight;
+      let pw = w * scale, ph = h * scale;
+      let gap = spacing * scale;
+      let totalW = 0;
+      let segs = [];
+      for (let si = 0; si < str.length; si++) {
+        let ch = str[si];
+        if (ch === '.') {
+          segs.push({ type: 'dot', w: 4 * scale });
+          totalW += 4 * scale + gap;
+        } else if (ch === '-') {
+          segs.push({ type: 'char', idx: 10 });
+          totalW += pw + gap;
+        } else {
+          let code = str.charCodeAt(si);
+          let idx = code - 48;
+          if (idx >= 0 && idx <= 9) {
+            segs.push({ type: 'char', idx });
+            totalW += pw + gap;
+          }
+        }
+      }
+      if (segs.length > 0) totalW -= gap;
+
+      canvas.width = Math.max(1, totalW); canvas.height = ph;
+      let ctx = canvas.getContext('2d');
+      ctx.fillStyle = bg; ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = fg;
+      let offX = 0;
+      for (let s of segs) {
+        if (s.type === 'dot') {
+          let dotSize = scale;
+          let dotGap = scale;
+          for (let d = 0; d < 3; d++) {
+            ctx.fillRect(offX, (3 + d * 5) * scale, dotSize, dotSize);
+          }
+          offX += 4 * scale;
+        } else if (s.type === 'char') {
+          let row = data[s.idx];
+          if (row) {
+            for (let col = 0; col < w; col++) {
+              let topByte = row[col];
+              let botByte = row[col + w];
+              for (let bit = 0; bit < 8; bit++) {
+                if (topByte & (1 << bit))
+                  ctx.fillRect(offX + col * scale, bit * scale, scale, scale);
+                if (botByte & (1 << bit))
+                  ctx.fillRect(offX + col * scale, (bit + 8) * scale, scale, scale);
+              }
+            }
+          }
+          offX += pw;
+        }
+        offX += gap;
+      }
+    }
+  },
+  gFontSmall: {
+    label: 'gFontSmall (8px 小字)',
+    charWidth: 6, charHeight: 8, bytesPerChar: 6,
+    skipSpace: true, asciiOffset: 33,
+    isBigDigit: false, is3x5: false,
+    renderChar: function(data, idx, canvas, scale, fg, bg) {
+      let w = this.charWidth, h = this.charHeight;
+      let cw = w * scale, ch = h * scale;
+      canvas.width = cw; canvas.height = ch;
+      let ctx = canvas.getContext('2d');
+      ctx.fillStyle = bg; ctx.fillRect(0, 0, cw, ch);
+      ctx.fillStyle = fg;
+      if (idx < 0 || idx >= data.length) return;
+      let row = data[idx];
+      if (!row || row.length < this.bytesPerChar) return;
+      for (let col = 0; col < w; col++) {
+        let byte = row[col];
+        for (let bit = 0; bit < 8; bit++) {
+          if (byte & (1 << bit))
+            ctx.fillRect(col * scale, bit * scale, scale, scale);
+        }
+      }
+    },
+    renderString: function(data, str, canvas, scale, spacing, fg, bg) {
+      let w = this.charWidth, h = this.charHeight;
+      let pw = w * scale, ph = h * scale;
+      let gap = spacing * scale;
+      let totalW = str.length * (pw + gap) - (str.length > 0 ? gap : 0);
+      canvas.width = Math.max(1, totalW); canvas.height = ph;
+      let ctx = canvas.getContext('2d');
+      ctx.fillStyle = bg; ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = fg;
+      for (let si = 0; si < str.length; si++) {
+        let ch = str.charCodeAt(si);
+        let idx = ch - this.asciiOffset;
+        if (ch === 32) { idx = -1; }
+        else if (idx < 0 || idx >= data.length) idx = -1;
+        let offX = si * (pw + gap);
+        if (idx >= 0 && data[idx]) {
+          let row = data[idx];
+          for (let col = 0; col < w; col++) {
+            let byte = row[col];
+            for (let bit = 0; bit < 8; bit++) {
+              if (byte & (1 << bit))
+                ctx.fillRect(offX + col * scale, bit * scale, scale, scale);
+            }
+          }
+        }
+      }
+    }
+  },
+  gFontSmallBold: null,
+  gFont3x5: {
+    label: 'gFont3x5 (3x5 极小字)',
+    charWidth: 3, charHeight: 6, bytesPerChar: 3,
+    skipSpace: false, asciiOffset: 0,
+    isBigDigit: false, is3x5: true,
+    renderChar: function(data, idx, canvas, scale, fg, bg) {
+      let w = this.charWidth, h = this.charHeight;
+      let cw = w * scale, ch = h * scale;
+      canvas.width = cw; canvas.height = ch;
+      let ctx = canvas.getContext('2d');
+      ctx.fillStyle = bg; ctx.fillRect(0, 0, cw, ch);
+      ctx.fillStyle = fg;
+      if (idx < 0 || idx >= data.length) return;
+      let row = data[idx];
+      if (!row || row.length < this.bytesPerChar) return;
+      for (let col = 0; col < w; col++) {
+        let byte = row[col];
+        for (let bit = 0; bit < 6; bit++) {
+          if (byte & (1 << bit))
+            ctx.fillRect(col * scale, bit * scale, scale, scale);
+        }
+      }
+    },
+    renderString: function(data, str, canvas, scale, spacing, fg, bg) {
+      let w = this.charWidth, h = this.charHeight;
+      let pw = (w + 1) * scale, ph = h * scale;
+      let gap = spacing * scale;
+      let totalW = str.length * (pw + gap) - (str.length > 0 ? gap : 0);
+      canvas.width = Math.max(1, totalW); canvas.height = ph;
+      let ctx = canvas.getContext('2d');
+      ctx.fillStyle = bg; ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = fg;
+      for (let si = 0; si < str.length; si++) {
+        let ch = str.charCodeAt(si);
+        if (ch < 0x20 || ch - this.asciiOffset >= data.length) continue;
+        let row = data[ch - this.asciiOffset];
+        if (!row || row.length < this.bytesPerChar) continue;
+        let offX = si * (pw + gap);
+        for (let col = 0; col < w; col++) {
+          let byteVal = row[col];
+          for (let bit = 0; bit < 6; bit++) {
+            if (byteVal & (1 << bit))
+              ctx.fillRect(offX + col * scale, bit * scale, scale, scale);
+          }
+        }
+      }
+    }
+  }
+};
+FONT_META.gFontSmallBold = Object.assign({}, FONT_META.gFontSmall, { label: 'gFontSmallBold (粗体)' });
+
+// ====== UI 控制 ======
+
+let loadedFonts = {};
+let currentFontName = 'gFontSmall';
+let compareFonts = { A: null, B: null };
+
+document.getElementById('fileInput').addEventListener('change', e => {
+  let file = e.target.files[0];
+  if (file) loadFile(file, fonts => {
+    loadedFonts = fonts;
+    document.getElementById('filename').textContent = file.name;
+    updateAll();
+  });
+});
+
+document.getElementById('uploadZone').addEventListener('click', () => {
+  document.getElementById('fileInput').click();
+});
+document.getElementById('uploadZone').addEventListener('dragover', e => {
+  e.preventDefault();
+  e.currentTarget.classList.add('dragover');
+});
+document.getElementById('uploadZone').addEventListener('dragleave', e => {
+  e.currentTarget.classList.remove('dragover');
+});
+document.getElementById('uploadZone').addEventListener('drop', e => {
+  e.preventDefault();
+  e.currentTarget.classList.remove('dragover');
+  let file = e.dataTransfer.files[0];
+  if (file) loadFile(file, fonts => {
+    loadedFonts = fonts;
+    document.getElementById('filename').textContent = file.name;
+    updateAll();
+  });
+});
+
+function setupCompareUpload(zoneId, inputId, labelId, panelRenderId, gridId, side) {
+  document.getElementById(zoneId).addEventListener('click', () => document.getElementById(inputId).click());
+  document.getElementById(zoneId).addEventListener('dragover', e => { e.preventDefault(); e.currentTarget.classList.add('dragover'); });
+  document.getElementById(zoneId).addEventListener('dragleave', e => e.currentTarget.classList.remove('dragover'));
+  document.getElementById(zoneId).addEventListener('drop', e => {
+    e.preventDefault();
+    e.currentTarget.classList.remove('dragover');
+    let file = e.dataTransfer.files[0];
+    if (file) loadFile(file, fonts => {
+      compareFonts[side] = fonts;
+      document.getElementById(labelId).textContent = file.name;
+      document.getElementById(panelRenderId).style.display = 'block';
+      updateCompare();
+    });
+  });
+  document.getElementById(inputId).addEventListener('change', e => {
+    let file = e.target.files[0];
+    if (file) loadFile(file, fonts => {
+      compareFonts[side] = fonts;
+      document.getElementById(labelId).textContent = file.name;
+      document.getElementById(panelRenderId).style.display = 'block';
+      updateCompare();
+    });
+  });
+}
+
+setupCompareUpload('uploadZoneA', 'fileInputA', 'filenameA', 'panelARender', 'gridA', 'A');
+setupCompareUpload('uploadZoneB', 'fileInputB', 'filenameB', 'panelBRender', 'gridB', 'B');
+
+document.getElementById('compareCheck').addEventListener('change', function() {
+  document.getElementById('comparePanel').style.display = this.checked ? 'block' : 'none';
+  if (this.checked) updateCompare();
+});
+
+document.getElementById('fontSelect').addEventListener('change', function() {
+  currentFontName = this.value;
+  renderTextPreview();
+});
+
+document.getElementById('scaleSelect').addEventListener('change', () => renderTextPreview());
+document.getElementById('spacingInput').addEventListener('change', () => renderTextPreview());
+document.getElementById('textInput').addEventListener('input', () => renderTextPreview());
+
+function loadFile(file, callback) {
+  let reader = new FileReader();
+  reader.onload = function(e) {
+    let code = e.target.result;
+    let fonts = parseArrayData(code);
+    if (Object.keys(fonts).length === 0) {
+      alert('未能解析 font.c，请确认文件格式正确');
+      return;
+    }
+    callback(fonts);
+  };
+  reader.readAsText(file);
+}
+
+function updateAll() {
+  renderTextPreview();
+  renderOverview();
+  setupTabs();
+  if (document.getElementById('compareCheck').checked) updateCompare();
+}
+
+function renderTextPreview() {
+  let fonts = loadedFonts;
+  let fontName = document.getElementById('fontSelect').value;
+  let scale = parseInt(document.getElementById('scaleSelect').value) || 4;
+  let spacing = parseInt(document.getElementById('spacingInput').value) || 0;
+  let text = document.getElementById('textInput').value || ' ';
+
+  let canvas = document.getElementById('renderCanvas');
+  let placeholder = document.getElementById('placeholder');
+  let status = document.getElementById('renderStatus');
+
+  if (!fonts[fontName]) {
+    canvas.style.display = 'none';
+    placeholder.style.display = 'block';
+    status.textContent = '当前字体未找到';
+    return;
+  }
+
+  let meta = fontName === 'gFontSmallBold' ? FONT_META.gFontSmall : FONT_META[fontName];
+  if (!meta) { status.textContent = '未知字体'; return; }
+
+  placeholder.style.display = 'none';
+  canvas.style.display = 'block';
+
+  meta.renderString(fonts[fontName], text, canvas, scale, spacing, '#4fc3f7', '#0d1117');
+  status.textContent = `已渲染 ${text.length} 字符`;
+}
+
+function renderOverview() {
+  let container = document.getElementById('overviewGrid');
+  let fonts = loadedFonts;
+  let html = '<div class="info">各字符点阵预览（2x 倍率）</div>';
+
+  for (let [name, fontNames] of [['gFontSmall', ['gFontSmall', 'gFontSmallBold']], ['gFontBig', ['gFontBig']], ['gFontBigDigits', ['gFontBigDigits']], ['gFont3x5', ['gFont3x5']]]) {
+    for (let fn of fontNames) {
+      if (!fonts[fn]) continue;
+      let meta = fn === 'gFontSmallBold' ? FONT_META.gFontSmall : FONT_META[fn];
+      html += `<div class="section"><h3 style="color:#aaa;font-size:14px;margin-bottom:6px">${meta.label} <span style="color:#555;font-weight:normal">(${fonts[fn].length} 个字符)</span></h3><div>`;
+
+      let maxChar = fn === 'gFontBigDigits' ? 11 : (fn === 'gFont3x5' ? fonts[fn].length : fonts[fn].length);
+      if (fn === 'gFontBigDigits') {
+        let chars = '0123456789-';
+        for (let i = 0; i < chars.length && i < fonts[fn].length; i++) {
+          let ch = chars[i];
+          let label = ch === '-' ? '&#8209;' : ch;
+          let cvs = document.createElement('canvas');
+          meta.renderChar(fonts[fn], i, cvs, 2, '#4fc3f7', '#111');
+          html += `<div class="char-row"><span class="char-label">'${label}'<span class="ascii"> ${48+i}</span></span>${canvasToImg(cvs)}</div>`;
+        }
+      } else if (fn === 'gFont3x5') {
+        for (let i = 0; i < fonts[fn].length && i < 128; i++) {
+          if (i < 32) continue;
+          let ch = String.fromCharCode(i);
+          let label = ch === ' ' ? '␣' : ch;
+          let cvs = document.createElement('canvas');
+          meta.renderChar(fonts[fn], i, cvs, 2, '#4fc3f7', '#111');
+          html += `<div class="char-row"><span class="char-label">'${label}'<span class="ascii"> ${i}</span></span>${canvasToImg(cvs)}</div>`;
+        }
+      } else {
+        let offset = meta.asciiOffset;
+        for (let i = 0; i < fonts[fn].length; i++) {
+          let ch = String.fromCharCode(i + offset);
+          let label = ch === ' ' ? '␣' : ch;
+          let cvs = document.createElement('canvas');
+          meta.renderChar(fonts[fn], i, cvs, 2, '#4fc3f7', '#111');
+          html += `<div class="char-row"><span class="char-label">'${label}'<span class="ascii"> ${i+offset}</span></span>${canvasToImg(cvs)}</div>`;
+        }
+      }
+      html += '</div></div>';
+    }
+  }
+  container.innerHTML = html;
+}
+
+function setupTabs() {
+  let bar = document.getElementById('tabBar');
+  let found = false;
+  let first = null;
+  for (let name of ['gFontSmall', 'gFontSmallBold', 'gFontBig', 'gFontBigDigits', 'gFont3x5']) {
+    if (!loadedFonts[name]) continue;
+    let meta = name === 'gFontSmallBold' ? FONT_META.gFontSmall : FONT_META[name];
+    let label = meta ? meta.label : name;
+    let btn = document.createElement('button');
+    btn.textContent = label;
+    btn.dataset.font = name;
+    if (!first) { first = name; btn.classList.add('active'); }
+    btn.addEventListener('click', function() {
+      bar.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+      this.classList.add('active');
+      document.getElementById('fontSelect').value = this.dataset.font;
+      renderTextPreview();
+      scrollToFontOverview(this.dataset.font);
+    });
+    bar.appendChild(btn);
+    found = true;
+  }
+  if (!found) bar.innerHTML = '';
+}
+
+function scrollToFontOverview(fontName) {
+  let grid = document.getElementById('overviewGrid');
+  let sections = grid.querySelectorAll('.section');
+  for (let s of sections) {
+    let h3 = s.querySelector('h3');
+    if (h3 && h3.textContent.includes(fontName)) {
+      s.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      s.style.transition = 'background 0.5s';
+      s.style.background = 'rgba(79,195,247,0.1)';
+      setTimeout(() => { s.style.background = ''; }, 1000);
+      break;
+    }
+  }
+}
+
+function updateCompare() {
+  if (!document.getElementById('compareCheck').checked) return;
+  let gridA = document.getElementById('gridA');
+  let gridB = document.getElementById('gridB');
+  let fontsA = compareFonts.A;
+  let fontsB = compareFonts.B;
+
+  if (!fontsA && !fontsB) { gridA.innerHTML = '<div class="info">请导入两份文件进行对比</div>'; gridB.innerHTML = ''; return; }
+
+  let fontNames = ['gFontSmall', 'gFontSmallBold', 'gFontBig', 'gFontBigDigits', 'gFont3x5'];
+  let htmlA = '', htmlB = '';
+
+  for (let fn of fontNames) {
+    if (!fontsA || !fontsA[fn]) continue;
+    let meta = fn === 'gFontSmallBold' ? FONT_META.gFontSmall : FONT_META[fn];
+    if (!meta) continue;
+    htmlA += `<div class="section"><h3 style="color:#aaa;font-size:14px;margin-bottom:6px">${meta.label}</h3><div>`;
+    htmlB += `<div class="section"><h3 style="color:#aaa;font-size:14px;margin-bottom:6px">${meta.label}</h3><div>`;
+
+    let dataA = fontsA[fn], dataB = fontsB ? fontsB[fn] : null;
+    let offset = meta.asciiOffset;
+
+    let compareFn = (fn === 'gFontBigDigits')
+      ? (i) => '0123456789-'[i] || '?'
+      : (i) => String.fromCharCode(i + offset);
+
+    for (let i = 0; i < dataA.length; i++) {
+      let ch = compareFn(i);
+      let label = ch === ' ' ? '␣' : ch;
+
+      let cvsA = document.createElement('canvas');
+      meta.renderChar(dataA, i, cvsA, 2, '#4fc3f7', '#111');
+
+      let isDiff = false;
+      let cvsB = document.createElement('canvas');
+      if (dataB && i < dataB.length) {
+        meta.renderChar(dataB, i, cvsB, 2, '#4fc3f7', '#111');
+        isDiff = !arraysEqual(dataA[i], dataB[i]);
+      } else {
+        meta.renderChar(dataA, i, cvsB, 2, '#4fc3f7', '#111');
+        isDiff = !!dataB;
+      }
+
+      let cls = isDiff ? 'diff-highlight' : '';
+      htmlA += `<div class="char-row ${cls}"><span class="char-label">'${label}'<span class="ascii"> ${i+offset}</span></span>${canvasToImg(cvsA)}</div>`;
+      htmlB += `<div class="char-row ${cls}"><span class="char-label">'${label}'<span class="ascii"> ${i+offset}</span></span>${canvasToImg(cvsB)}</div>`;
+    }
+    htmlA += '</div></div>';
+    htmlB += '</div></div>';
+  }
+  gridA.innerHTML = htmlA;
+  gridB.innerHTML = htmlB;
+}
+
+function canvasToImg(cvs, scale) {
+  let dataUrl = cvs.toDataURL();
+  let w = cvs.width, h = cvs.height;
+  return `<img src="${dataUrl}" width="${w}" height="${h}" style="image-rendering:pixelated" alt="">`;
+}
+
+function arraysEqual(a, b) {
+  if (!a || !b || a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
+console.log('UV-K5 Font Viewer loaded');
+console.log('Drag & drop a font.c file to preview fonts');
+</script>
+</body>
+</html>
