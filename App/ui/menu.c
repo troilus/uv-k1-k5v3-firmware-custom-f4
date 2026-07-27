@@ -780,8 +780,8 @@ void UI_DisplayMenu(void)
                 sprintf(String, "%.3s.%.3s  ",ascii, ascii + 3);
             }
 
-            UI_PrintString(String, menu_item_x1, menu_item_x2, 1, 8);
-            UI_PrintString("MHz",  menu_item_x1, menu_item_x2, 3, 8);
+            UI_PrintStringSmallBold(String, menu_item_x1, menu_item_x2, 2);
+            UI_PrintStringSmallBold("MHz",  menu_item_x1, menu_item_x2, 3);
 
             already_printed = true;
             break;
@@ -918,17 +918,17 @@ void UI_DisplayMenu(void)
                 const bool valid = RADIO_CheckValidChannel(gSubMenuSelection, false, 0);
 
                 UI_GenerateChannelStringEx(String, valid, gSubMenuSelection);
-                UI_PrintString(String, menu_item_x1, menu_item_x2, 0, 8);
+                UI_PrintStringSmallBold(String, menu_item_x1, menu_item_x2, 1);
 
                 if (valid && !gAskForConfirmation)
                 {   // show the frequency so that the user knows the channels frequency
                     const uint32_t frequency = SETTINGS_FetchChannelFrequency(gSubMenuSelection);
                     sprintf(String, "%u.%05u", frequency / 100000, frequency % 100000);
-                    UI_PrintString(String, menu_item_x1, menu_item_x2, 5, 8);
+                    UI_PrintStringSmallBold(String, menu_item_x1, menu_item_x2, 3);
                 }
 
                 SETTINGS_FetchChannelName(String, gSubMenuSelection);
-                UI_PrintString(String[0] ? String : "--", menu_item_x1, menu_item_x2, 2, 8);
+                UI_PrintStringSmallBold(String[0] ? String : "--", menu_item_x1, menu_item_x2, 2);
                 already_printed = true;
                 break;
             }
@@ -952,12 +952,12 @@ void UI_DisplayMenu(void)
                 {   // show the channel name
                     SETTINGS_FetchChannelName(String, gSubMenuSelection);
                     char *pPrintStr = String[0] ? String : "--";
-                    UI_PrintString(pPrintStr, menu_item_x1, menu_item_x2, 2, 8);
+                    UI_PrintStringSmallBold(pPrintStr, menu_item_x1, menu_item_x2, 2);
                 }
                 else
                 {   // show the channel name being edited
-                    //UI_PrintString(edit, menu_item_x1, 0, 2, 8);
-                    UI_PrintString(edit, menu_item_x1, menu_item_x2, 2, 8);
+                    //UI_PrintStringSmallBold(edit, menu_item_x1, 0, 2);
+                    UI_PrintStringSmallBold(edit, menu_item_x1, menu_item_x2, 2);
                     if (edit_index < 10) {
                         // UI_PrintString("^", menu_item_x1 - 1 + (8 * edit_index),0, 4, 8); // show the cursor
                         uint8_t x = menu_item_x1 - 1;
@@ -1475,14 +1475,14 @@ void UI_DisplayMenu(void)
     }
 
     if ((m == MENU_R_CTCS || m == MENU_R_DCS) && gCssBackgroundScan)
-        UI_PrintString("SCAN", menu_item_x1, menu_item_x2, 4, 8);
+        UI_PrintStringSmallBold("SCAN", menu_item_x1, menu_item_x2, 4);
 
 #ifdef ENABLE_DTMF_CALLING
     if (m == MENU_D_LIST && gIsDtmfContactValid) {
         Contact[11] = 0;
         memcpy(&gDTMF_ID, Contact + 8, 4);
         sprintf(String, "ID:%4s", gDTMF_ID);
-        UI_PrintString(String, menu_item_x1, menu_item_x2, 4, 8);
+        UI_PrintStringSmallBold(String, menu_item_x1, menu_item_x2, 4);
     }
 #endif
 
