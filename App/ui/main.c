@@ -1661,7 +1661,12 @@ void UI_DisplayMain(void)
                             else
                             {
                                 sprintf(String, "%03u.%05u", frequency / 100000, frequency % 100000);
-                                UI_PrintStringSmallNormal(String, 32 + 4, 0, line + 1);
+    // 修改这里：频率加粗
+    if (isMainVFO) {
+        UI_PrintStringSmallBold(String, 32 + 4, 0, line + 1);
+    } else {
+        UI_PrintStringSmallNormal(String, 32 + 4, 0, line + 1);
+    }
                             }
 #else                           // show the channel frequency below the channel number/name
                             sprintf(String, "%03u.%05u", frequency / 100000, frequency % 100000);
@@ -1810,14 +1815,25 @@ void UI_DisplayMain(void)
 
         if (gSetting_set_gui)
         {
-            UI_PrintStringSmallNormal(s, LCD_WIDTH + 22, 0, line + 1);
-            UI_PrintStringSmallNormal(t, LCD_WIDTH + 2, 0, line + 1);
+    // 修改这里：调制模式加粗
+    if (isMainVFO) {
+        UI_PrintStringSmallBold(s, LCD_WIDTH + 22, 0, line + 1);
+        UI_PrintStringSmallBold(t, LCD_WIDTH + 2, 0, line + 1);
+    } else {
+        UI_PrintStringSmallNormal(s, LCD_WIDTH + 22, 0, line + 1);
+        UI_PrintStringSmallNormal(t, LCD_WIDTH + 2, 0, line + 1);
+    }
 
             if (isMainOnly() && !gDTMF_InputMode)
             {
                 if(shift == 0)
                 {
-                    UI_PrintStringSmallNormal(String, 2, 0, 6);
+            // 修改这里：CTCSS/DCS值加粗
+            if (isMainVFO) {
+                UI_PrintStringSmallBold(String, 2, 0, 6);
+            } else {
+                UI_PrintStringSmallNormal(String, 2, 0, 6);
+            }
                 }
 
                 if((vfoInfo->StepFrequency / 100) < 100)
@@ -1828,7 +1844,12 @@ void UI_DisplayMain(void)
                 {
                     sprintf(String, "%dK", vfoInfo->StepFrequency / 100);               
                 }
-                UI_PrintStringSmallNormal(String, 46, 0, 6);
+        // 修改这里：步进频率加粗
+        if (isMainVFO) {
+            UI_PrintStringSmallBold(String, 46, 0, 6);
+        } else {
+            UI_PrintStringSmallNormal(String, 46, 0, 6);
+        }
             }
         }
         else
@@ -1872,8 +1893,12 @@ void UI_DisplayMain(void)
                 const char pwr_short[][3] = {"L1", "L2", "L3", "L4", "L5", "M", "H"};
                 //sprintf(String, "%s", pwr_short[currentPower]);
                 //UI_PrintStringSmallNormal(String, LCD_WIDTH + 42, 0, line + 1);
-                UI_PrintStringSmallNormal(pwr_short[currentPower], LCD_WIDTH + 42, 0, line + 1);
-
+    // 修改这里：功率等级加粗
+    if (isMainVFO) {
+        UI_PrintStringSmallBold(pwr_short[currentPower], LCD_WIDTH + 42, 0, line + 1);
+    } else {
+        UI_PrintStringSmallNormal(pwr_short[currentPower], LCD_WIDTH + 42, 0, line + 1);
+    }
                 arrowPos = 38;
             }
             else
@@ -1908,7 +1933,11 @@ void UI_DisplayMain(void)
 #if ENABLE_FEAT_F4HWN
         if (gSetting_set_gui)
         {
-            UI_PrintStringSmallNormal(dir_list[i], LCD_WIDTH + 60, 0, line + 1);
+    if (isMainVFO) {
+        UI_PrintStringSmallBold(dir_list[i], LCD_WIDTH + 60, 0, line + 1);
+    } else {
+        UI_PrintStringSmallNormal(dir_list[i], LCD_WIDTH + 60, 0, line + 1);
+    }
         }
         else
         {
@@ -1936,7 +1965,12 @@ void UI_DisplayMain(void)
         {
             if (gSetting_set_gui)
             {
-                UI_PrintStringSmallNormal("R", LCD_WIDTH + 68, 0, line + 1);
+                    // 修改这里：反向符号加粗
+        if (isMainVFO) {
+            UI_PrintStringSmallBold("R", LCD_WIDTH + 68, 0, line + 1);
+        } else {
+            UI_PrintStringSmallNormal("R", LCD_WIDTH + 68, 0, line + 1);
+        }
             }
             else
             {
@@ -1961,7 +1995,19 @@ void UI_DisplayMain(void)
             if (gSetting_set_gui)
             {
                 const char *bandWidthNames[] = {"W", "N", "N+"};
-                UI_PrintStringSmallNormal(bandWidthNames[displayBandwidth + narrower], LCD_WIDTH + 80, 0, line + 1);
+
+
+
+
+                    // 修改这里：带宽加粗
+    if (isMainVFO) {
+        UI_PrintStringSmallBold(bandWidthNames[displayBandwidth + narrower], LCD_WIDTH + 80, 0, line + 1);
+    } else {
+        UI_PrintStringSmallNormal(bandWidthNames[displayBandwidth + narrower], LCD_WIDTH + 80, 0, line + 1);
+    }
+
+
+
             }
             else
             {
@@ -1972,7 +2018,16 @@ void UI_DisplayMain(void)
             if (gSetting_set_gui)
             {
                 const char *bandWidthNames[] = {"W", "N"};
-                UI_PrintStringSmallNormal(bandWidthNames[displayBandwidth], LCD_WIDTH + 80, 0, line + 1);
+               
+                
+                    // 修改这里：带宽加粗
+    if (isMainVFO) {
+        UI_PrintStringSmallBold(bandWidthNames[displayBandwidth], LCD_WIDTH + 80, 0, line + 1);
+    } else {
+        UI_PrintStringSmallNormal(bandWidthNames[displayBandwidth], LCD_WIDTH + 80, 0, line + 1);
+    }
+
+    
             }
             else
             {
@@ -2032,7 +2087,19 @@ void UI_DisplayMain(void)
            }
 
            if (gSetting_set_gui) {
-                UI_PrintStringSmallNormal(String, LCD_WIDTH + 98, 0, line + 1);
+                
+
+
+
+                    // 修改这里：带宽加粗
+    if (isMainVFO) {
+        UI_PrintStringSmallBold(String, LCD_WIDTH + 98, 0, line + 1);
+    } else {
+        UI_PrintStringSmallNormal(String, LCD_WIDTH + 98, 0, line + 1);
+    }
+
+
+
            } else {
                 GUI_DisplaySmallest(String, 110, line == 0 ? 17 : 49, false, true);
            }

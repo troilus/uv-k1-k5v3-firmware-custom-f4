@@ -47,7 +47,7 @@ static void convertTime(uint8_t *line, uint8_t type)
 
     char str[6];
     sprintf(str, "%02u:%02u", m, s);
-    UI_PrintStringSmallBufferNormal(str, line);
+    UI_PrintStringSmallBufferBold(str, line);
 
     gUpdateStatus = true;
 }
@@ -130,7 +130,7 @@ void UI_DisplayStatus()
         // Only for debug
 
         sprintf(str, "%d", gDebug);
-        UI_PrintStringSmallBufferNormal(str, line + x + 1);
+        UI_PrintStringSmallBufferBold(str, line + x + 1);
         x += 16;
     #else
         #ifdef ENABLE_VOICE
@@ -219,7 +219,7 @@ void UI_DisplayStatus()
 #ifdef ENABLE_FEAT_F4HWN
     // FM indicator
     if (gFmRadioMode) {
-        UI_PrintStringSmallBufferNormal("FM", line + x);
+        UI_PrintStringSmallBufferBold("FM", line + x);
         x1 = x + 13;
         x += 16;
     }
@@ -268,7 +268,7 @@ void UI_DisplayStatus()
             uint8_t sl_width = strlen(scanlist_str) * 7;
             uint8_t sl_x = x + 1 - sl_width - 4;
             if (sl_x > 2) {
-                UI_PrintStringSmallBufferNormal(scanlist_str, line + sl_x);
+                UI_PrintStringSmallBufferBold(scanlist_str, line + sl_x);
             }
         }
     }
@@ -282,7 +282,7 @@ void UI_DisplayStatus()
         {
             const uint16_t v = (gBatteryVoltageAverage <= 999) ? gBatteryVoltageAverage : 999;
             sprintf(str, "%u.%02uV", v / 100, v % 100);
-            UI_PrintStringSmallBufferNormal(str, line + 0);
+            UI_PrintStringSmallBufferBold(str, line + 0);
             break;
         }
         default:
@@ -294,7 +294,7 @@ void UI_DisplayStatus()
         case 3:
             sprintf(str, "%02u%%", BATTERY_VoltsToPercent(gBatteryVoltageAverage));
             x2 -= (7 * strlen(str));
-            UI_PrintStringSmallBufferNormal(str, line + x2);
+            UI_PrintStringSmallBufferBold(str, line + x2);
             break;
         default:
             break;
