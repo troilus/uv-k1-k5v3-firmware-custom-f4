@@ -25,7 +25,7 @@
                 "ENABLE_SPECTRUM": false,
                 "ENABLE_BIG_FREQ": true,
                 "ENABLE_SMALL_BOLD": true,
-                "ENABLE_CUSTOM_MENU_LAYOUT": false,
+                "ENABLE_CUSTOM_MENU_LAYOUT": true,
                 "ENABLE_KEEP_MEM_NAME": true,
                 "ENABLE_WIDE_RX": true,
                 "ENABLE_TX_WHEN_AM": false,

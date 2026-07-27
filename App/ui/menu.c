@@ -649,53 +649,38 @@ void UI_DisplayMenu(void)
     UI_PrintStringSmallNormal(String, 2, 0, 6);
 
 #else
-    {   // new menu layout .. experimental & unfinished
-        const int menu_index = gMenuCursor;  // current selected menu item
-        i = 1;
+    {   // custom menu layout: 4 visible items, selected at row 2, inverted
+        const int menu_index = gMenuCursor;
 
-        if (!gIsInSubMenu) {
-            while (i < 2)
-            {   // leading menu items - small text
-                const int k = menu_index + i - 2;
-                if (k < 0)
-                    UI_PrintStringSmallNormal(MenuList[gMenuListCount + k].name, 0, 0, i);  // wrap-a-round
-                else if (k >= 0 && k < (int)gMenuListCount)
-                    UI_PrintStringSmallNormal(MenuList[k].name, 0, 0, i);
-                i++;
-            }
+        for (int slot = 1; slot < 5; slot++)
+        {
+            const int k = menu_index + slot - 2;
 
-            // current menu item - keep big n fat
-            if (menu_index >= 0 && menu_index < (int)gMenuListCount)
-                UI_PrintString(MenuList[menu_index].name, 0, 0, 2, 8);
-            i++;
+            int ki = k;
+            if (ki < 0)
+                ki += (int)gMenuListCount;
+            else if (ki >= (int)gMenuListCount)
+                ki -= (int)gMenuListCount;
 
-            while (i < 4)
-            {   // trailing menu item - small text
-                const int k = menu_index + i - 2;
-                if (k >= 0 && k < (int)gMenuListCount)
-                    UI_PrintStringSmallNormal(MenuList[k].name, 0, 0, 1 + i);
-                else if (k >= (int)gMenuListCount)
-                    UI_PrintStringSmallNormal(MenuList[gMenuListCount - k].name, 0, 0, 1 + i);  // wrap-a-round
-                i++;
-            }
+            if (ki < 0 || ki >= (int)gMenuListCount)
+                continue;
 
-            // draw the menu index number/count
-#ifndef ENABLE_FEAT_F4HWN
-            sprintf(String, "%2u.%u", 1 + gMenuCursor, gMenuListCount);
-            UI_PrintStringSmallNormal(String, 2, 0, 6);
-#endif
-        }
-        else if (menu_index >= 0 && menu_index < (int)gMenuListCount)
-        {   // current menu item
-//          strcat(String, ":");
-            UI_PrintString(MenuList[menu_index].name, 0, 0, 0, 8);
-//          UI_PrintStringSmallNormal(String, 0, 0, 0);
+            const unsigned int row = (unsigned int)slot;
+            if (slot == 2)
+                UI_PrintStringSmallBold(MenuList[ki].name, 0, 0, row);
+            else
+                UI_PrintStringSmallNormal(MenuList[ki].name, 0, 0, row);
         }
 
-#ifdef ENABLE_FEAT_F4HWN
+        for (i = 0; i < (unsigned int)(8 * menu_list_width); i++)
+            gFrameBuffer[2][i] ^= 0xFF;
+
+        if (gIsInSubMenu)
+            memcpy(gFrameBuffer[2] + (8 * menu_list_width) + 1,
+                   BITMAP_CurrentIndicator, sizeof(BITMAP_CurrentIndicator));
+
         sprintf(String, "%02u/%u", 1 + gMenuCursor, gMenuListCount);
         UI_PrintStringSmallNormal(String, 6, 0, 6);
-#endif
     }
 #endif
 
