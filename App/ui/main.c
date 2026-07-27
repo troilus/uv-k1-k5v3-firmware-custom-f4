@@ -1388,7 +1388,11 @@ void UI_DisplayMain(void)
                 sprintf(String, "%.4s", INPUTBOX_GetAsciiAlignRight() + 4);  // show the input text
 
             //if (gSetting_set_gui) {
-                UI_PrintStringSmallNormal(String, x, 0, line + 1);
+    if (isMainVFO) {
+        UI_PrintStringSmallBold(String, x, 0, line + 1);
+    } else {
+        UI_PrintStringSmallNormal(String, x, 0, line + 1);
+    }
             /*
             }
             else
@@ -1414,7 +1418,11 @@ void UI_DisplayMain(void)
 
             sprintf(String, over1GHz ? "F%u+" : "F%u", f);
             //if (gSetting_set_gui) {
-                UI_PrintStringSmallNormal(String, x, 0, line + 1);
+                if (isMainVFO) {
+                    UI_PrintStringSmallBold(String, x, 0, line + 1);
+                } else {
+                    UI_PrintStringSmallNormal(String, x, 0, line + 1);
+                }
             /*
             }
             else
