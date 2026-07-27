@@ -1552,7 +1552,7 @@ void UI_DisplayMain(void)
 
 #ifdef ENABLE_FEAT_F4HWN
                 if (isMainOnly()) {
-                    UI_PrintStringSmallNormal(displayStr, 2, 0, 6);
+                    UI_PrintStringSmallBold(displayStr, 2, 0, 6);
                 } else
 #endif
                 {
@@ -2258,7 +2258,7 @@ void UI_DisplayMain(void)
     if (isMainOnly() && !gDTMF_InputMode)
     {
         sprintf(String, "VFO %s", activeTxVFO ? "B" : "A");
-        UI_PrintStringSmallNormal(String, 92, 0, 6);
+        UI_PrintStringSmallBold(String, 92, 0, 6);
         /*GUI_DisplaySmallest(String, 107, 50, false, true);
 
         gFrameBuffer[6][105] ^= 0x7C;
