@@ -47,8 +47,8 @@
 const t_menu_item MenuList[] =
 {
 //   text,          menu ID
-    {"SQL",         MENU_SQL           },
-    {"模式",        MENU_AM            }, // was "AM"
+    {"静噪等级",         MENU_SQL           },
+    {"接收模式",        MENU_AM            }, // was "AM"
     {"步进",        MENU_STEP          },
     {"功率",       MENU_TXP           }, // was "TXP"
     {"RxDCS",       MENU_R_DCS         }, // was "R_DCS"
@@ -58,8 +58,8 @@ const t_menu_item MenuList[] =
     {"TxDir",      MENU_SFT_D         }, // was "SFT_D"
     {"TxOffs",      MENU_OFFSET        }, // was "OFFSET"
     {"宽窄带",         MENU_W_N           },
-    {"存信道",      MENU_MEM_CH        }, // was "MEM-CH"
-    {"删信道",      MENU_DEL_CH        }, // was "DEL-CH"
+    {"存储信道",      MENU_MEM_CH        }, // was "MEM-CH"
+    {"删除信道",      MENU_DEL_CH        }, // was "DEL-CH"
     {"信道名",      MENU_MEM_NAME      },
     {"VOX",         MENU_VOX           },
 #ifdef ENABLE_FEAT_F4HWN
@@ -649,53 +649,47 @@ void UI_DisplayMenu(void)
     UI_PrintStringSmallNormal(String, 2, 0, 6);
 
 #else
-    {   // new menu layout .. experimental & unfinished
-        const int menu_index = gMenuCursor;  // current selected menu item
-        i = 1;
+    {   // uniform small font, 5 visible items
+        const int menu_index = gMenuCursor;
+        i = 0;
 
         if (!gIsInSubMenu) {
             while (i < 2)
-            {   // leading menu items - small text
+            {   // leading items
                 const int k = menu_index + i - 2;
                 if (k < 0)
-                    UI_PrintStringSmallNormal(MenuList[gMenuListCount + k].name, 0, 0, i);  // wrap-a-round
+                    UI_PrintStringSmallNormal(MenuList[gMenuListCount + k].name, 0, 0, i);
                 else if (k >= 0 && k < (int)gMenuListCount)
                     UI_PrintStringSmallNormal(MenuList[k].name, 0, 0, i);
                 i++;
             }
 
-            // current menu item - keep big n fat
+            // selected item
             if (menu_index >= 0 && menu_index < (int)gMenuListCount)
-                UI_PrintString(MenuList[menu_index].name, 0, 0, 2, 8);
+                UI_PrintStringSmallNormal(MenuList[menu_index].name, 0, 0, 2);
+            for (unsigned int c = 0; c < LCD_WIDTH; c++)
+                gFrameBuffer[2][c] ^= 0xFF;
             i++;
 
-            while (i < 4)
-            {   // trailing menu item - small text
+            while (i < 5)
+            {   // trailing items
                 const int k = menu_index + i - 2;
                 if (k >= 0 && k < (int)gMenuListCount)
-                    UI_PrintStringSmallNormal(MenuList[k].name, 0, 0, 1 + i);
+                    UI_PrintStringSmallNormal(MenuList[k].name, 0, 0, i);
                 else if (k >= (int)gMenuListCount)
-                    UI_PrintStringSmallNormal(MenuList[gMenuListCount - k].name, 0, 0, 1 + i);  // wrap-a-round
+                    UI_PrintStringSmallNormal(MenuList[gMenuListCount - k].name, 0, 0, i);
                 i++;
             }
 
-            // draw the menu index number/count
-#ifndef ENABLE_FEAT_F4HWN
-            sprintf(String, "%2u.%u", 1 + gMenuCursor, gMenuListCount);
-            UI_PrintStringSmallNormal(String, 2, 0, 6);
+#ifdef ENABLE_FEAT_F4HWN
+            sprintf(String, "%02u/%u", 1 + gMenuCursor, gMenuListCount);
+            UI_PrintStringSmallNormal(String, 6, 0, 6);
 #endif
         }
         else if (menu_index >= 0 && menu_index < (int)gMenuListCount)
-        {   // current menu item
-//          strcat(String, ":");
-            UI_PrintString(MenuList[menu_index].name, 0, 0, 0, 8);
-//          UI_PrintStringSmallNormal(String, 0, 0, 0);
+        {   // submenu - item name at top
+            UI_PrintStringSmallNormal(MenuList[menu_index].name, 0, 0, 0);
         }
-
-#ifdef ENABLE_FEAT_F4HWN
-        sprintf(String, "%02u/%u", 1 + gMenuCursor, gMenuListCount);
-        UI_PrintStringSmallNormal(String, 6, 0, 6);
-#endif
     }
 #endif
 
@@ -795,8 +789,8 @@ void UI_DisplayMenu(void)
                 sprintf(String, "%.3s.%.3s  ",ascii, ascii + 3);
             }
 
-            UI_PrintString(String, menu_item_x1, menu_item_x2, 1, 8);
-            UI_PrintString("MHz",  menu_item_x1, menu_item_x2, 3, 8);
+            UI_PrintStringSmallBold(String, menu_item_x1, menu_item_x2, 1);
+            UI_PrintStringSmallBold("MHz",  menu_item_x1, menu_item_x2, 3);
 
             already_printed = true;
             break;
@@ -924,7 +918,7 @@ void UI_DisplayMenu(void)
         {
             if(gSubMenuSelection == MR_CHANNELS_MAX)
             {
-                UI_PrintString("None", menu_item_x1, menu_item_x2, 2, 8);
+                UI_PrintStringSmallBold("None", menu_item_x1, menu_item_x2, 2);
                 already_printed = true;
                 break;
             }
@@ -933,17 +927,17 @@ void UI_DisplayMenu(void)
                 const bool valid = RADIO_CheckValidChannel(gSubMenuSelection, false, 0);
 
                 UI_GenerateChannelStringEx(String, valid, gSubMenuSelection);
-                UI_PrintString(String, menu_item_x1, menu_item_x2, 0, 8);
+                UI_PrintStringSmallBold(String, menu_item_x1, menu_item_x2, 0);
 
                 if (valid && !gAskForConfirmation)
-                {   // show the frequency so that the user knows the channels frequency
+                {
                     const uint32_t frequency = SETTINGS_FetchChannelFrequency(gSubMenuSelection);
                     sprintf(String, "%u.%05u", frequency / 100000, frequency % 100000);
-                    UI_PrintString(String, menu_item_x1, menu_item_x2, 5, 8);
+                    UI_PrintStringSmallBold(String, menu_item_x1, menu_item_x2, 5);
                 }
 
                 SETTINGS_FetchChannelName(String, gSubMenuSelection);
-                UI_PrintString(String[0] ? String : "--", menu_item_x1, menu_item_x2, 2, 8);
+                UI_PrintStringSmallBold(String[0] ? String : "--", menu_item_x1, menu_item_x2, 2);
                 already_printed = true;
                 break;
             }
@@ -954,53 +948,50 @@ void UI_DisplayMenu(void)
             const bool valid = RADIO_CheckValidChannel(gSubMenuSelection, false, 0);
 
             UI_GenerateChannelStringEx(String, valid, gSubMenuSelection);
-            UI_PrintString(String, menu_item_x1, menu_item_x2, 0, 8);
+            UI_PrintStringSmallBold(String, menu_item_x1, menu_item_x2, 0);
 
             if (valid)
             {
                 const uint32_t frequency = SETTINGS_FetchChannelFrequency(gSubMenuSelection);
 
-                //if (!gIsInSubMenu || edit_index < 0)
                 if (!gIsInSubMenu)
                     edit_index = -1;
                 if (edit_index < 0)
-                {   // show the channel name
+                {
                     SETTINGS_FetchChannelName(String, gSubMenuSelection);
                     char *pPrintStr = String[0] ? String : "--";
-                    UI_PrintString(pPrintStr, menu_item_x1, menu_item_x2, 2, 8);
+                    UI_PrintStringSmallBold(pPrintStr, menu_item_x1, menu_item_x2, 2);
                 }
                 else
-                {   // show the channel name being edited
-                    //UI_PrintString(edit, menu_item_x1, 0, 2, 8);
-                    UI_PrintString(edit, menu_item_x1, menu_item_x2, 2, 8);
+                {
+                    UI_PrintStringSmallBold(edit, menu_item_x1, menu_item_x2, 2);
                     if (edit_index < 10) {
-                        // UI_PrintString("^", menu_item_x1 - 1 + (8 * edit_index),0, 4, 8); // show the cursor
                         uint8_t x = menu_item_x1 - 1;
-                        for (uint8_t i = 0; i < 10; i++) 
+                        for (uint8_t i = 0; i < 10; i++)
                         {
-                            if (i != edit_index) 
+                            if (i != edit_index)
                             {
                                 if (edit[i] != 'g' && edit[i] != 'j')
                                 {
-                                    UI_DrawLineBuffer(gFrameBuffer, x, 29, x + 6, 29, 1);
+                                    UI_DrawLineBuffer(gFrameBuffer, x, 25, x + 6, 25, 1);
                                 }
                             }
-                            else 
+                            else
                             {
-                                UI_DrawLineBuffer(gFrameBuffer, x + 2, 30, x + 4, 30, 1);
-                                UI_DrawPixelBuffer(gFrameBuffer, x + 3, 29, 1);
+                                UI_DrawLineBuffer(gFrameBuffer, x + 2, 26, x + 4, 26, 1);
+                                UI_DrawPixelBuffer(gFrameBuffer, x + 3, 25, 1);
                             }
                             x += 8;
                         }
-                        
+
                         UI_PrintStringSmallNormal(edit_is_uppercase ? "ABC" : "abc", 77, 0, 4);
                     }
                 }
 
                 if (!gAskForConfirmation)
-                {   // show the frequency so that the user knows the channels frequency
+                {
                     sprintf(String, "%u.%05u", frequency / 100000, frequency % 100000);
-                    UI_PrintString(String, menu_item_x1, menu_item_x2, 5, 8);
+                    UI_PrintStringSmallBold(String, menu_item_x1, menu_item_x2, 4);
                 }
             }
 
@@ -1432,8 +1423,6 @@ void UI_DisplayMenu(void)
         unsigned int y;
         unsigned int lines = 1;
         unsigned int len   = strlen(String);
-        bool         small = false;
-
         if (len > 0)
         {
             // count number of lines
@@ -1442,44 +1431,26 @@ void UI_DisplayMenu(void)
                 if (String[i] == '\n' && i < (len - 1))
                 {   // found new line char
                     lines++;
-                    String[i] = 0;  // null terminate the line
+                    String[i] = 0;
                 }
             }
 
-            if (lines > 3)
-            {   // use small text
-                small = true;
-                if (lines > 7)
-                    lines = 7;
-            }
+            if (lines > 7)
+                lines = 7;
 
-            // center vertically'ish
-            /*
-            if (small)
-                y = 3 - ((lines + 0) / 2);  // untested
-            else
-                y = 2 - ((lines + 0) / 2);
-            */
+            y = 3 - (lines / 2);
 
-            y = (small ? 3 : 2) - (lines / 2); 
-
-            // draw the text lines
             for (i = 0; i < len && lines > 0; lines--)
             {
-                if (small)
-                    UI_PrintStringSmallNormal(String + i, menu_item_x1, menu_item_x2, y);
-                else
-                    UI_PrintString(String + i, menu_item_x1, menu_item_x2, y, 8);
+                UI_PrintStringSmallNormal(String + i, menu_item_x1, menu_item_x2, y);
 
-                // look for start of next line
                 while (i < len && String[i] >= 32)
                     i++;
 
-                // hop over the null term char(s)
                 while (i < len && String[i] < 32)
                     i++;
 
-                y += small ? 1 : 2;
+                y++;
             }
         }
     }
@@ -1490,14 +1461,14 @@ void UI_DisplayMenu(void)
     }
 
     if ((m == MENU_R_CTCS || m == MENU_R_DCS) && gCssBackgroundScan)
-        UI_PrintString("SCAN", menu_item_x1, menu_item_x2, 4, 8);
+        UI_PrintStringSmallBold("SCAN", menu_item_x1, menu_item_x2, 4);
 
 #ifdef ENABLE_DTMF_CALLING
     if (m == MENU_D_LIST && gIsDtmfContactValid) {
         Contact[11] = 0;
         memcpy(&gDTMF_ID, Contact + 8, 4);
         sprintf(String, "ID:%4s", gDTMF_ID);
-        UI_PrintString(String, menu_item_x1, menu_item_x2, 4, 8);
+        UI_PrintStringSmallBold(String, menu_item_x1, menu_item_x2, 4);
     }
 #endif
 
@@ -1543,7 +1514,7 @@ void UI_DisplayMenu(void)
          m == MENU_DEL_CH) && gAskForConfirmation)
     {   // display confirmation
         char *pPrintStr = (gAskForConfirmation == 1) ? "SURE?" : "WAIT!";
-        UI_PrintString(pPrintStr, menu_item_x1, menu_item_x2, 5, 8);
+        UI_PrintStringSmallBold(pPrintStr, menu_item_x1, menu_item_x2, 5);
     }
 
     ST7565_BlitFullScreen();
