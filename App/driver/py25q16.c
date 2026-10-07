@@ -39,9 +39,28 @@
 #define PAGE_SIZE 0x100
 
 static uint32_t SectorCacheAddr = 0x1000000;
-static uint8_t SectorCache[SECTOR_SIZE];
+/* The 4 KiB sector cache doubles as the overlay-app execution workspace. The
+ * linker pins it at 0x20000280 (see Core/py32f071xb.ld) so the prebuilt
+ * upstream .app blobs, linked for that VMA, run unchanged. Kept in its own
+ * section so the linker can place it at the fixed address. */
+static uint8_t SectorCache[SECTOR_SIZE]
+    __attribute__((section(".bss.mb_workspace"), aligned(4), used));
 static uint8_t BlackHole[4] __attribute__((aligned(4)));
 static volatile bool TC_Flag;
+
+/* Drop the write cache so the next read-modify-write cannot skip or resurrect
+ * data based on a stale cached sector. Also called before the overlay loader
+ * reuses the cache storage as executable app code. */
+void PY25Q16_InvalidateCache(void)
+{
+    SectorCacheAddr = 0x1000000;
+}
+
+/* The 4 KiB sector cache, reused as the overlay-app workspace. */
+uint8_t *PY25Q16_OverlayBuffer(void)
+{
+    return SectorCache;
+}
 
 static inline void CS_Assert()
 {

@@ -154,7 +154,30 @@ SECTIONS
     . = ALIGN(4);
   } >RAM AT> FLASH
   _eflash_used = LOADADDR(.noncacheable) + SIZEOF(.noncacheable);
-  
+
+  /* Overlay-app 4 KiB execution workspace. It reuses the PY25Q16 sector cache
+     (py25q16.c places SectorCache in .bss.mb_workspace). The VMA is PINNED to
+     ORIGIN(RAM) + 0x280 so the prebuilt upstream .app blobs, which are all
+     linked at 0x20000280, pass the loader's VMA guard. Everything before the
+     anchor must fit in 0x280 or the build fails loudly here. */
+  ASSERT((ADDR(.noncacheable) + SIZEOF(.noncacheable)) <= (ORIGIN(RAM) + 0x280),
+         "RAM before the overlay exceeds the fixed 0x280 anchor")
+  . = ORIGIN(RAM) + 0x280;
+  .mb_workspace (NOLOAD) :
+  {
+    . = ALIGN(4);
+    __mb_workspace_start = .;
+    KEEP(*(.bss.mb_workspace))
+    KEEP(*(.bss.mb_workspace*))
+    . = ALIGN(4);
+    __mb_workspace_end = .;
+  } >RAM
+  __mb_workspace_size = SIZEOF(.mb_workspace);
+  ASSERT(__mb_workspace_size == 0x1000,
+         "Overlay workspace must be exactly the 4 KiB PY25Q16 sector cache")
+  ASSERT(__mb_workspace_start == ORIGIN(RAM) + 0x280,
+         "Overlay workspace must be linked at 0x20000280")
+
   /* Uninitialized data section */
   . = ALIGN(4);
   .bss :

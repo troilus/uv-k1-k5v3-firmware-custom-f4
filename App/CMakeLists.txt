@@ -217,6 +217,26 @@ endif()
 enable_feature(ENABLE_FEAT_F4HWN_QRCODE)
 enable_feature(ENABLE_FEAT_F4HWN_LOGO)
 
+# ---- OVERLAY APPS ----
+# Modal code blobs loaded from the external SPI flash into a fixed 4 KiB RAM
+# workspace. Deliberately independent of multiboot here (no firmware slots or
+# config banks): only the loader, the Apps selector and the optional SysInfo
+# ABI extension are built. The external-flash Apps region lives above the
+# built-in Chinese font, so the font is left untouched.
+enable_feature(ENABLE_FEAT_F4HWN_OVERLAY_APPS
+    apps/app_overlay.c
+    apps/app_menu.c
+)
+enable_feature(ENABLE_FEAT_F4HWN_OVERLAY_INFO
+    stack_usage.c
+)
+if(ENABLE_FEAT_F4HWN_OVERLAY_APPS AND NOT ENABLE_FEAT_F4HWN)
+    message(FATAL_ERROR "ENABLE_FEAT_F4HWN_OVERLAY_APPS requires ENABLE_FEAT_F4HWN.")
+endif()
+if(ENABLE_FEAT_F4HWN_OVERLAY_INFO AND NOT ENABLE_FEAT_F4HWN_OVERLAY_APPS)
+    message(FATAL_ERROR "ENABLE_FEAT_F4HWN_OVERLAY_INFO requires ENABLE_FEAT_F4HWN_OVERLAY_APPS.")
+endif()
+
 # ---- DEBUGGING ----
 
 enable_feature(ENABLE_AGC_SHOW_DATA)

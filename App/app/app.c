@@ -2404,3 +2404,38 @@ Skip:
 
     gUpdateDisplay = true;
 }
+
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
+/* Modal foreground loops (overlay apps) bypass APP_Update() and therefore also
+ * bypass the normal 10 ms fade and 500 ms BLTime service. Keep that service
+ * resident so every overlay app gets the same backlight timing without
+ * extending the app ABI. v5.5.0 has no animated screen saver, so the saver
+ * entry points are inert. */
+bool APP_IsScreenSaverDisplayed(void)
+{
+    return false;
+}
+
+void APP_ModalBacklightTick(bool allowScreenSaver)
+{
+    (void)allowScreenSaver;
+
+    if (gNextTimeslice) {
+        gNextTimeslice = false;
+        BACKLIGHT_Update();
+    }
+
+    if (!gNextTimeslice_500ms)
+        return;
+    gNextTimeslice_500ms = false;
+
+    if (gBacklightCountdown_500ms > 0 &&
+        gEeprom.BACKLIGHT_TIME < 61 &&
+        --gBacklightCountdown_500ms == 0)
+        BACKLIGHT_TurnOff();
+}
+
+void APP_ModalScreenSaverExit(void)
+{
+}
+#endif

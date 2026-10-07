@@ -45,6 +45,10 @@
 #include "settings.h"
 #include "version.h"
 
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
+    #include "apps/app_overlay.h"
+#endif
+
 #if defined(ENABLE_OVERLAY)
     #include "sram-overlay.h"
 #endif
@@ -782,6 +786,24 @@ bool UART_IsCommandAvailable(uint32_t Port)
     return CRC_Calculate(pUART_Command->Buffer, Size) == Crc;
 }
 
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
+/* The per-port session id latched by CMD_0514 (0x0514). The host repeats it in
+ * every app-slot write/erase, mirroring the EEPROM write auth, so a stray
+ * command cannot modify the Apps region. */
+static uint32_t uart_port_timestamp(uint32_t Port)
+{
+#if defined(ENABLE_UART)
+    if (Port == UART_PORT_UART)
+        return UART_Timestamp;
+#endif
+#if defined(ENABLE_USB)
+    if (Port == UART_PORT_VCP)
+        return VCP_Timestamp;
+#endif
+    return 0;
+}
+#endif
+
 void UART_HandleCommand(uint32_t Port)
 {
     UART_Command_t *pUART_Command;
@@ -851,6 +873,113 @@ void UART_HandleCommand(uint32_t Port)
                 NVIC_SystemReset();
             #endif
             break;
+
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
+        // ---- overlay-app slot management ("Apps"), external flash only -----
+        case 0x0730: // app slot info: read the 64-byte header only
+        {
+            if (pUART_Command->Header.Size < 1u) break;   // needs Data[0] (slot)
+            gSerialConfigCountDown_500ms = 12;            // keep serial mode alive (6 s)
+            uint8_t slot = pUART_Command->Data[0];
+            app_header_t hdr;
+            memset(&hdr, 0, sizeof(hdr));
+            uint8_t status = APP_SlotInfo(slot, &hdr);
+            struct __attribute__((packed)) {
+                Header_t Header;
+                uint8_t  Slot;
+                uint8_t  Status;
+                uint8_t  Hdr[sizeof(app_header_t)];
+            } Reply;
+            Reply.Header.ID   = 0x0731;
+            Reply.Header.Size = 2 + sizeof(app_header_t);
+            Reply.Slot        = slot;
+            Reply.Status      = status;
+            memcpy(Reply.Hdr, &hdr, sizeof(hdr));
+            SendReply(Port, &Reply, sizeof(Reply));
+            break;
+        }
+
+        case 0x0732: // app slot erase: wipe the 8 KiB slot (keeps tagged settings)
+        {
+            if (pUART_Command->Header.Size < 6u) break;   // Data[0] slot + Data[2..5] timestamp
+            gSerialConfigCountDown_500ms = 12;
+            uint8_t  slot = pUART_Command->Data[0];
+            uint32_t ts   = (uint32_t)pUART_Command->Data[2]
+                          | ((uint32_t)pUART_Command->Data[3] << 8)
+                          | ((uint32_t)pUART_Command->Data[4] << 16)
+                          | ((uint32_t)pUART_Command->Data[5] << 24);
+            uint8_t status = (ts != uart_port_timestamp(Port))
+                           ? APP_ERR_AUTH : APP_SlotErase(slot);
+            struct __attribute__((packed)) {
+                Header_t Header;
+                uint8_t  Slot;
+                uint8_t  Status;
+            } Reply;
+            Reply.Header.ID   = 0x0733;
+            Reply.Header.Size = 2;
+            Reply.Slot        = slot;
+            Reply.Status      = status;
+            SendReply(Port, &Reply, sizeof(Reply));
+            break;
+        }
+
+        case 0x0734: // app slot write: program bytes at slot+offset (pre-erased)
+        {
+            if (pUART_Command->Header.Size < 12u)
+                break;
+            gSerialConfigCountDown_500ms = 12;
+            uint8_t  slot   = pUART_Command->Data[0];
+            uint32_t offset = (uint32_t)pUART_Command->Data[2]
+                            | ((uint32_t)pUART_Command->Data[3] << 8)
+                            | ((uint32_t)pUART_Command->Data[4] << 16)
+                            | ((uint32_t)pUART_Command->Data[5] << 24);
+            uint16_t len    = (uint16_t)(pUART_Command->Data[6]
+                            | ((uint16_t)pUART_Command->Data[7] << 8));
+            uint32_t ts     = (uint32_t)pUART_Command->Data[8]
+                            | ((uint32_t)pUART_Command->Data[9] << 8)
+                            | ((uint32_t)pUART_Command->Data[10] << 16)
+                            | ((uint32_t)pUART_Command->Data[11] << 24);
+            uint8_t status;
+            if (ts != uart_port_timestamp(Port))
+                status = APP_ERR_AUTH;
+            else if (len > pUART_Command->Header.Size - 12u)
+                status = APP_ERR_SIZE;
+            else
+                status = APP_SlotWrite(slot, offset, &pUART_Command->Data[12], len);
+            struct __attribute__((packed)) {
+                Header_t Header;
+                uint8_t  Slot;
+                uint8_t  Status;
+            } Reply;
+            Reply.Header.ID   = 0x0735;
+            Reply.Header.Size = 2;
+            Reply.Slot        = slot;
+            Reply.Status      = status;
+            SendReply(Port, &Reply, sizeof(Reply));
+            break;
+        }
+
+        case 0x0736: // app slot validate: header only (code CRC is checked at launch)
+        {
+            if (pUART_Command->Header.Size < 1u) break;   // needs Data[0] (slot)
+            gSerialConfigCountDown_500ms = 12;
+            uint8_t  slot = pUART_Command->Data[0];
+            uint8_t  status = APP_ValidateSlot(slot, NULL);
+            if (status == APP_OK)
+                APP_NotifySlotChanged();
+            struct __attribute__((packed)) {
+                Header_t Header;
+                uint8_t  Slot;
+                uint8_t  Status;
+            } Reply;
+            Reply.Header.ID   = 0x0737;
+            Reply.Header.Size = 2;
+            Reply.Slot        = slot;
+            Reply.Status      = status;
+            SendReply(Port, &Reply, sizeof(Reply));
+            break;
+        }
+#endif
 
 #ifdef ENABLE_UART_RW_BK_REGS
         case 0x0601:

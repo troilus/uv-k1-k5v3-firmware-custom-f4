@@ -1,4 +1,5 @@
-/* Copyright 2025 muzkr https://github.com/muzkr
+/* Copyright 2026 Armel F4HWN
+ * https://github.com/armel
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,23 +14,12 @@
  *     limitations under the License.
  */
 
-#ifndef _SCHEDULER_H
-#define _SCHEDULER_H
+#ifndef APPS_APP_MENU_H
+#define APPS_APP_MENU_H
 
-#include "py32f0xx.h"
+/* Blocking "Apps" selector: scans the overlay-app slots, lists the committed
+ * ones by name, and launches the chosen one. UP/DOWN move, MENU launches, EXIT
+ * closes. Returns when the user leaves. */
+void APP_MenuOpen(void);
 
-static void inline SCHEDULER_Enable()
-{
-    NVIC_EnableIRQ(SysTick_IRQn);
-}
-
-static void inline SCHEDULER_Disable()
-{
-    NVIC_DisableIRQ(SysTick_IRQn);
-}
-
-/* Free-running 10 ms tick counter, incremented by SysTick_Handler. Used by the
- * overlay-app ABI (ticks_ms) as an absolute clock. */
-uint32_t SCHEDULER_GetTick10ms(void);
-
-#endif
+#endif /* APPS_APP_MENU_H */

@@ -44,6 +44,11 @@
 
 static volatile uint32_t gGlobalSysTickCounter;
 
+uint32_t SCHEDULER_GetTick10ms(void)
+{
+    return gGlobalSysTickCounter;
+}
+
 // we come here every 10ms
 void SysTick_Handler(void)
 {

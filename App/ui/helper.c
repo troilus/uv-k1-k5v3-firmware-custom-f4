@@ -361,6 +361,23 @@ static void sort(int16_t *a, int16_t *b)
       }
     }
 
+    void GUI_DisplaySmallestInverse(const char *pString, uint8_t x, uint8_t Line,
+                                bool statusbar, bool fill, uint8_t end)
+    {
+        // First draw the string normally
+        GUI_DisplaySmallest(pString, x, (Line * 8) + 1, statusbar, fill);
+
+        // Now invert the framebuffer/statusline bits for the rendered area
+        uint8_t start = (x - 2);
+        uint8_t *buffer = statusbar ? gStatusLine : gFrameBuffer[Line];
+
+        buffer[start] ^= 0x3E;
+        for (uint8_t i = start + 1; i < end; i++) {
+            buffer[i] ^= 0x7F;
+        }
+        buffer[end] ^= 0x3E;
+    }
+
     void UI_DisplayUnlockKeyboard(uint8_t shift) {
         if (gEeprom.KEY_LOCK && gKeypadLocked > 0)
         {   // tell user how to unlock the keyboard
@@ -387,6 +404,24 @@ static void sort(int16_t *a, int16_t *b)
         }
         return true;
     }
+#endif
+
+#if defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS)
+/* Shared bottom row for the overlay-apps selector. The EXIT action ends at
+ * x=124; both key capsules and labels keep their positions. */
+void UI_DrawMenuKeyHints(const char *act_menu, const char *act_exit)
+{
+    const uint8_t sp = 6u;
+    const uint8_t ae = (uint8_t)strlen(act_exit);
+    const uint8_t xm = 4u;
+    const uint8_t xe = (uint8_t)(124u - ae * 4u - sp - 16u);
+
+    GUI_DisplaySmallestInverse("MENU", xm, 6, false, true, (uint8_t)(xm + 16u));
+    GUI_DisplaySmallest(act_menu, (uint8_t)(xm + 16u + sp), 49, false, true);
+
+    GUI_DisplaySmallestInverse("EXIT", xe, 6, false, true, (uint8_t)(xe + 16u));
+    GUI_DisplaySmallest(act_exit, (uint8_t)(xe + 16u + sp), 49, false, true);
+}
 #endif
     
 void UI_DrawLineBuffer(uint8_t (*buffer)[128], int16_t x1, int16_t y1, int16_t x2, int16_t y2, bool black)

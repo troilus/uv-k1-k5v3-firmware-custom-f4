@@ -18,6 +18,9 @@
 
 #include "app/action.h"
 #include "app/app.h"
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
+    #include "apps/app_menu.h"
+#endif
 #include "app/chFrScanner.h"
 #include "app/common.h"
 #ifdef ENABLE_FMRADIO
@@ -262,9 +265,13 @@ static void processFKeyFunction(const KEY_Code_t Key, const bool beep)
             break;
 
         case KEY_7:
-#ifdef ENABLE_FEAT_F4HWN_GAME
+#if defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS) || defined(ENABLE_FEAT_F4HWN_GAME)
             if (!beep) {
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
+                APP_MenuOpen();     // F + 7 opens the overlay-apps selector
+#else
                 APP_RunBreakout();
+#endif
             } else {
 #endif
 #ifdef ENABLE_VOX
@@ -272,7 +279,7 @@ static void processFKeyFunction(const KEY_Code_t Key, const bool beep)
 //#else
 //              toggle_chan_scanlist();
 #endif
-#ifdef ENABLE_FEAT_F4HWN_GAME
+#if defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS) || defined(ENABLE_FEAT_F4HWN_GAME)
             }
 #endif
 

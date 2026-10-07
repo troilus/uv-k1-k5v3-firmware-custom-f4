@@ -64,6 +64,10 @@
 
 #include "external/printf/printf.h"
 
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_INFO
+    #include "stack_usage.h"
+#endif
+
 void _putchar(__attribute__((unused)) char c)
 {
 
@@ -77,6 +81,10 @@ void Main(void)
 {
     SYSTICK_Init();
     BOARD_Init();
+
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_INFO
+    STACK_WatermarkInit();
+#endif
 
     boot_counter_10ms = 150;   // 1.5 sec
 
