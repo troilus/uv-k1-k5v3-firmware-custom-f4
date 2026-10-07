@@ -21,3 +21,14 @@ jobs:
       with:
         name: firmware-artifact
         path: build/Fusion/f4hwn.fusion.bin
+
+    - name: Compile SSTV overlay app
+      run: |
+        chmod +x compile-app.sh
+        ./compile-app.sh sstv
+
+    - name: Upload SSTV app artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: sstv-app
+        path: build/Apps/SSTV.app
