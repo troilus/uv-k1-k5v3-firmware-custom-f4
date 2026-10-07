@@ -546,12 +546,23 @@ static void     app_tx_mute(bool on)     { if (on) BK4819_EnterTxMute(); else BK
 static void     app_tx_end(void)         { BK4819_ToggleGpioOut(BK4819_GPIO1_PIN29_PA_ENABLE, false); RADIO_SetupRegisters(true); }
 static void     app_tx_carrier(bool on)  { BK4819_ToggleGpioOut(BK4819_GPIO1_PIN29_PA_ENABLE, on); }
 static uint32_t app_tx_freq(void)        { return gTxVfo->pTX->Frequency; }
+/* APRS TX source callsign. This fork has no on-radio entry point for the boot
+ * message the upstream app reads, so the callsign is hardcoded and overridable
+ * with -DAPP_APRS_CALLSIGN="...". It must be A-Z/0-9 only and <= 6 characters
+ * (AX.25 address limit); the APRS TX app refuses to transmit on a longer or
+ * slash-bearing callsign. The SSID is set inside the app (key 3). */
+#ifndef APP_APRS_CALLSIGN
+#define APP_APRS_CALLSIGN "BD8CKF"
+#endif
+
 static void app_boot_callsign(char *buf, uint8_t len)
 {
-    /* v5.5.0 has no stored boot callsign, so the APRS TX editor starts empty
-     * and the operator types the callsign in the app. */
-    if (len > 0u)
-        buf[0] = '\0';
+    uint8_t i = 0u;
+    while (i + 1u < len && APP_APRS_CALLSIGN[i] != '\0') {
+        buf[i] = APP_APRS_CALLSIGN[i];
+        i++;
+    }
+    buf[i] = '\0';
 }
 
 #if defined(ENABLE_FMRADIO) && defined(ENABLE_FEAT_F4HWN_OVERLAY_FM)
