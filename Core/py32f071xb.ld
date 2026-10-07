@@ -134,21 +134,23 @@ SECTIONS
   _sidata = LOADADDR(.data);
 
   /* Overlay-app 4 KiB execution workspace. It reuses the PY25Q16 sector cache
-     (py25q16.c places SectorCache in .bss.mb_workspace). The VMA is PINNED to
-     ORIGIN(RAM) + 0x280 so the prebuilt upstream .app blobs, which are all
-     linked at 0x20000280, pass the loader's VMA guard. It is placed FIRST in
-     RAM: the resident .data/.noncacheable exceed the 0x280 worth of RAM before
-     the anchor, so they follow the workspace instead of preceding it. The 0x280
-     head of RAM is left unused (a small RAM cost, ~640 B). */
-  . = ORIGIN(RAM) + 0x280;
-  .mb_workspace (NOLOAD) :
+     (py25q16.c places SectorCache in .bss.mb_workspace). The VMA is PINNED with
+     OVERLAY so the prebuilt upstream .app blobs, which are all linked at
+     0x20000280, pass the loader's VMA guard. A bare ". = ..." does not survive
+     the >RAM region allocation, hence OVERLAY (as the upstream linker does). It
+     is placed FIRST in RAM: the resident .data/.noncacheable exceed the 0x280
+     worth of RAM before the anchor, so they follow the workspace instead. */
+  OVERLAY (ORIGIN(RAM) + 0x280) :
   {
-    . = ALIGN(4);
-    __mb_workspace_start = .;
-    KEEP(*(.bss.mb_workspace))
-    KEEP(*(.bss.mb_workspace*))
-    . = ALIGN(4);
-    __mb_workspace_end = .;
+    .mb_workspace
+    {
+      . = ALIGN(4);
+      __mb_workspace_start = .;
+      KEEP(*(.bss.mb_workspace))
+      KEEP(*(.bss.mb_workspace*))
+      . = ALIGN(4);
+      __mb_workspace_end = .;
+    }
   } >RAM
   __mb_workspace_size = SIZEOF(.mb_workspace);
   ASSERT(__mb_workspace_size == 0x1000,
