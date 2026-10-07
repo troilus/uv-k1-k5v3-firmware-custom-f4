@@ -17,8 +17,8 @@
 /*
  * SSTV receiver (RX-only) - receives pictures in 14 SSTV modes: Robot 36
  * and 72, Martin M1 and M2, Scottie S1, S2 and DX, PD50, PD90, PD120, PD160,
- * PD180, PD240 and PD290 (the ISS sends PD120 or PD180). The VIS picks the
- * mode; key 1 selects it and key 5 forces decoding with it, bypassing the VIS.
+ * PD180, PD240 and PD290 (the ISS sends PD120 or PD180). No VIS at all: the
+ * mode is picked with key 1, and key 5 starts one picture (and stops it).
  *
  * The modes are records in the assets (test/modes.py, after the Dayton paper):
  * for the RX the offsets of its picture scans from the sync end, their weights
@@ -28,22 +28,24 @@
  * 9.6 kHz, continuously), through the receiver modelled and tested in
  * test/model.py (keep the two in step): band-pass, then the ratio of the sums
  * p = y1 (y0 + y2) and q = y1^2 is 2 cos w for a tone of angular step w,
- * whatever its level. Smoothed, it flags the VIS leader, the sync and the VIS
- * bits; summed over a pixel, it gives the luminance. Each period starts at its
- * sync end (searched +-10 ms around the prediction, the period tracked for the
- * sender's clock); the luminance of its scans (Y, or G B R weighted 2:1:1) goes
- * to a line buffer, periods are averaged per screen row, rendered 1-bit
- * (threshold) or dithered (4x4 Bayer), key 3. The chroma is ignored: grey.
- * The picture fills the whole screen, status line included; the keys and the
- * row just drawn (one LCD page, ~1.5 ms) are served after each period's last
- * scan, before its sync ends.
+ * whatever its level. Smoothed, it flags the sync; summed over a pixel, it
+ * gives the luminance. Each period starts at its sync end (searched +-10 ms
+ * around the prediction, the period tracked for the sender's clock); a period
+ * without a sync keeps going on the prediction (no reset), and the luminance of
+ * its scans (Y, or G B R weighted 2:1:1) goes to a line buffer, periods are
+ * averaged per screen row, rendered 1-bit (threshold) or dithered (4x4 Bayer),
+ * key 2. The chroma is ignored: grey. The picture fills the whole screen,
+ * status line included; the keys and the row just drawn (one LCD page, ~1.5 ms)
+ * are served after each period's last scan, before its sync ends. A small
+ * bottom-right capsule shows RUN / LOST / OK while a picture is on screen.
  *
- * Keys (UV-K5 and UV-K1): 1 next decode mode, F then 1 the previous one (F
- *   icon in the status bar while armed) · 2 rendering 1-bit / dither ·
- *   3 speaker on/off (off at launch: the decoder does not need it) ·
- *   4 picture / info screen (once a picture came) · 5 forced RX on/off ·
- *   EXIT quit from the info screen (abort a picture being received, leave the
- *   picture view first). Decode mode, rendering and speaker are saved.
+ * Keys (UV-K5 and UV-K1): 1 next decode mode, F then 1 the previous one ·
+ *   2 rendering 1-bit / dither · 3 speaker on/off (off at launch: the decoder
+ *   does not need it) · 4 picture / info screen (once a picture came) ·
+ *   5 start one picture / stop · EXIT quit from the info screen (abort a
+ *   picture being received, leave the picture view first). One picture is
+ *   decoded per key-5 press: a sync loss is ridden out to the end, and the next
+ *   picture needs another press. Decode mode, rendering and speaker are saved.
  * The loader re-runs RADIO_SetupRegisters on exit; the app restores the ADC,
  * PA4, the DAC and its clock itself.
  */
@@ -87,19 +89,15 @@ static inline volatile uint32_t *hw(uint32_t a){
 #define FS             9600u
 #define CYC_PER_SAMPLE (48000000u / FS)            /* 5000 */
 #define HOUSE_EVERY    480u    /* samples between key/screen slots (50 ms)       */
-#define BUSY_MAX       60u     /* serve them anyway after 60 busy slots (3 s)    */
 #define REFRESH_MS     5000u   /* periodic redraw of the info screen (battery)   */
 
 /* ---- receiver (test/model.py, samples at 9.6 kHz) ---- */
 #define BP_B0       21424  /* APRS RX's band-pass, Q14, 4x its gain           */
 #define BP_A1     (-10714)
 #define BP_A2       5673
-#define LEAD_MIN    384    /* leader run: 40 ms                               */
-#define BUSY_LEAD   96     /* a leader run this long holds the key/screen slot */
-#define VIS_RUN     192    /* start bit run: 20 ms                            */
-#define VIS_BIT     288    /* 30 ms                                           */
 #define SYNC_WIN    96     /* +-10 ms around the prediction                   */
-#define MISS_MAX    20u    /* periods without a sync: lost                    */
+#define MISS_MAX    20u    /* periods without a sync: the indicator says lost */
+#define IND_OK_MS   1500u  /* the OK indicator stays this long                */
 
 /* ---- a mode (test/modes.py record(), the MODES assets) ---- */
 enum { SEG_SCAN = 0, SEG_ALT = 1 };    /* else a segment code is a REG_71 value */
@@ -123,9 +121,11 @@ typedef struct {
 _Static_assert(sizeof(mrx_t)==MODE_RX && sizeof(mode_t)==MODE_SIZE,
                "mode record: keep sstv_app.c and test/modes.py in step");
 
-enum { H_HUNT = 0, H_VIS, H_LINE, H_FORCE };
+enum { H_IDLE = 0, H_FORCE, H_LINE };
 /* info screen status: the order of ST_TEXT in gen_assets.py */
 enum { ST_WAIT = 0, ST_RX, ST_OK, ST_LOST, ST_SENT, ST_DENIED, ST_ABORT, ST_NOPIC, ST_RXABORT };
+/* picture-view indicator (bottom-right capsule) */
+enum { IND_NONE = 0, IND_RUN, IND_LOST, IND_OK };
 
 #define WAIT_CAPS_X 40u    /* "WAIT" capsule in the status bar, after the title (APRS RX) */
 #define SPK_X       59u    /* speaker icon (FoxHunt's, x = 59-68) after the capsule (APRS RX) */
@@ -142,12 +142,12 @@ static struct {
     uint8_t  rxSel, rxMode;            /* chosen mode; rxMode MODE_COUNT: none yet */
     uint8_t  st, status, lineDone, dirty; /* receiver state, info status, house after this
                                           sample, picture page to show + 1 */
-    uint8_t  clr;                      /* picture pages shown since the VIS (one per period) */
-    uint8_t  bit, code, votes;         /* VIS bit, bits so far, votes for a 1 */
+    uint8_t  clr;                      /* picture pages shown since the start (one per period) */
+    uint8_t  ind, indDirty;            /* bottom-right indicator, and it needs a redraw */
     uint8_t  row, racc, cnt;           /* screen row, period->row accumulator, periods in row */
     uint8_t  px, sc, found, prevFound, miss; /* pixel, scan, this/last period's sync found,
                                           periods without */
-    uint8_t  busyFor, fArm, force;     /* fArm: F pressed; force: key-5 forced RX */
+    uint8_t  fArm, force;              /* fArm: F pressed; force: a picture is being received */
     bool     running;
     uint16_t hc;                       /* samples since the last key/screen slot */
     uint16_t line;                     /* period of the picture                     */
@@ -157,10 +157,10 @@ static struct {
     uint16_t *lbuf;                    /* the current period's luminance x 4 (stack) */
     int32_t  x1, x2, y1, y2, P, Q;     /* band-pass, smoothed p and q                */
     int32_t  sp, sq;                   /* p and q summed over the current pixel      */
-    int32_t  n, lead, leadAt, srun;    /* sample index, leader run, its last sample, sync run */
-    int32_t  t0, c, pred, step, per;   /* VIS start, period start, prediction, Q16 px step, period Q4 */
+    int32_t  n, srun;                  /* sample index, sync run */
+    int32_t  c, pred, step, per;       /* period start, prediction, Q16 px step, period Q4 */
     int32_t  ys;                       /* start of the current scan                  */
-    uint32_t next, tDraw;              /* next sample / tone (clkCyc), last redraw   */
+    uint32_t next, tDraw, indT;        /* next sample (clkCyc), last redraw, OK stamp */
     mrx_t    m;                        /* the mode being received                    */
     uint32_t savedSqr3, savedSmpr3, savedModer, savedDac, savedRcc, savedDhr;
 } g;
@@ -261,12 +261,27 @@ static void draw(void){
     drawFreq(A->rx_freq());
     A->print_tiny(s+T_HELP,0,49,false,true);
 }
+/* the bottom-right capsule of the picture view: RUN / LOST / OK */
+static void overlayInd(unsigned pg){
+    const app_api_t *A=g.A;
+    const char *s;
+    uint8_t n;
+    if(pg!=7u) return;
+    if(g.ind==IND_RUN){ s="RUN"; n=3u; }
+    else if(g.ind==IND_LOST){ s="LOST"; n=4u; }
+    else if(g.ind==IND_OK){ s="OK"; n=2u; }
+    else return;
+    uint8_t w=(uint8_t)(n*4u), x=(uint8_t)(125u-w);
+    A->print_inverse(s,x,7,false,true,(uint8_t)(x+w));
+}
 /* The current view to the LCD: the picture (whole screen) or the info screen. */
 static void show(void){
     const app_api_t *A=g.A;
     if(g.image){
         memcpy(A->status_line,g.img,128);
         memcpy(A->fb[0],g.img+128,896);
+        overlayInd(7u);
+        g.indDirty=0;
     } else draw();
     A->blit_status();
     A->blit_full();
@@ -317,16 +332,15 @@ static uint16_t adcRead(void){
 }
 
 /* ---- receiver state ---- */
-static void hunt(void){ g.st=H_HUNT; g.lead=0; g.srun=0; }
-/* key 5 forced RX: arm the key-1 mode and wait for the next sync (H_FORCE) */
+static void idle(void){ g.st=H_IDLE; g.srun=0; }
+/* key 5: arm the key-1 mode and wait for the next sync (H_FORCE) */
 static void forceArm(void){
     g.A->asset_read((uint16_t)(MODES+g.rxSel*MODE_SIZE),&g.m,MODE_RX);
-    g.st=H_FORCE; g.lead=0; g.srun=0; g.miss=0; g.lineDone=0;
+    g.st=H_FORCE; g.srun=0; g.miss=0; g.lineDone=0;
     g.status=ST_WAIT;
+    g.ind=IND_NONE; g.indDirty=1;
     g.redraw=1;
 }
-/* end of a picture: keep forcing (wait for the next sync) or hunt the VIS */
-static void resumeOrHunt(void){ if(g.force){ g.st=H_FORCE; g.srun=0; g.miss=0; } else hunt(); }
 
 /* ---- RX ---- */
 /* the current scan from g.c, its offset scaled to the tracked period
@@ -343,25 +357,7 @@ static void restart(void){              /* the period from g.c */
     memset(g.lbuf,0,128u*sizeof g.lbuf[0]);
     scanStart();
 }
-static void startImage(void){
-    g.line=0;
-    g.row=g.racc=g.cnt=0;
-    memset(g.acc,0,128u*sizeof g.acc[0]);
-    memset(g.img,0,1024);
-    g.per=g.m.per0;
-    g.miss=0;
-    g.c=g.pred=g.t0+g.m.first;
-    g.found=g.prevFound=0;
-    g.st=H_LINE;
-    g.have=1;
-    g.image=1;
-    g.status=ST_RX;
-    g.clr=0;                             /* the screen is cleared one page per period:
-                                            a full redraw (~12 ms) could hide a sync */
-    g.A->backlight_on();
-    restart();
-}
-/* forced RX: start a picture at the sync end the key-5 hunter just found */
+/* start a picture at the sync end the key-5 hunter just found */
 static void startForcedAt(int32_t syncEnd){
     g.line=0;
     g.row=g.racc=g.cnt=0;
@@ -378,6 +374,7 @@ static void startForcedAt(int32_t syncEnd){
     g.image=1;
     g.status=ST_RX;
     g.clr=0;
+    g.ind=IND_RUN; g.indDirty=1;
     g.A->backlight_on();
     restart();
 }
@@ -401,13 +398,26 @@ static void putRow(void){
     g.dirty=(uint8_t)((r>>3)+1u);
 }
 static void endLine(void){
-    if(!g.found && ++g.miss>MISS_MAX){ g.status=ST_LOST; g.redraw=1; resumeOrHunt(); return; }
+    if(!g.found){                        /* no sync this period: ride it out */
+        if(g.miss<255u) g.miss++;
+        if(g.miss>MISS_MAX){ g.status=ST_LOST; if(g.ind!=IND_LOST){ g.ind=IND_LOST; g.indDirty=1; } }
+    } else {
+        g.miss=0;
+        if(g.ind==IND_LOST){ g.ind=IND_RUN; g.indDirty=1; }
+        if(g.status==ST_LOST) g.status=ST_RX;
+    }
     uint16_t *a=g.acc, *l=g.lbuf;
     for(unsigned x=0;x<128u;x++) a[x]+=l[x];
     g.cnt++;
     g.racc+=g.m.rowA;
     if(g.racc>=g.m.rowB){ g.racc-=g.m.rowB; putRow(); g.cnt=0; g.row++; }
-    if(++g.line>=g.m.periods){ g.status=ST_OK; g.redraw=1; resumeOrHunt(); return; }
+    if(++g.line>=g.m.periods){           /* one picture done: stop and keep it */
+        g.status=ST_OK;
+        g.ind=IND_OK; g.indT=g.A->ticks_ms(); g.indDirty=1;
+        g.force=0;
+        idle();
+        return;
+    }
     g.c=g.pred=g.c+(g.per>>4);
     g.prevFound=g.found;
     g.found=0;
@@ -426,38 +436,8 @@ static void sample(int32_t adc){
     bool sync=4*P>5*Q;                   /* below ~1360 Hz */
     int32_t n=g.n;
 
-    if(g.st==H_HUNT){
-        if(2*P>Q && 4*P<3*Q){            /* leader, ~1800-2020 Hz */
-            if(++g.lead>=LEAD_MIN) g.leadAt=n;
-        } else g.lead=0;
-        if(!sync) g.srun=0;
-        /* start bit: 20 ms below 1360 Hz, begun right after a leader */
-        else if(++g.srun==VIS_RUN && n-VIS_RUN-g.leadAt<48){
-            g.t0=n-(VIS_RUN-1);
-            g.bit=g.code=g.votes=0;
-            g.st=H_VIS;
-        }
-    } else if(g.st==H_VIS){
-        /* bit i: [t0 + 288 (i + 1), +288), votes below ~1210 Hz in its middle 20 ms */
-        int32_t k=n-g.t0-VIS_BIT*(g.bit+1);
-        if(k>=48 && k<240 && 32*P>45*Q) g.votes++;
-        if(k==240){
-            if(g.votes>96u) g.code|=(uint8_t)(1u<<g.bit);
-            g.votes=0;
-            if(++g.bit==8u){             /* the VIS byte (parity included) picks the mode */
-                hunt();
-                for(unsigned i=0;i<MODE_COUNT;i++){
-                    uint16_t a=(uint16_t)(MODES+i*MODE_SIZE);
-                    g.A->asset_read(a,&g.m,1);
-                    if(g.m.vis==g.code){
-                        g.A->asset_read(a,&g.m,MODE_RX);
-                        g.rxMode=(uint8_t)i;
-                        startImage();
-                        break;
-                    }
-                }
-            }
-        }
+    if(g.st==H_IDLE){
+        /* nothing to decode: key 5 arms a picture (forceArm) */
     } else if(g.st==H_FORCE){
         /* forced RX: the first horizontal sync (1200 Hz) is the period start */
         if(sync) g.srun++;
@@ -531,24 +511,24 @@ static void handleKeys(void){
     bool back=g.fArm;                    /* F then a key: it goes backwards */
     g.fArm=0;
     if(key==APP_KEY_EXIT){
-        /* Abort a picture (and forced RX) and go back to the info screen; what
-         * came so far stays viewable (key 4). From the picture view: back to
-         * the info screen. From the info screen: quit. */
+        /* Abort a picture and go back to the info screen; what came so far
+         * stays viewable (key 4). From the picture view: back to the info
+         * screen. From the info screen: quit. */
         g.force=0;
-        if(g.st==H_LINE||g.st==H_FORCE){ hunt(); g.status=ST_RXABORT; g.image=0; }
+        if(g.st==H_LINE||g.st==H_FORCE){ idle(); g.status=ST_RXABORT; g.image=0; }
         else if(g.image) g.image=0;
         else g.running=false;
     }
     else if(key==APP_KEY_1){             /* decode mode: next, F then 1 the previous */
         if(back) g.rxSel=(uint8_t)(g.rxSel?g.rxSel-1u:MODE_COUNT-1u);
         else if(++g.rxSel>=MODE_COUNT) g.rxSel=0;
-        if(g.force) forceArm();          /* re-arm the forced RX with the new mode */
+        if(g.force) forceArm();          /* re-arm with the new mode */
     }
     else if(key==APP_KEY_2) g.mode^=1u;   /* rendering, from the next row on */
     else if(key==APP_KEY_3){ g.spk^=1u; A->audio_path(g.spk); }   /* speaker, as FoxHunt's audio */
     else if(key==APP_KEY_4){ if(g.have) g.image^=1u; else g.status=ST_NOPIC; }
-    else if(key==APP_KEY_5){             /* forced RX on/off */
-        if(g.force){ g.force=0; hunt(); }
+    else if(key==APP_KEY_5){             /* start one picture / stop */
+        if(g.force){ g.force=0; idle(); }
         else { g.force=1; forceArm(); }
     }
 }
@@ -558,14 +538,25 @@ static void house(void){
     if(!g.running) return;
     A->backlight_update();     /* normal BLTime timeout; keys re-arm it in get_key() */
     if(g.image && !g.redraw){  /* one page at most (~1.5 ms): a new row, else the
-                                  next page not shown yet since the VIS */
+                                  next page not shown yet since the start */
         unsigned pg=8u;
         if(g.dirty) pg=g.dirty-1u;
         else if(g.st==H_LINE && g.clr<8u) pg=g.clr++;
-        if(pg<8u){ memcpy(page(pg),g.img+pg*128u,128); blitPage(pg); }
+        if(pg<8u){
+            memcpy(page(pg),g.img+pg*128u,128);
+            if(pg==7u){ overlayInd(7u); g.indDirty=0; }
+            blitPage(pg);
+        }
     }
     g.dirty=0;
     uint32_t t=A->ticks_ms();
+    if(g.ind==IND_OK && (uint32_t)(t-g.indT)>=IND_OK_MS){ g.ind=IND_NONE; g.indDirty=1; }
+    if(g.image && g.indDirty && !g.redraw){   /* the indicator changed: redraw the bottom page */
+        g.indDirty=0;
+        memcpy(page(7u),g.img+7u*128u,128);
+        overlayInd(7u);
+        blitPage(7u);
+    }
     if(!g.image && t-g.tDraw>=REFRESH_MS) g.redraw=1;
     if(!g.redraw) return;
     g.redraw=0;
@@ -588,15 +579,9 @@ static void listen(void){
         if(g.st==H_LINE){                /* inside a picture: after each period */
             if(!g.lineDone) continue;
             g.lineDone=0;
-        } else {                         /* every 50 ms, unless a VIS may be on */
+        } else {                         /* otherwise serve the keys every 50 ms */
             if(++g.hc<HOUSE_EVERY) continue;
             g.hc=0;
-            /* busy: a VIS being read, a leader, or a start bit begun right after
-             * one (a sync run alone is no VIS: receiver noise, mostly low-pitched,
-             * reads as a sync half the time and held the keys off) */
-            if((g.st==H_VIS || g.lead>=BUSY_LEAD || (g.srun && g.n-g.leadAt<VIS_RUN+48))
-               && ++g.busyFor<BUSY_MAX) continue;
-            g.busyFor=0;
         }
         house();
         while((int32_t)(clkCyc()-g.next)>=0){ g.next+=CYC_PER_SAMPLE; g.n++; }  /* the slots it took */
@@ -613,7 +598,6 @@ void app_main(const app_api_t *api){
     g.acc=acc;
     g.lbuf=lbuf;
     g.prevKey=APP_KEY_INVALID;   /* the rest of g starts at 0 (overlay zeroed by the loader) */
-    g.leadAt=-(1<<20);           /* no leader yet */
     g.rxMode=MODE_COUNT;         /* no picture yet */
 
     g.savedSqr3=ADC_SQR3; g.savedSmpr3=ADC_SMPR3; g.savedModer=GPIOA_MODER; g.savedDac=DAC_CR;
