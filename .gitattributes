@@ -1,10 +1,3 @@
 # Overlay-app build: keep LF so the Linux (Docker) build reads them as-is.
 compile-app.sh                 text eol=lf
-App/apps/app_assets.py         text eol=lf
-App/apps/pack_app.py           text eol=lf
-App/apps/sstv/build.sh         text eol=lf
-App/apps/sstv/app.ld           text eol=lf
-App/apps/sstv/gen_assets.py    text eol=lf
-App/apps/sstv/sstv_app.c       text eol=lf
-App/apps/sstv/test/model.py    text eol=lf
-App/apps/sstv/test/modes.py    text eol=lf
+App/apps/**                    text eol=lf

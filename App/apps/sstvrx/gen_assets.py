@@ -11,7 +11,7 @@
 # MODES holds one fixed-size record per SSTV mode (test/modes.py record(),
 # sstv_app.c mode_t), T_NAMES their names.
 #
-#   ./gen_assets.py sstv_assets.bin sstv_assets.h
+#   ./gen_assets.py sstvrx_assets.bin sstvrx_assets.h
 import os, sys
 sys.dont_write_bytecode = True
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -26,6 +26,7 @@ TITLE = "SSTV"                              # the version is in the .app header
 UI = [
     ("T_TITLE",  TITLE),
     ("T_WAIT",   "WAIT"),                   # status-bar capsule while nothing came
+    ("T_FORCE",  "FORCE"),                  # status-bar capsule while forced RX is on
     ("T_RX",     " "),                      # after the mode: "PD120 123/248"
     ("T_OK",     " OK"),
     ("T_LOST",   " lost"),
@@ -36,7 +37,7 @@ UI = [
     ("T_RXABORT","RX aborted"),
     ("T_DITHER", "dither"),
     ("T_1BIT",   "1-bit"),
-    ("T_HELP",   "PTT send 1/F1mode 2bw 3spk 4view"),   # 32 tiny characters
+    ("T_HELP",   "1mode 2bw 3spk 4view 5force"),   # <= 32 tiny characters
 ]
 
 # The status line of the info screen, by ST_* (sstv_app.c): its text's offset
@@ -59,6 +60,7 @@ a.const("UI_SIZE", ui_size)                 # the UI block read by draw()
 a.u8("ST_TEXT", [offset[n] for n in STATUS])
 a.const("T_TITLE_CHARS", len(TITLE))
 a.const("T_WAIT_CHARS", len("WAIT"))
+a.const("T_FORCE_CHARS", len("FORCE"))
 a.u8("THR", [b * 16 + 8 for b in BAYER] + [128] * 16)
 a.table("T_NAMES", [m[0] for m in modes.MODES])
 a.raw("MODES", b"".join(modes.record(i)[1] for i in range(len(modes.MODES))))

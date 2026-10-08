@@ -7,8 +7,8 @@
 set -euo pipefail
 
 APP="$(basename "$PWD")"            # breakout, foxhunt, beacon, fm, ...
-APP_NAME="SSTV"                     # <-- the only per-app line
-APP_VER="0.3"
+APP_NAME="APRS TX"                  # <-- the only per-app line
+APP_VER="0.5"
 APP_API_MIN=2
 APP_VMA=${APP_VMA:-0x20000280}      # pinned overlay VMA (Core/py32f071xb.ld)
 OUT="${APP_NAME// /}"               # blob basename ("Broadcast FM" -> BroadcastFM)
@@ -18,8 +18,7 @@ OBJCOPY=/opt/toolchain/bin/arm-none-eabi-objcopy
 command -v arm-none-eabi-gcc >/dev/null 2>&1 && { CC=arm-none-eabi-gcc; OBJCOPY=arm-none-eabi-objcopy; }
 
 CFLAGS="-mcpu=cortex-m0plus -mthumb -Os -fno-jump-tables -std=gnu11 -ffreestanding -fno-builtin -fno-common \
-  -fomit-frame-pointer -ffunction-sections -fdata-sections -Wall -Wextra \
-  -DENABLE_FEAT_F4HWN_OVERLAY_INFO"
+  -fomit-frame-pointer -ffunction-sections -fdata-sections -Wall -Wextra"
 LDFLAGS="-nostdlib -nostartfiles -T app.ld -Wl,--defsym,APP_VMA=${APP_VMA} \
   -Wl,--gc-sections -Wl,-Map=${APP}.map -Wl,--build-id=none -Wl,--no-warn-rwx-segments"
 
@@ -33,8 +32,7 @@ step 2 compile ; "$CC" $CFLAGS $LDFLAGS "${APP}_app.c" -lgcc -o "${APP}.elf"
 step 3 objcopy ; "$OBJCOPY" -O binary "${APP}.elf" "${APP}.bin"
 step 4 pack    ; python3 ../pack_app.py "${APP}.bin" "${OUT}.app" \
                    --name "$APP_NAME" --ver "$APP_VER" --api-min "$APP_API_MIN" --vma "${APP_VMA}" \
-                   --shortcut none --assets "${APP}_assets.bin" \
-                   --require sysinfo >/dev/null
+                   --shortcut none --assets "${APP}_assets.bin" >/dev/null
 trap - ERR
 
 BYTES=$(wc -c < "${APP}.bin")
