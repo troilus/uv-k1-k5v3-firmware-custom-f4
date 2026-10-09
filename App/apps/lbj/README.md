@@ -43,7 +43,7 @@ Sp 087 Km 01234                     ← 速度 / 公里标（与车次行同字�
 ```
 [LBJ RX] 821.2375             ███
 412 DN                              ← 车次 + 方向（粗体）
-105 12345678                        ← 车型代码(4位BCD) + 8位机车登记号
+东风4C 12345678                     ← 车型(中文) + 8位机车登记号
 线路 京沪线                          ← GB2312 线路名
 经度 E11623.4567                    ← DDMM.MMMM'E
 纬度 N3954.3210                     ← DDMM.MMMM'N
@@ -52,8 +52,9 @@ Sp 087 Km 01234                     ← 速度 / 公里标（合并报文的前 
 ```
 
 0-3 为 4 位十进制 BCD 车型代码，4-11 为 8 位机车登记号，14-29 线路
-GB2312，30-38 经度，39-46 纬度，47-49 保留（12-13 端号暂未显示）。线路用设备
-内置 8×8 中文字库；按 `5` 切到英文时线路隐藏、字段用英文缩写。
+GB2312，30-38 经度，39-46 纬度，47-49 保留（12-13 端号暂未显示）。车型名/线路
+用设备内置 8×8 中文字库；按 `5` 切到英文时线路隐藏、车型显示英文缩写
+（如 东风4C→DF4C、韶山7E→SS7E、东方红21→DFH21）。
 `1233999/1234000` 仍为传统基础预警（车次/速度/公里标）。
 
 ### 按键操作
@@ -138,8 +139,9 @@ the new-LB block in its last 50 nibbles: model code `0:4` (4-digit BCD),
 registration number `4:12`, GB2312 route `14:30`, longitude `30:39`, latitude
 `39:47`.
 
-The route is GB2312 and is drawn with the radio's built-in 8x8 Chinese font;
-key `5` falls back to ASCII labels for radios without it.
+The model name and route are GB2312 and are drawn with the radio's built-in 8x8
+Chinese font; key `5` switches to ASCII abbreviations (DF4C/SS7E/DFH21) and
+hides the route for radios without it.
 
 ## Pages
 
@@ -150,7 +152,7 @@ overlay; they remain in the source under `#if 0` for later restoration.
 
 | Page | Content |
 |---|---|
-| **SUM** | Newest/selected record: train + direction (bold), speed + km (bold); for a 1234002 report also the model code + registration number, the GB2312 route, longitude and latitude. `x/y` (selected / total, 1 = newest) sits at the right of the last row |
+| **SUM** | Newest/selected record: train + direction (bold), speed + km (bold); for a 1234002 report also the model name (Chinese; ASCII abbreviation with key `5`) + registration number, the GB2312 route, longitude and latitude. `x/y` (selected / total, 1 = newest) sits at the right of the last row |
 
 Keys: UP/DOWN pick the newer/older record (`nav_dir`: UV-K1 LEFT/RIGHT; one step
 per press — holding does not auto-repeat) · `1` speaker · `2` clear history +

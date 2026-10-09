@@ -36,9 +36,10 @@
  *
  * For the new-generation LB alert (addr 1234002) the SUM page decodes the last
  * 50 nibbles of the report: 0-3 model code (4 BCD digits), 4-11 registration
- * number, 14-29 GB2312 route, 30-38 longitude, 39-46 latitude. The route uses
- * the radio's built-in 8x8 Chinese font; key 5 switches to an ASCII fallback
- * (English labels, route hidden) for radios without a font.
+ * number, 14-29 GB2312 route, 30-38 longitude, 39-46 latitude. The route and
+ * the model name use the radio's built-in 8x8 Chinese font; key 5 switches to an
+ * ASCII fallback (English abbreviations like DF4C/SS7E, route hidden) for radios
+ * without a font.
  */
 
 #include <stdint.h>
@@ -258,6 +259,18 @@ static char *putn(char *o, const char *b, uint8_t off, uint8_t n){
     while(n--) *o++=b[off++];
     return o;
 }
+/* Binary search the sorted u16 model-code asset; returns the index or -1. */
+static int type_index(uint16_t code){
+    int lo=0, hi=(int)TY_COUNT-1;
+    while(lo<=hi){
+        int mid=(lo+hi)>>1;
+        uint16_t c=0;
+        g.A->asset_read((uint16_t)(TY_CODE+(uint16_t)mid*2u),&c,2u);
+        if(c==code) return mid;
+        if(c<code) lo=mid+1; else hi=mid-1;
+    }
+    return -1;
+}
 
 /* SUM page: the short block, plus the 1234002 detail fields when present. */
 __attribute__((noinline))
@@ -282,9 +295,19 @@ static void drawSummary(char *s){
 
     if(det){
         const char *d=b+(rec->len-DET_NIB);
-        /* row1: model code + registration number. */
+        /* row1: model name (CN) / abbreviation (EN) + registration number. */
         o=str;
-        o=putu(o,(uint32_t)((d[0]-'0')*1000u+(d[1]-'0')*100u+(d[2]-'0')*10u+(d[3]-'0')));
+        {
+            char nb[TY_NAME_STRIDE];
+            uint16_t ty=(uint16_t)((d[0]-'0')*1000u+(d[1]-'0')*100u+(d[2]-'0')*10u+(d[3]-'0'));
+            int idx=type_index(ty);
+            if(idx<0) o=put(o,"--");
+            else {
+                if(g.en) A->asset_read((uint16_t)(TY_EN+(uint16_t)idx*TY_EN_STRIDE),nb,TY_EN_STRIDE);
+                else     A->asset_read((uint16_t)(TY_NAME+(uint16_t)idx*TY_NAME_STRIDE),nb,TY_NAME_STRIDE);
+                o=put(o,nb);
+            }
+        }
         *o++=' ';
         o=putn(o,d,4u,8u);
         *o='\0';
