@@ -43,17 +43,20 @@ class Assets:
             sys.exit(f"asset name {name!r} is invalid or duplicated")
         self.names.add(name)
 
-    def text(self, name, s):
+    def text(self, name, s, enc="ascii"):
         self._name(name)
-        self.texts.append((name, s.encode("ascii") + b"\x00"))
+        self.texts.append((name, s.encode(enc) + b"\x00"))
 
-    def table(self, name, strings, stride=None):
-        """Fixed-stride string table: entry i is at name + i * name_STRIDE."""
+    def table(self, name, strings, stride=None, enc="ascii"):
+        """Fixed-stride string table: entry i is at name + i * name_STRIDE.
+        enc names the codec of the stored bytes (e.g. "gb2312" for Chinese, the
+        firmware's UI_PrintStringBuffer reads those by byte value)."""
         self._name(name)
-        width = stride or max(len(s) for s in strings) + 1
-        if any(len(s) + 1 > width for s in strings):
+        data = [s.encode(enc) for s in strings]
+        width = stride or max(len(d) for d in data) + 1
+        if any(len(d) + 1 > width for d in data):
             sys.exit(f"{name}: an entry does not fit the {width} B stride")
-        blob = b"".join(s.encode("ascii").ljust(width, b"\x00") for s in strings)
+        blob = b"".join(d.ljust(width, b"\x00") for d in data)
         self.texts.append((name, blob))
         self.const(name + "_STRIDE", width)
 

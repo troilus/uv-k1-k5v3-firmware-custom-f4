@@ -38,8 +38,28 @@ pp 320 d-12 R-95                    ← 峰峰值 / 基线 / RSSI
 M3 S6 W96 F2 B0           1/3       ← 计数行；右侧 x/y = 当前第 x 条 / 共 y 条（1 最新）
 ```
 
-**PDU 页（全部解码报文，不限地址）**：一屏 3 条，每条 2 行——上行
-`A<addr> F<func> <LBJ/--> <+/!>`，下行原始 BCD（最多 32 字符）。
+**PDU 页（全部解码报文，不限地址）**：一屏 2 条，每条 2 行——上行
+`A<addr> F<func> <LBJ/--> <+/!>`，下行原始 BCD（最多 32 字符）；底部一行为
+`pp/d/R` 调试值（峰峰值 / 基线 / RSSI）。
+
+**1234002 新版 LB 预警**：SUM 页解析报文尾部 50 个 nibble——
+
+```
+[LBJ RX] [SUM] 821.2375        ███
+412 DN A                            ← 车次 + 方向 + 机车端号(A/B/-，粗体)
+东风4C 12345                        ← 车型(中文，按表查) + 8位机车登记号
+线路 京沪线                          ← GB2312 线路名
+经度 E116 23.4567                   ← XXX°XX.XXXX'E
+纬度 N39 54.3210                    ← XX°XX.XXXX'N
+Sp 087 Km 01234                     ← 速度 / 公里标（合并报文的前 15 字符）
+M3 S6 W96 F2 B0           1/3       ← 计数行 + x/y
+```
+
+0-3 为 4 位十进制 BCD 车型代码（查表），4-11 为 8 位机车登记号，
+12-13 端号（30 未知 / 31 A 端 / 32 B 端），14-29 线路 GB2312，
+30-38 经度，39-46 纬度，47-49 保留。车型名/线路用设备内置 8×8 中文字库；
+按 `5` 切到英文时车型显示数字代码、字段用英文缩写。`1233999/1234000` 仍为
+传统基础预警（车次/速度/公里标）。
 
 ### 按键操作
 
@@ -50,6 +70,7 @@ M3 S6 W96 F2 B0           1/3       ← 计数行；右侧 x/y = 当前第 x 条
 | `1` | 扬声器开/关（默认关，退出保存） |
 | `2` | 清空报文历史与全部计数 |
 | `4` | 背光常亮 / 正常（仅本次运行有效，退出后恢复系统 BLTime） |
+| `5` | 中文 / 英文显示切换（无字库设备用英文缩写/数字代码，退出保存） |
 | EXIT | 退出（回 Apps 菜单） |
 
 ### 计数行 `M S W F B`
@@ -132,12 +153,12 @@ F<fixed> B<bad>` (fixed = BCH single-bit corrected, bad = uncorrectable word).
 | Page | Content |
 |---|---|
 | **SUM** | Newest/selected record: train + direction (bold), speed, km in the same bold font, `A<addr> F<func> LBJ/--` and `+`/`!` (BCH), 32 raw BCD chars, a live `pp / d<baseline> / R<rssi>` row, and `x/y` (selected / total, 1 = newest) at the right of the counter row |
-| **PDU** | Every decoded message, **any address**: `A<addr> F<func> LBJ/-- +/!`, then up to 32 raw BCD chars (3 records/screen, UP/DOWN scrolls) |
+| **PDU** | Every decoded message, **any address**: `A<addr> F<func> LBJ/-- +/!`, then up to 32 raw BCD chars (2 records/screen, UP/DOWN scrolls); the `pp/d/R` debug row is below them |
 
 Keys: `3` page · UP/DOWN scroll (PDU) or newer/older record (SUM) (`nav_dir`:
 UV-K1 LEFT/RIGHT; one step per press — holding does not auto-repeat) · `1`
 speaker · `2` clear history + counters · `4` backlight always-on / timeout
-(session-only) · EXIT quit.
+(session-only) · `5` Chinese/English display (saved) · EXIT quit.
 
 ## Tests (`test/`)
 
