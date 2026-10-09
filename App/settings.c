@@ -572,8 +572,13 @@ void SETTINGS_LoadCalibration(void)
         gEeprom.BK4819_XTAL_FREQ_LOW = (Misc.BK4819_XtalFreqLow >= -1000 && Misc.BK4819_XtalFreqLow <= 1000) ? Misc.BK4819_XtalFreqLow : 0;
         gEEPROM_1F8A                 = Misc.EEPROM_1F8A & 0x01FF;
         gEEPROM_1F8C                 = Misc.EEPROM_1F8C & 0x01FF;
-        gEeprom.VOLUME_GAIN          = (Misc.VOLUME_GAIN < 1) ? Misc.VOLUME_GAIN : 20;
-        gEeprom.DAC_GAIN             = (Misc.DAC_GAIN    < 1) ? Misc.DAC_GAIN    : 2;
+        /* Forced AF gain (RX audio) for the LBJ/raw-audio apps: PA4 is tapped
+         * before the speaker amp, so VOLUME_GAIN (REG_48 AF Rx Gain-2) and
+         * DAC_GAIN (REG_48 AF DAC Gain) set the level the apps demodulate.
+         * Temporary test value = the BK4819 reference 0xB3A8 (58/8); was the
+         * EEPROM value clamped to 58/8 upstream. */
+        gEeprom.VOLUME_GAIN          = 58;
+        gEeprom.DAC_GAIN             = 8;
 
         #ifdef ENABLE_FEAT_F4HWN
             gEeprom.VOLUME_GAIN_BACKUP   = gEeprom.VOLUME_GAIN;

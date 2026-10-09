@@ -94,10 +94,10 @@ static inline volatile uint32_t *hw(uint32_t a){
 #define INT_SHIFT  9
 #define INT_MAX    82          /* ~ PLL_STEP * 0.02 */
 #define BOX        16u         /* 1-bit matched filter (samples per bit) */
-#define M_B0       2293        /* low-pass biquad 1500 Hz @ 9.6 kHz, Q14 */
-#define M_B1       4586
-#define M_A1     (-11465)
-#define M_A2       4252
+#define M_B0       725         /* low-pass biquad 1500 Hz @ 19.2 kHz, Q14 */
+#define M_B1       1451
+#define M_A1     (-21674)
+#define M_A2       8192
 
 typedef struct {
     int32_t dc;
