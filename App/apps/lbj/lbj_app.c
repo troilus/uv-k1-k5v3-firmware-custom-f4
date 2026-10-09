@@ -21,18 +21,20 @@
  *
  * The BK4829 has no POCSAG/FM-data demodulator, so as EPIRB 406 / APRS RX do,
  * the RX audio reaches PA4 (voice DAC pin, held at mid-scale by the MCU DAC) and
- * is sampled on ADC channel 4 at 9.6 kHz (8 samples per 1200-baud bit), timed
+ * is sampled on ADC channel 4 at 19.2 kHz (16 samples per 1200-baud bit), timed
  * from SysTick, continuously. The receiver is switched to RAW (RX HPF/LPF,
  * de-emphasis and AFC off): the de-emphasis would destroy the NRZ baseband.
  * Each sample goes through the model in test/model_rx.py: slow baseline tracker,
- * low-pass biquad, symmetric peak tracker, DPLL (65536/bit), then POCSAG sync /
- * batch / BCH(31,21) single-bit correction and the LBJ BCD layout.
+ * low-pass biquad, a one-bit matched-filter boxcar (weak-signal win), symmetric
+ * peak tracker with hysteresis, DPLL (65536/bit), then POCSAG sync / batch /
+ * BCH(31,21) single-bit correction and the LBJ BCD layout.
  *
  * Keys: UP/DOWN pick the newer/older record (one step per press, no auto-repeat);
  * 1 speaker; 2 clear; 4 backlight always-on / timeout; 5 Chinese/English; EXIT
- * quit. SUM-only for now: the x/y (selected record / total, 1 = newest) sits at
- * the right of the last row. The PDU page and the M/S/W/F/B counter row are kept
- * under #if 0 (they overflowed the 4 KiB overlay); restore them together.
+ * quit. SUM-only for now: the footer right shows x/y (selected record / total,
+ * 1 = newest) and the live RSSI (-xx dBm), refreshed every 0.5 s. The PDU page
+ * and the M/S/W/F/B counter row are kept under #if 0 (they overflowed the 4 KiB
+ * overlay); restore them together.
  *
  * For the new-generation LB alert (addr 1234002) the SUM page decodes the last
  * 50 nibbles of the report: 0-3 model code (4 BCD digits), 4-11 registration
@@ -76,9 +78,9 @@ static inline volatile uint32_t *hw(uint32_t a){
 #define SMP8_POS       24u
 #define SMP4_POS       12u
 #define ADC_CH_PA4     4u
-#define FS             9600u
+#define FS             19200u
 #define CYC_PER_SAMPLE (48000000u / FS)
-#define HOUSE_EVERY    480u    /* samples between key/screen slots (50 ms) */
+#define HOUSE_EVERY    960u    /* samples between key/screen slots (50 ms) */
 #define BUSY_MAX       100u    /* serve keys anyway after 5 s inside a message */
 
 #define REG_2B  0x2Bu          /* RX HPF/LPF + de-emphasis + AFC (EPIRB 406 RAW) */
@@ -87,10 +89,11 @@ static inline volatile uint32_t *hw(uint32_t a){
 /* ---- demodulator (test/model_rx.py, class DemodInt; the C is a transcription) */
 #define DC_SHIFT   7
 #define PK_SHIFT   8
-#define PLL_STEP   8192        /* 65536 per bit / 8 samples per bit */
+#define PLL_STEP   4096        /* 65536 per bit / 16 samples per bit */
 #define PLL_SHIFT  3
 #define INT_SHIFT  9
-#define INT_MAX    164
+#define INT_MAX    82          /* ~ PLL_STEP * 0.02 */
+#define BOX        16u         /* 1-bit matched filter (samples per bit) */
 #define M_B0       2293        /* low-pass biquad 1500 Hz @ 9.6 kHz, Q14 */
 #define M_B1       4586
 #define M_A1     (-11465)
@@ -101,7 +104,9 @@ typedef struct {
     int32_t x1, x2, y1, y2;
     int32_t hi, lo;
     int32_t ph, iint;
-    uint8_t last;
+    int32_t bsum;                  /* running sum of the last BOX samples */
+    int16_t box[BOX];
+    uint8_t last, bi;
 } dem_t;
 
 /* ---- decoded-message history ---- */
@@ -126,7 +131,7 @@ static struct {
     bool     running, spk, blAlways, en;
     uint8_t  busyFor;
     int32_t  rssi;
-    uint32_t tPrev, tCyc;
+    uint32_t tPrev, tCyc, rssiMs;
     uint32_t savedSqr3, savedSmpr3;
 } g;
 #define str g.text
@@ -190,12 +195,25 @@ static void dem_sample(int32_t x){
     int32_t y = x - m->dc;
     int32_t o = (M_B0*y + M_B1*m->x1 + M_B0*m->x2 - M_A1*m->y1 - M_A2*m->y2) >> 14;
     m->x2=m->x1; m->x1=y; m->y2=m->y1; m->y1=o;
-    y=o;
+    /* One-bit matched filter: running sum of the last BOX samples. The sum is
+     * BOX times the mean, but the slicer tracks its own peak-to-peak, so no
+     * division is needed. Its null at the bit rate also rejects the data
+     * harmonics (the weak-signal win). */
+    m->bsum += o - m->box[m->bi];
+    m->box[m->bi] = (int16_t)o;
+    m->bi = (uint8_t)((m->bi + 1u) & (BOX - 1u));
+    y = m->bsum;
     m->hi -= (m->hi - y) >> PK_SHIFT;
     if(y > m->hi) m->hi = y;
     m->lo += (y - m->lo) >> PK_SHIFT;
     if(y < m->lo) m->lo = y;
-    uint8_t level = (y > ((m->hi + m->lo) >> 1)) ? 1u : 0u;
+    /* Hysteresis slice (as the reference _d8): only flip beyond the mid +/- h
+     * band, so noise near the threshold neither flips the bit nor kicks the
+     * DPLL. */
+    const int32_t mid = (m->hi + m->lo) >> 1;
+    const int32_t h = (m->hi - m->lo) >> 6;
+    uint8_t level = m->last;
+    if(y > mid + h) level = 1u; else if(y < mid - h) level = 0u;
     if(level != m->last){
         int32_t err = m->ph;
         if(err > 32768) err -= 65536;
@@ -343,11 +361,16 @@ static void drawSummary(char *s){
         A->print_bold(str,0,0,(uint8_t)(det?5u:1u));
     }
 
-    /* x/y at the right of the footer: selected record (1 = newest) / total. */
+    /* Footer right: x/y (selected / total, 1 = newest) and the live RSSI
+     * (-xx dBm), refreshed every 0.5 s in house(). */
     o=str;
     o=putu(o,(uint32_t)g.cur+1u);
     *o++='/';
     o=putu(o,g.count);
+    *o++=' '; *o++=' ';
+    int32_t r=g.rssi;
+    if(r<0){ *o++='-'; r=-r; }
+    o=putu(o,(uint32_t)r);
     *o='\0';
     A->print_tiny(str,(uint8_t)(128u-(uint8_t)(o-str)*4u),ROWY(6),false,true);
 }
@@ -444,6 +467,8 @@ static void house(void){
     handleKeys();
     if(!g.running) return;
     g.rssi=A->rssi_dbm();
+    uint32_t now=A->ticks_ms();
+    if((uint32_t)(now-g.rssiMs)>=500u){ g.rssiMs=now; g.redraw=1u; }  /* RSSI every 0.5 s */
     if(g.blAlways) A->backlight_on();   /* re-arm every slot so it never fades */
     else           A->backlight_update();
     if(!g.redraw) return;
@@ -457,7 +482,7 @@ static void house(void){
 __attribute__((noinline))
 static void listen(void){
     memset(&g.dem,0,sizeof g.dem);
-    g.dem.dc=BIAS_CODE; g.dem.hi=BIAS_CODE+100; g.dem.lo=BIAS_CODE-100;
+    g.dem.dc=BIAS_CODE; g.dem.hi=200; g.dem.lo=-200;   /* bsum is DC-free */
 
     adcSelPA4();
     clkStart();

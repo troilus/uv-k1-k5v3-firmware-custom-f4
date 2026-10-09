@@ -5,13 +5,14 @@ arithmetic, shifts, no division.
 
 Chain: POCSAG bits -> discriminator NRZ (Hz) at FS_SIM -> radio audio path
 (RAW: 5 kHz low-pass; STD: 300 Hz high-pass, 750 us de-emphasis, 3 kHz low-pass;
-AC: 20 Hz coupling, i.e. no DAC bias) -> 12-bit ADC on PA4 at 9.6 kHz (optional
+AC: 20 Hz coupling, i.e. no DAC bias) -> 12-bit ADC on PA4 at 19.2 kHz (optional
 clock error, noise) -> Demod -> POCSAG words -> LBJ fields.
 
-Demod (per 9.6 kHz sample):
-  slow DС tracker -> low-pass biquad -> symmetric peak tracker (mid threshold)
-  -> DPLL (65536 per bit, 0.125 per sample; transition pulls phase to the bit
-  boundary) -> hard bit -> POCSAG sync / batch / BCH / BCD.
+Demod (per 19.2 kHz sample):
+  slow DC tracker -> low-pass biquad -> 1-bit matched-filter boxcar (running
+  sum) -> symmetric peak tracker with hysteresis slice -> DPLL (65536 per bit,
+  4096 per sample; a transition pulls phase to the bit boundary) -> hard bit ->
+  POCSAG sync / batch / BCH / BCD.
 
   model_rx.py            runs the synthetic sweep
   model_rx.py <file.wav> decodes a real recording
@@ -26,7 +27,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import pocsag as P
 
 FS_SIM = 96000
-FS_ADC = 9600
+FS_ADC = 19200
 BAUD = 1200
 BIAS = 2048
 LSB_PER_HZ = 0.065
@@ -266,26 +267,32 @@ def biquad_q14(fc=1500.0, fs=FS_ADC):
 
 
 class DemodInt:
-    """Integer demodulator transliterated to the C app. 8 samples/bit at 9.6 kHz:
-    phase 65536/bit, step 8192; sample at the 0.5 crossing; a level transition
+    """Integer demodulator transliterated to the C app. 16 samples/bit at
+    19.2 kHz: phase 65536/bit, step 4096; a 16-sample boxcar (one-bit matched
+    filter, running sum) feeds the symmetric peak tracker with a hysteresis
+    slice; the level at the 0.5 crossing is the bit, and a level transition
     pulls the phase toward the bit boundary (proportional + small integral)."""
 
     B0, B1, A1, A2 = biquad_q14()
     DC_SHIFT = 7
     PK_SHIFT = 8
-    STEP = 8192
+    STEP = 4096
     PLL_SHIFT = 3        # proportional: phase -= err >> 3
     INT_SHIFT = 9        # integral: iint += err >> 9
-    INT_MAX = 164        # ~ step*0.02
+    INT_MAX = 82         # ~ step*0.02
+    BOX = 16             # 1-bit matched filter (samples per bit)
 
     def __init__(self):
         self.dc = BIAS
         self.x1 = self.x2 = self.y1 = self.y2 = 0
-        self.hi = BIAS + 100
-        self.lo = BIAS - 100
+        self.hi = 200
+        self.lo = -200
         self.ph = 0
         self.iint = 0
         self.last = 0
+        self.buf = [0] * self.BOX
+        self.bi = 0
+        self.bsum = 0
         self.on_bit = None
 
     def sample(self, x):
@@ -294,14 +301,24 @@ class DemodInt:
         o = (self.B0 * y + self.B1 * self.x1 + self.B0 * self.x2
              - self.A1 * self.y1 - self.A2 * self.y2) >> 14
         self.x2, self.x1, self.y2, self.y1 = self.x1, y, self.y1, o
-        y = o
+        self.bsum += o - self.buf[self.bi]
+        self.buf[self.bi] = o
+        self.bi = (self.bi + 1) % self.BOX
+        y = self.bsum
         self.hi -= (self.hi - y) >> self.PK_SHIFT
         if y > self.hi:
             self.hi = y
         self.lo += (y - self.lo) >> self.PK_SHIFT
         if y < self.lo:
             self.lo = y
-        level = 1 if y > (self.hi + self.lo) >> 1 else 0
+        mid = (self.hi + self.lo) >> 1
+        h = (self.hi - self.lo) >> 6
+        if y > mid + h:
+            level = 1
+        elif y < mid - h:
+            level = 0
+        else:
+            level = self.last
         if level != self.last:
             err = self.ph
             if err > 32768:

@@ -32,7 +32,7 @@ POCSAG/LBJ decoder are validated in `test/model_rx.py` against synthetic frames
 [LBJ RX] 821.2375             ███
 412 DN                              ← 车次 + 方向（DN 下行 / UP 上行 / ?? 未知，粗体）
 Sp 087 Km 01234                     ← 速度 / 公里标（与车次行同字体，粗体）
-                          1/3       ← 右下角 x/y = 当前第 x 条 / 共 y 条（1 最新）
+                          1/3  -95  ← 右下角 x/y = 当前第 x 条 / 共 y 条（1 最新）；右侧为 RSSI(dBm)，每 0.5s 刷新
 ```
 
 > PDU 页（全部报文 + 地址/功能/LBJ/BCH + 原始 BCD）与 `M/S/W/F/B` 计数行、
@@ -48,7 +48,7 @@ Sp 087 Km 01234                     ← 速度 / 公里标（与车次行同字�
 经度 E11623.4567                    ← DDMM.MMMM'E
 纬度 N3954.3210                     ← DDMM.MMMM'N
 Sp 087 Km 01234                     ← 速度 / 公里标（合并报文的前 15 字符）
-                          1/3       ← 右下角 x/y
+                          1/3  -95  ← 右下角 x/y + RSSI
 ```
 
 0-3 为 4 位十进制 BCD 车型代码，4-11 为 8 位机车登记号，14-29 线路
@@ -105,29 +105,34 @@ GB2312，30-38 经度，39-46 纬度，47-49 保留（12-13 端号暂未显示�
 1. Set the VFO to the LBJ frequency, **FM** (e.g. 821.2375 MHz). The BK4829
    covers 18–580 MHz and 760–1160 MHz, so 821 MHz is inside its range.
 2. Launch **LBJ RX**.
-3. Key `3` cycles the debug pages; the speaker is off by default (key `1`).
+3. The speaker is off by default (key `1`); key `5` toggles Chinese/English.
 
 ## Receive path
 
 Same hardware path as EPIRB 406 / APRS RX: the RX audio reaches **PA4** (the
 voice DAC pin), held at mid-scale by the MCU DAC, and is sampled on **ADC
-channel 4 at 9.6 kHz** (8 samples per 1200-baud bit), timed from SysTick,
+channel 4 at 19.2 kHz** (16 samples per 1200-baud bit), timed from SysTick,
 continuously. The receiver is switched to **RAW** (`reg 0x2B` / `reg 0x73`, as
 EPIRB 406): the 300 Hz high-pass, de-emphasis and 3 kHz low-pass would destroy
 the NRZ baseband. The loader restores the registers on exit.
 
 ## Demodulator (`test/model_rx.py`, class `DemodInt`; the C is a transcription)
 
-Per 9.6 kHz sample:
+Per 19.2 kHz sample:
 
-1. Slow baseline tracker (1-pole, 128 samples ≈ 16 bits) — essential: the LBJ
+1. Slow baseline tracker (1-pole, 128 samples ≈ 8 bits) — essential: the LBJ
    baseband is AC-coupled and the baseline drifts over many bits.
 2. Low-pass biquad 1500 Hz (Q14 fixed point).
-3. Symmetric peak trackers (attack/decay 1/256) → mid threshold.
-4. **DPLL**: 65536 per bit, 8192 per sample; each level transition pulls the
+3. **One-bit matched filter**: a 16-sample running sum (16 samples = one bit;
+   its null at 1200 Hz rejects the data-rate harmonics). The sum, not the mean,
+   is sliced — the peak tracker scales it, so no division is needed.
+4. Symmetric peak trackers (attack/decay 1/256) with a **hysteresis** slice
+   (`±(hi-lo)/64`, as the reference `_d8`): noise near the threshold neither
+   flips the bit nor kicks the DPLL.
+5. **DPLL**: 65536 per bit, 4096 per sample; each level transition pulls the
    phase toward the bit boundary (proportional + small integral); the bit is
    sampled at the 0.5 crossing.
-5. POCSAG: sync `0x7CD215D8` / its inverse (popcount ≤ 2, polarity auto),
+6. POCSAG: sync `0x7CD215D8` / its inverse (popcount ≤ 2, polarity auto),
    16 codewords per batch, idle word, address/message words, **BCH(31,21)**
    single-bit correction (feedback 873, 31-entry syndrome table), then the LBJ
    BCD layout: 5 bit-reversed nibbles per word, alphabet `0123456789*U -)(`.
@@ -152,7 +157,7 @@ overlay; they remain in the source under `#if 0` for later restoration.
 
 | Page | Content |
 |---|---|
-| **SUM** | Newest/selected record: train + direction (bold), speed + km (bold); for a 1234002 report also the model name (Chinese; ASCII abbreviation with key `5`) + registration number, the GB2312 route, longitude and latitude. `x/y` (selected / total, 1 = newest) sits at the right of the last row |
+| **SUM** | Newest/selected record: train + direction (bold), speed + km (bold); for a 1234002 report also the model name (Chinese; ASCII abbreviation with key `5`) + registration number, the GB2312 route, longitude and latitude. The last row right shows `x/y` (selected / total, 1 = newest) and the live `-xx` dBm RSSI (every 0.5 s) |
 
 Keys: UP/DOWN pick the newer/older record (`nav_dir`: UV-K1 LEFT/RIGHT; one step
 per press — holding does not auto-repeat) · `1` speaker · `2` clear history +
@@ -199,14 +204,20 @@ on-radio, DAC-biased RAW path is the real target.
 
 ### Model results (`model_rx.py`, 3 seeds, address 1234000 func 3)
 
-| Case | Sync | Decoded |
+After the 19.2 kHz / matched-filter / hysteresis change (before → after):
+
+| Case | Before | After |
 |---|---|---|
-| clean | 3 | 3/3 |
-| noise 1500 | 3 | 3/3 |
-| noise 3000 | 3 | 0/3 (BCH busy) |
-| ±1 % clock | 3 | 3/3 |
-| STD audio path (de-emphasis) | 0 | 0/3 (why RAW is used) |
-| AC-coupled (no DAC bias) | 3 | 2/3 |
+| clean | 3/3 | 3/3 |
+| noise 1500 | 3/3 | 3/3 |
+| noise 3000 | 0/3 | 3/3 |
+| noise 4500 | 0/3 | 0/3 (sync 2, words 23) |
+| ±1 % clock | 3/3 | 3/3 |
+| STD audio path (de-emphasis) | 0/3 (why RAW is used) | 0/3 |
+| AC-coupled (no DAC bias) | 2/3 | 1/3 |
+
+The one-bit matched filter is the main win: it roughly doubles the noise the
+decoder tolerates (about +2–3 dB).
 
 ## Notes
 
