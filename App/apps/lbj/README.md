@@ -8,7 +8,7 @@ Reference: [Sdr-Is-Fun/RTL_SDR_LBJ_RECEIVER](https://github.com/Sdr-Is-Fun/RTL_S
 (the Python chain this app is modelled on) and the APRS RX app of this firmware
 (PA4 sampling, DPLL, overlay-app conventions).
 
-Status: **v0.1, first on-air build not yet tested.** The demodulator and the
+Status: **v0.1, decoding confirmed on-air.** The demodulator and the
 POCSAG/LBJ decoder are validated in `test/model_rx.py` against synthetic frames
 (clean / noise / ±1 % clock / AC-coupled); see the table below.
 
@@ -30,9 +30,13 @@ POCSAG/LBJ decoder are validated in `test/model_rx.py` against synthetic frames
 
 ```
 [LBJ RX] 821.2375             ███
-412 DN                              ← 车次 + 方向（DN 下行 / UP 上行 / ?? 未知，粗体）
-Sp 087 Km 01234                     ← 速度 / 公里标（与车次行同字体，粗体）
-                          1/3  -95  ← 右下角 x/y = 当前第 x 条 / 共 y 条（1 最新）；右侧为 RSSI(dBm)，每 0.5s 刷新（无报文时显示 0/0，进入即显示）
+412 DN                              ← 第1行：车次 + 方向（DN 下行 / UP 上行 / ?? 未知，粗体）
+SPEED 87 km/h                       ← 第2行：速度
+KM 0344.7                           ← 第3行：公里标
+1234000                             ← 第4行：解出的地址值
+5ZH 4BL:OFF 1SPK:ON 1/3 -95         ← 底部状态栏：5=语言(EN/ZH)、4=背光常亮(ON/OFF)、
+                                      1=扬声器(ON/OFF)、x/y、RSSI(dBm)；每 0.5s 刷新，
+                                      进入即显示 0/0
 ```
 
 > PDU 页（全部报文 + 地址/功能/LBJ/BCH + 原始 BCD）与 `M/S/W/F/B` 计数行、
@@ -42,19 +46,21 @@ Sp 087 Km 01234                     ← 速度 / 公里标（与车次行同字�
 
 ```
 [LBJ RX] 821.2375             ███
-412 DN                              ← 车次 + 方向（粗体）
-东风4C 12345678                     ← 车型(中文) + 8位机车登记号
-线路 京沪线                          ← GB2312 线路名
-经度 E11623.4567                    ← DDMM.MMMM'E
-纬度 N3954.3210                     ← DDMM.MMMM'N
-Sp 087 Km 01234                     ← 速度 / 公里标（合并报文的前 15 字符）
-                          1/3  -95  ← 右下角 x/y + RSSI
+412 DN                              ← 第1行：车次 + 方向（取自最近一条 1234000）
+东风4C 00000080                     ← 第2行：车型(中文) + 8位机车登记号
+线路 京沪线                          ← 第3行：GB2312 线路名
+SPD 87 KM 0344.7                    ← 第4行：速度 + 公里标（取自最近一条 1234000）
+LON 104.1238 LAT 30.2477            ← 第5行：经度/纬度（小字体、英文标签、十进制度）
+1234002                             ← 第6行：解出的地址值
+5ZH 4BL:OFF 1SPK:ON 1/3 -95         ← 底部状态栏（同前）
 ```
 
-0-3 为 4 位十进制 BCD 车型代码，4-11 为 8 位机车登记号，14-29 线路
-GB2312，30-38 经度，39-46 纬度，47-49 保留（12-13 端号暂未显示）。车型名/线路
-用设备内置 8×8 中文字库；按 `5` 切到英文时线路隐藏、车型显示英文缩写
-（如 东风4C→DF4C、韶山7E→SS7E、东方红21→DFH21）。
+0-3 为 4 位十进制 BCD 车型代码，4-11 为 8 位机车登记号，12-13 端号
+（31=A、32=B、30=未知，暂未显示），14-29 线路 GB2312，30-38 经度，39-46
+纬度，47-49 保留。经纬度把小数点移到"度"后显示 4 位小数（如 `104.1238`）。
+车型名/线路用设备内置 8×8 中文字库；按 `5` 切到英文时线路隐藏、车型显示英文
+缩写（如 东风4C→DF4C、韶山7E→SS7E、东方红21→DFH21）。1234002 报文本身不含
+车次/速度/公里标，显示的是**最近一条 1233999/1234000** 的值。
 `1233999/1234000` 仍为传统基础预警（车次/速度/公里标）。
 
 ### 按键操作
@@ -64,7 +70,7 @@ GB2312，30-38 经度，39-46 纬度，47-49 保留（12-13 端号暂未显示�
 | UP / DOWN | SUM：选更新/更旧的记录（UV-K1 用左右，`nav_dir`）。每次按键只走一步，按住不放不会连发 |
 | `1` | 扬声器开/关（默认关，退出保存） |
 | `2` | 清空报文历史与全部计数 |
-| `4` | 背光常亮 / 正常（仅本次运行有效，退出后恢复系统 BLTime） |
+| `4` | 背光常亮 / 自动熄灭（等效收音机 F+8 的常亮功能；仅本次运行有效，退出后恢复系统 BLTime） |
 | `5` | 中文 / 英文显示切换（无字库设备用英文缩写，退出保存） |
 | EXIT | 退出（回 Apps 菜单） |
 
@@ -157,12 +163,12 @@ overlay; they remain in the source under `#if 0` for later restoration.
 
 | Page | Content |
 |---|---|
-| **SUM** | Newest/selected record: train + direction (bold), speed + km (bold); for a 1234002 report also the model name (Chinese; ASCII abbreviation with key `5`) + registration number, the GB2312 route, longitude and latitude. The last row right shows `x/y` (selected / total, 1 = newest) and the live `-xx` dBm RSSI (every 0.5 s; shown from launch as `0/0` before the first message) |
+| **SUM** | Newest/selected record. Short report (1233999/1234000): train + direction, `SPEED xx km/h`, `KM xxxx.x`, the decoded address value. New-gen alert (1234002): train + direction, model (Chinese; ASCII abbreviation with key `5`) + 8-digit registration number, GB2312 route, `SPD xx KM xxxx.x`, `LON .. LAT ..` (tiny font, decimal), the decoded address value; the train/speed/km come from the last short report. The bottom bar shows the key hints (`5` language, `4` backlight, `1` speaker) then `x/y` (selected/count, 1 = newest) and the live `-xx` dBm RSSI (every 0.5 s; shown from launch as `0/0`) |
 
 Keys: UP/DOWN pick the newer/older record (`nav_dir`: UV-K1 LEFT/RIGHT; one step
 per press — holding does not auto-repeat) · `1` speaker · `2` clear history +
-counters · `4` backlight always-on / timeout (session-only) · `5` Chinese/English
-display (saved) · EXIT quit.
+counters · `4` backlight always-on / auto-off (the radio's F+8 always-on;
+session-only) · `5` Chinese/English display (saved) · EXIT quit.
 
 ## Tests (`test/`)
 

@@ -23,16 +23,26 @@ UI = [
     ("T_WAIT",   WAIT),
     ("T_SUM",    "SUM"),
     ("T_PDU",    "PDU"),
-    ("T_SPD",    "Sp "),
-    ("T_KM",     "Km "),
+    ("T_SPD",    "SPEED "),   # 1234000 row1 prefix
+    ("T_KMH",    " km/h"),    # 1234000 row1 suffix
+    ("T_SPD2",   "SPD "),     # 1234002 row3 prefix (speed + km on one line)
+    ("T_KM",     "KM "),
     ("T_LBJ",    "LBJ"),
     ("T_NOLBJ",  "--"),
     ("T_DN",     "DN"),
     ("T_UP",     "UP"),
     ("T_UNK",    "??"),
     ("T_ROUTE",  "线路 "),
-    ("T_LON",    "经度 "),
-    ("T_LAT",    "纬度 "),
+    ("T_LON",    "LON "),
+    ("T_LAT",    "LAT "),
+    # footer flags (bottom status bar): "5EN 4BL:ON 1SPK:ON x/y -rr"
+    ("T_L5",     "5"),
+    ("T_EN",     "EN"),
+    ("T_ZH",     "ZH"),
+    ("T_BL",     "4BL:"),
+    ("T_SPK",    "1SPK:"),
+    ("T_ON",     "ON"),
+    ("T_OFF",    "OFF"),
 ]
 
 # Locomotive model code (4-digit BCD, decoded from nibbles 0-3) -> name. Only

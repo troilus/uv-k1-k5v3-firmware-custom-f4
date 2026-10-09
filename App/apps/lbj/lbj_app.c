@@ -31,17 +31,20 @@
  *
  * Keys: UP/DOWN pick the newer/older record (one step per press, no auto-repeat);
  * 1 speaker; 2 clear; 4 backlight always-on / timeout; 5 Chinese/English; EXIT
- * quit. SUM-only for now: the footer right shows x/y (selected record / total,
- * 1 = newest) and the live RSSI (-xx dBm), refreshed every 0.5 s. The PDU page
- * and the M/S/W/F/B counter row are kept under #if 0 (they overflowed the 4 KiB
- * overlay); restore them together.
+ * quit. SUM-only for now. The bottom status bar (tiny font) shows the key-state
+ * hints (5 language, 4 backlight, 1 speaker) then x/y (selected record / total,
+ * 1 = newest) and the live RSSI (-xx dBm), refreshed every 0.5 s and drawn from
+ * launch (0/0). The PDU page and the M/S/W/F/B counter row are kept under #if 0
+ * (they overflowed the 4 KiB overlay); restore them together.
  *
  * For the new-generation LB alert (addr 1234002) the SUM page decodes the last
  * 50 nibbles of the report: 0-3 model code (4 BCD digits), 4-11 registration
- * number, 14-29 GB2312 route, 30-38 longitude, 39-46 latitude. The route and
- * the model name use the radio's built-in 8x8 Chinese font; key 5 switches to an
- * ASCII fallback (English abbreviations like DF4C/SS7E, route hidden) for radios
- * without a font.
+ * number, 12-13 loco end, 14-29 GB2312 route, 30-38 longitude, 39-46 latitude.
+ * Longitude/latitude are shown in decimal degrees (DDDMM.MMMM -> dd.dddd). The
+ * train/speed/km come from a merged report's short prefix, or from the most
+ * recent 1233999/1234000 short report. The route and the model name use the
+ * radio's built-in 8x8 Chinese font; key 5 switches to an ASCII fallback
+ * (English abbreviations like DF4C/SS7E, route hidden) for radios without it.
  */
 
 #include <stdint.h>
@@ -126,10 +129,10 @@ static struct {
     rec_t **hist;              /* newest first; records live on app_main's stack */
     char   *text;              /* formatting buffer (app_main's stack) */
     lbj_rx_t rx;
-    dem_t    dem;
     uint8_t  count, cur, prevKey, redraw, page, top;
-    bool     running, spk, blAlways, en;
+    bool     running, spk, blAlways, en, sessValid;
     uint8_t  busyFor;
+    char     sess[16];         /* last 1233999/1234000 short block (train/spd/km) */
     int32_t  rssi;
     uint32_t tPrev, tCyc, rssiMs;
     uint32_t savedSqr3, savedSmpr3;
@@ -152,8 +155,18 @@ static char *putu(char *o,uint32_t v){
     }
     return o;
 }
-static char safe(uint8_t c){ return (c<0x20u||c>0x7Eu)?'.':(char)c; }
-static void tiny(uint8_t y,char *end){ *end='\0'; g.A->print_tiny(str,0,y,false,true); }
+/* decimal value of up to n chars (non-digits ignored) */static uint32_t digv(const char *p,uint8_t n){
+    uint32_t v=0;
+    for(uint8_t i=0;i<n;i++){ char c=p[i]; if(c>='0'&&c<='9') v=v*10u+(uint32_t)(c-'0'); }
+    return v;
+}
+/* 5 BCD chars -> DDDD.D (blank / non-digit -> 0) */
+static char *putkm(char *o,const char *p){
+    for(uint8_t i=0;i<4u;i++){ char c=p[i]; *o++=(c>='0'&&c<='9')?c:'0'; }
+    *o++='.';
+    char c=p[4]; *o++=(c>='0'&&c<='9')?c:'0';
+    return o;
+}
 
 #define ROWY(i) ((uint8_t)((i)*8u))
 
@@ -189,8 +202,7 @@ static uint32_t clkCyc(void){
 }
 
 /* ---- one ADC sample through the model (DemodInt.sample) ---- */
-static void dem_sample(int32_t x){
-    dem_t *m=&g.dem;
+static void dem_sample(dem_t *m,int32_t x){
     m->dc += (x - m->dc) >> DC_SHIFT;
     int32_t y = x - m->dc;
     int32_t o = (M_B0*y + M_B1*m->x1 + M_B0*m->x2 - M_A1*m->y1 - M_A2*m->y2) >> 14;
@@ -240,6 +252,10 @@ void lbj_emit_msg(const lbj_rx_t *r, const char *bcd, uint16_t len){
     rec->flags=(uint8_t)((r->err?RF_ERR:0u) | (is_lbj(r->addr)?RF_LBJ:0u));
     rec->len=(uint8_t)(len>BCDMAX?BCDMAX:len);
     for(uint8_t i=0;i<rec->len;i++) rec->bcd[i]=bcd[i];
+    if((r->addr==1233999u||r->addr==1234000u) && len>=15u){   /* remember the short block */
+        for(uint8_t i=0;i<15u;i++) g.sess[i]=bcd[i];
+        g.sessValid=true;
+    }
     if(g.count<HISTORY) g.count++;
     g.cur=0;
     g.redraw=1u;
@@ -290,51 +306,63 @@ static int type_index(uint16_t code){
     return -1;
 }
 
-/* Footer right: x/y (selected / total, 1 = newest) and the live RSSI (-xx dBm),
- * refreshed every 0.5 s in house(). Drawn even with no messages yet (0/0) so the
- * RSSI is visible from launch. */
-static void drawFooter(void){
+/* Bottom status bar (tiny 3x5): key-state hints (5 language / 4 backlight /
+ * 1 speaker), then x/y (selected / total, 1 = newest) and the live RSSI
+ * (-xx dBm). Refreshed every 0.5 s in house(); drawn even before the first
+ * message (0/0) so it is visible from launch. Worst case 32 chars = 128 px. */
+static void drawFooter(const char *s){
+    static const uint8_t LAB[3]={T_L5,T_BL,T_SPK};   /* key-state hint labels */
+    uint8_t val[3];
+    val[0]=g.en?T_EN:T_ZH; val[1]=g.blAlways?T_ON:T_OFF; val[2]=g.spk?T_ON:T_OFF;
     char *o=str;
+    for(uint8_t i=0;i<3u;i++){ if(i) *o++=' '; o=put(o,s+LAB[i]); o=put(o,s+val[i]); }
+    *o++=' ';
     o=putu(o, g.count ? (uint32_t)g.cur+1u : 0u);
     *o++='/';
     o=putu(o,g.count);
-    *o++=' '; *o++=' ';
+    *o++=' ';
     int32_t r=g.rssi;
     if(r<0){ *o++='-'; r=-r; }
     o=putu(o,(uint32_t)r);
     *o='\0';
-    g.A->print_tiny(str,(uint8_t)(128u-(uint8_t)(o-str)*4u),ROWY(6),false,true);
+    g.A->print_tiny(str,0,ROWY(6),false,true);
 }
 
-/* SUM page: the short block, plus the 1234002 detail fields when present. */
+/* Append "<train> <dir>" from the short block sb (6 chars); used by both the
+ * short and the 1234002 layouts. */
+static char *puttrain(char *o,const char *sb,const char *s,uint8_t func,bool have){
+    if(!have){ *o++='-'; *o++='-'; }
+    else for(uint8_t i=0;i<6u;i++) if(sb[i]!=' ') *o++=sb[i];
+    *o++=' ';
+    return put(o,(func==1u)?s+T_DN:((func==3u)?s+T_UP:s+T_UNK));
+}
+
+/* SUM page. 1233999/1234000 (short): train/dir, SPEED, KM, address value.
+ * 1234002 (detail): train/dir + model + route, speed/km, LON/LAT (tiny font),
+ * address value. The train/speed/km come from the in-message short prefix
+ * (merged report) or from the last short report kept in g.sess. */
 __attribute__((noinline))
 static void drawSummary(char *s){
     const app_api_t *A=g.A;
     char *o;
-    if(!g.count){ if(A->ticks_ms()&512u) tiny(ROWY(1),put(str,s+T_WAIT)); drawFooter(); return; }
+    if(!g.count){ drawFooter(s); return; }
     const rec_t *rec=g.hist[g.cur];
     const char *b=rec->bcd;
     const bool det=(rec->addr==DET_ADDR && rec->len>=DET_NIB);
-    const bool merged=(rec->len>=DET_MERGED);
-
-    /* row0: train + direction (the short block precedes the 50-nibble detail). */
-    o=str;
-    if(det && !merged) o=put(o,"--");
-    else { uint8_t n=(uint8_t)(rec->len<6u?rec->len:6u);
-           for(uint8_t i=0;i<n;i++) if(b[i]!=' ') *o++=safe((uint8_t)b[i]); }
-    *o++=' ';
-    o=put(o, rec->func==1u?s+T_DN:(rec->func==3u?s+T_UP:s+T_UNK));
-    *o='\0';
-    A->print_bold(str,0,0,0);
 
     if(det){
         const char *d=b+(rec->len-DET_NIB);
+        const char *sb=g.sess; const bool have=g.sessValid;  /* from the last short report */
+
+        /* row0: train + direction. */
+        o=str; o=puttrain(o,sb,s,rec->func,have); *o='\0';
+        A->print_bold(str,0,0,0);
+
         /* row1: model name (CN) / abbreviation (EN) + registration number. */
         o=str;
         {
             char nb[TY_NAME_STRIDE];
-            uint16_t ty=(uint16_t)((d[0]-'0')*1000u+(d[1]-'0')*100u+(d[2]-'0')*10u+(d[3]-'0'));
-            int idx=type_index(ty);
+            int idx=type_index((uint16_t)digv(d,4u));
             if(idx<0) o=put(o,"--");
             else {
                 if(g.en) A->asset_read((uint16_t)(TY_EN+(uint16_t)idx*TY_EN_STRIDE),nb,TY_EN_STRIDE);
@@ -342,42 +370,53 @@ static void drawSummary(char *s){
                 o=put(o,nb);
             }
         }
-        *o++=' ';
-        o=putn(o,d,4u,8u);
+        *o++=' '; o=putn(o,d,4u,8u);
         *o='\0';
         A->print_bold(str,0,0,1);
-        /* row2: route (GB2312), or a plain fallback without a font. */
-        o=str;
-        if(g.en) o=put(o,"RTE --");
-        else {
-            o=put(o,s+T_ROUTE);
+
+        /* row2: route (GB2312); hidden in English mode. */
+        if(!g.en){
+            o=str; o=put(o,s+T_ROUTE);
             for(uint8_t i=0;i<8u;i++){ uint8_t v=(uint8_t)((nib(d[14u+i*2u])<<4)|nib(d[15u+i*2u])); if(!v) break; *o++=(char)v; }
+            *o='\0';
+            A->print_bold(str,0,0,2);
         }
-        *o='\0';
-        A->print_bold(str,0,0,2);
-        /* row3: longitude DDMM.MMMM E. */
-        o=str; o=put(o, g.en?"LON ":s+T_LON); *o++='E';
-        o=putn(o,d,30u,5u); *o++='.'; o=putn(o,d,35u,4u);
+
+        /* row3: speed and position km (from the short prefix / last report). */
+        o=str; o=put(o,s+T_SPD2);
+        if(have){ o=putu(o,digv(sb+6u,3u)); o=put(o,s+T_KM); o=putkm(o,sb+10u); }
+        else o=put(o,"--");
         *o='\0';
         A->print_bold(str,0,0,3);
-        /* row4: latitude DDMM.MMMM N. */
-        o=str; o=put(o, g.en?"LAT ":s+T_LAT); *o++='N';
-        o=putn(o,d,39u,4u); *o++='.'; o=putn(o,d,43u,4u);
+
+        /* row4: longitude/latitude (one tiny line, decimal after the degrees). */
+        o=str;
+        o=put(o,s+T_LON); o=putn(o,d,30u,3u); *o++='.'; o=putn(o,d,33u,4u); *o++=' ';
+        o=put(o,s+T_LAT); o=putn(o,d,39u,2u); *o++='.'; o=putn(o,d,41u,4u);
         *o='\0';
-        A->print_bold(str,0,0,4);
+        A->print_tiny(str,0,ROWY(4),false,true);
+
+        /* row5: the decoded address value. */
+        o=str; o=putu(o,rec->addr); *o='\0';
+        A->print_bold(str,0,0,5);
+    } else {
+        /* row0: train + direction. */
+        o=str; o=puttrain(o,b,s,rec->func,rec->len>=6u); *o='\0';
+        A->print_bold(str,0,0,0);
+        /* row1: SPEED xx km/h. */
+        o=str; o=put(o,s+T_SPD); o=putu(o,digv(b+6u,3u)); o=put(o,s+T_KMH); *o='\0';
+        A->print_bold(str,0,0,1);
+        /* row2: KM xxxx.x. */
+        o=str; o=put(o,s+T_KM);
+        if(rec->len>=15u) o=putkm(o,b+10u); else o=put(o,"--");
+        *o='\0';
+        A->print_bold(str,0,0,2);
+        /* row3: the decoded address value. */
+        o=str; o=putu(o,rec->addr); *o='\0';
+        A->print_bold(str,0,0,3);
     }
 
-    /* row1 (short) / row5 (detail): speed and position km. */
-    if(!det || merged){
-        o=str; o=put(o,s+T_SPD);
-        for(uint8_t i=6;i<9u&&i<rec->len;i++) *o++=b[i];
-        o=put(o,s+T_KM);
-        for(uint8_t i=10;i<15u&&i<rec->len;i++) *o++=b[i];
-        *o='\0';
-        A->print_bold(str,0,0,(uint8_t)(det?5u:1u));
-    }
-
-    drawFooter();
+    drawFooter(s);
 }
 
 #if 0   /* DEBUG: the PDU page (all messages + address/func/LBJ/BCH + raw BCD).
@@ -456,10 +495,10 @@ static void handleKeys(void){
         case APP_KEY_1:    g.spk=!g.spk; A->audio_path(g.spk); break;
         case APP_KEY_2:    g.count=g.cur=g.top=0;
                            g.rx.syncs=g.rx.words=g.rx.ok=g.rx.fix=g.rx.bad=0;
-                           g.rx.msgs=g.rx.up=g.rx.dn=0; break;
+                           g.rx.msgs=g.rx.up=g.rx.dn=0; g.sessValid=false; break;
         /* case APP_KEY_3: g.page^=1u; g.top=0; g.cur=0; break;  PDU page off */
         case APP_KEY_4:    g.blAlways=!g.blAlways;
-                           if(g.blAlways) A->backlight_on(); else A->backlight_update();
+                           A->backlight_on();   /* re-arm now; house() holds it on when ON */
                            break;
         case APP_KEY_5:    g.en=!g.en; break;   /* Chinese / English display */
         default: break;
@@ -486,8 +525,9 @@ static void house(void){
 
 __attribute__((noinline))
 static void listen(void){
-    memset(&g.dem,0,sizeof g.dem);
-    g.dem.dc=BIAS_CODE; g.dem.hi=200; g.dem.lo=-200;   /* bsum is DC-free */
+    dem_t dm;                       /* on the stack: .bss counts toward the 4 KiB */
+    memset(&dm,0,sizeof dm);
+    dm.dc=BIAS_CODE; dm.hi=200; dm.lo=-200;   /* bsum is DC-free */
 
     adcSelPA4();
     clkStart();
@@ -497,7 +537,7 @@ static void listen(void){
     while(g.running){
         while((int32_t)(clkCyc()-next)<0){}
         next+=CYC_PER_SAMPLE;
-        dem_sample(adcRead());
+        dem_sample(&dm,adcRead());
         if(++cnt<HOUSE_EVERY) continue;
         cnt=0;
         if(g.rx.inmsg && ++g.busyFor<BUSY_MAX) continue;   /* keep sampling a message */
