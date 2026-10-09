@@ -28,19 +28,17 @@
  * low-pass biquad, symmetric peak tracker, DPLL (65536/bit), then POCSAG sync /
  * batch / BCH(31,21) single-bit correction and the LBJ BCD layout.
  *
- * Keys: 3 toggles the debug pages (SUMmary / all PDUs); UP/DOWN pick the
- * newer/older record or scroll (one step per press, no auto-repeat); 1 speaker;
- * 2 clear; 4 backlight always-on / timeout; 5 Chinese/English; EXIT quit. Every
- * page foots a shared counter row: M<msgs> S<sync> W<words> F<fixed> B<bad>;
- * the SUM page also shows x/y (selected record / total, 1 = newest) at the right
- * of that row.
+ * Keys: UP/DOWN pick the newer/older record (one step per press, no auto-repeat);
+ * 1 speaker; 2 clear; 4 backlight always-on / timeout; 5 Chinese/English; EXIT
+ * quit. SUM-only for now: the x/y (selected record / total, 1 = newest) sits at
+ * the right of the last row. The PDU page and the M/S/W/F/B counter row are kept
+ * under #if 0 (they overflowed the 4 KiB overlay); restore them together.
  *
  * For the new-generation LB alert (addr 1234002) the SUM page decodes the last
  * 50 nibbles of the report: 0-3 model code (4 BCD digits), 4-11 registration
  * number, 14-29 GB2312 route, 30-38 longitude, 39-46 latitude. The route uses
  * the radio's built-in 8x8 Chinese font; key 5 switches to an ASCII fallback
- * (English labels, route hidden) for radios without a font. All the debug rows
- * (address/func/LBJ/BCH, pp/d/R) live on the PDU page.
+ * (English labels, route hidden) for radios without a font.
  */
 
 #include <stdint.h>
@@ -229,7 +227,8 @@ void lbj_emit_msg(const lbj_rx_t *r, const char *bcd, uint16_t len){
 }
 
 /* ---- display ---- */
-/* Shared footer: message / sync / word / fixed / bad counts. */
+#if 0   /* DEBUG: shared counter row (M/S/W/F/B). Disabled to fit the 4 KiB
+         * overlay; restore together with the PDU page below. */
 static void counters(uint8_t y){
     char *o=str;
     *o++='M'; o=putu(o,g.rx.msgs);
@@ -239,6 +238,7 @@ static void counters(uint8_t y){
     *o++=' '; *o++='B'; o=putu(o,g.rx.bad);
     tiny(y,o);
 }
+#endif
 /* ---- new-generation LB alert (addr 1234002): the last 50 nibbles ---- */
 #define DET_ADDR   1234002u
 #define DET_NIB    50u         /* detail block length (nibbles)              */
@@ -264,7 +264,7 @@ __attribute__((noinline))
 static void drawSummary(char *s){
     const app_api_t *A=g.A;
     char *o;
-    if(!g.count){ if(A->ticks_ms()&512u) tiny(ROWY(1),put(str,s+T_WAIT)); counters(ROWY(6)); return; }
+    if(!g.count){ if(A->ticks_ms()&512u) tiny(ROWY(1),put(str,s+T_WAIT)); return; }
     const rec_t *rec=g.hist[g.cur];
     const char *b=rec->bcd;
     const bool det=(rec->addr==DET_ADDR && rec->len>=DET_NIB);
@@ -320,7 +320,6 @@ static void drawSummary(char *s){
         A->print_bold(str,0,0,(uint8_t)(det?5u:1u));
     }
 
-    counters(ROWY(6));
     /* x/y at the right of the footer: selected record (1 = newest) / total. */
     o=str;
     o=putu(o,(uint32_t)g.cur+1u);
@@ -330,6 +329,9 @@ static void drawSummary(char *s){
     A->print_tiny(str,(uint8_t)(128u-(uint8_t)(o-str)*4u),ROWY(6),false,true);
 }
 
+#if 0   /* DEBUG: the PDU page (all messages + address/func/LBJ/BCH + raw BCD).
+         * Disabled to fit the 4 KiB overlay; the app is SUM-only for now.
+         * Restore with the counters row above and the key-3 page switch. */
 /* All decoded messages, any address (page 1); the debug info lives here. */
 __attribute__((noinline))
 static void drawPdus(char *s){
@@ -350,6 +352,7 @@ static void drawPdus(char *s){
     }
     counters(ROWY(6));
 }
+#endif
 
 __attribute__((noinline))
 static void draw(void){
@@ -360,10 +363,9 @@ static void draw(void){
     A->status_clear();
     A->print_inverse(s+T_TITLE,2,0,true,true,(uint8_t)(2u+T_TITLE_CHARS*4u));
     A->draw_battery();
-    const char *pg = g.page==0?s+T_SUM : s+T_PDU;
-    A->print_inverse(pg,30,0,true,true,42u);
-
-    if(g.page==0u) drawSummary(s); else drawPdus(s);
+    /* Page indicator and the PDU page are disabled (SUM-only); see the #if 0
+     * blocks for the removed code. */
+    drawSummary(s);
 
     /* Frequency on the status bar: the framebuffer is only FRAME_LINES (7) rows
      * tall, so a y >= 56 would write past gFrameBuffer. */
@@ -389,13 +391,12 @@ static void handleKeys(void){
     g.prevKey=key;
     int d=A->nav_dir(key);
     if(d){
-        int t = (g.page==0u) ? ((int)g.cur+d) : ((int)g.top+d);
-        int hi = (int)g.count;
+        /* SUM only: one step per press through the record history. */
+        int t=(int)g.cur+d;
         if(t<0) t=0;
-        if(t>hi-1) t=hi-1;
+        if(t>=(int)g.count) t=(int)g.count-1;
         if(t<0) t=0;
-        if(g.page==0u){ if((uint8_t)t!=g.cur){ g.cur=(uint8_t)t; g.redraw=1u; } }
-        else if((uint8_t)t!=g.top){ g.top=(uint8_t)t; g.redraw=1u; }
+        if((uint8_t)t!=g.cur){ g.cur=(uint8_t)t; g.redraw=1u; }
         return;
     }
     g.redraw=1u;
@@ -405,7 +406,7 @@ static void handleKeys(void){
         case APP_KEY_2:    g.count=g.cur=g.top=0;
                            g.rx.syncs=g.rx.words=g.rx.ok=g.rx.fix=g.rx.bad=0;
                            g.rx.msgs=g.rx.up=g.rx.dn=0; break;
-        case APP_KEY_3:    g.page^=1u; g.top=0; g.cur=0; break;
+        /* case APP_KEY_3: g.page^=1u; g.top=0; g.cur=0; break;  PDU page off */
         case APP_KEY_4:    g.blAlways=!g.blAlways;
                            if(g.blAlways) A->backlight_on(); else A->backlight_update();
                            break;

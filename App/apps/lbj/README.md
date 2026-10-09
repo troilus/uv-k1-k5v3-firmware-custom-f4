@@ -29,29 +29,26 @@ POCSAG/LBJ decoder are validated in `test/model_rx.py` against synthetic frames
 **SUM 页（解析摘要）**
 
 ```
-[LBJ RX] [SUM] 821.2375        ███
+[LBJ RX] 821.2375             ███
 412 DN                              ← 车次 + 方向（DN 下行 / UP 上行 / ?? 未知，粗体）
 Sp 087 Km 01234                     ← 速度 / 公里标（与车次行同字体，粗体）
-A1234000 F3 LBJ +                   ← 地址 / 功能字 / 是否 LBJ 地址 / BCH 标志
-412   087 01234                     ← 原始 BCD（最多 32 字符）
-pp 320 d-12 R-95                    ← 峰峰值 / 基线 / RSSI
-M3 S6 W96 F2 B0           1/3       ← 计数行；右侧 x/y = 当前第 x 条 / 共 y 条（1 最新）
+                          1/3       ← 右下角 x/y = 当前第 x 条 / 共 y 条（1 最新）
 ```
 
-**PDU 页（全部解码报文，不限地址）**：一屏 3 条，每条 2 行——上行
-`A<addr> F<func> <LBJ/--> <+/!>`，下行原始 BCD（最多 32 字符）。
+> PDU 页（全部报文 + 地址/功能/LBJ/BCH + 原始 BCD）与 `M/S/W/F/B` 计数行、
+> `pp/d/R` 调试行因 4 KiB 容量暂时停用（源码中以 `#if 0` 保留，便于日后恢复）。
 
 **1234002 新版 LB 预警**：SUM 页解析报文尾部 50 个 nibble——
 
 ```
-[LBJ RX] [SUM] 821.2375        ███
+[LBJ RX] 821.2375             ███
 412 DN                              ← 车次 + 方向（粗体）
 105 12345678                        ← 车型代码(4位BCD) + 8位机车登记号
 线路 京沪线                          ← GB2312 线路名
 经度 E11623.4567                    ← DDMM.MMMM'E
 纬度 N3954.3210                     ← DDMM.MMMM'N
 Sp 087 Km 01234                     ← 速度 / 公里标（合并报文的前 15 字符）
-M3 S6 W96 F2 B0           1/3       ← 计数行 + x/y
+                          1/3       ← 右下角 x/y
 ```
 
 0-3 为 4 位十进制 BCD 车型代码，4-11 为 8 位机车登记号，14-29 线路
@@ -63,17 +60,17 @@ GB2312，30-38 经度，39-46 纬度，47-49 保留（12-13 端号暂未显示�
 
 | 键 | 作用 |
 |---|---|
-| `3` | 切换 SUM / PDU 页（回到顶部） |
-| UP / DOWN | SUM：选更新/更旧的记录；PDU：上下滚动（UV-K1 用左右，`nav_dir`）。每次按键只走一步，按住不放不会连发 |
+| UP / DOWN | SUM：选更新/更旧的记录（UV-K1 用左右，`nav_dir`）。每次按键只走一步，按住不放不会连发 |
 | `1` | 扬声器开/关（默认关，退出保存） |
 | `2` | 清空报文历史与全部计数 |
 | `4` | 背光常亮 / 正常（仅本次运行有效，退出后恢复系统 BLTime） |
-| `5` | 中文 / 英文显示切换（无字库设备用英文缩写/数字代码，退出保存） |
+| `5` | 中文 / 英文显示切换（无字库设备用英文缩写，退出保存） |
 | EXIT | 退出（回 Apps 菜单） |
 
-### 计数行 `M S W F B`
+### 计数行 `M S W F B`（暂时停用）
 
-`M<msgs> S<sync> W<words> F<fix> B<bad>`
+`M<msgs> S<sync> W<words> F<fix> B<bad>`。此调试行与 PDU 页一起在源码中以
+`#if 0` 停用（4 KiB 容量），下表仅作恢复后的说明：
 
 | 字符 | 含义 | 正常 |
 |---|---|---|
@@ -144,20 +141,21 @@ registration number `4:12`, GB2312 route `14:30`, longitude `30:39`, latitude
 The route is GB2312 and is drawn with the radio's built-in 8x8 Chinese font;
 key `5` falls back to ASCII labels for radios without it.
 
-## Debug pages (key `3`)
+## Pages
 
-Two pages; each foots the shared counter row `M<msgs> S<sync> W<words>
-F<fixed> B<bad>` (fixed = BCH single-bit corrected, bad = uncorrectable word).
+SUM only for now. The PDU page (every decoded message with
+`A<addr> F<func> LBJ/-- +/!` + raw BCD) and the shared counter row
+`M<msgs> S<sync> W<words> F<fixed> B<bad>` were disabled to fit the 4 KiB
+overlay; they remain in the source under `#if 0` for later restoration.
 
 | Page | Content |
 |---|---|
-| **SUM** | Newest/selected record: train + direction (bold), speed, km in the same bold font, `A<addr> F<func> LBJ/--` and `+`/`!` (BCH), 32 raw BCD chars, a live `pp / d<baseline> / R<rssi>` row, and `x/y` (selected / total, 1 = newest) at the right of the counter row |
-| **PDU** | Every decoded message, **any address**: `A<addr> F<func> LBJ/-- +/!`, then up to 32 raw BCD chars (3 records/screen, UP/DOWN scrolls) |
+| **SUM** | Newest/selected record: train + direction (bold), speed + km (bold); for a 1234002 report also the model code + registration number, the GB2312 route, longitude and latitude. `x/y` (selected / total, 1 = newest) sits at the right of the last row |
 
-Keys: `3` page · UP/DOWN scroll (PDU) or newer/older record (SUM) (`nav_dir`:
-UV-K1 LEFT/RIGHT; one step per press — holding does not auto-repeat) · `1`
-speaker · `2` clear history + counters · `4` backlight always-on / timeout
-(session-only) · `5` Chinese/English display (saved) · EXIT quit.
+Keys: UP/DOWN pick the newer/older record (`nav_dir`: UV-K1 LEFT/RIGHT; one step
+per press — holding does not auto-repeat) · `1` speaker · `2` clear history +
+counters · `4` backlight always-on / timeout (session-only) · `5` Chinese/English
+display (saved) · EXIT quit.
 
 ## Tests (`test/`)
 
