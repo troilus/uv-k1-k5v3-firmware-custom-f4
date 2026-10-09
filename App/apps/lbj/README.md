@@ -32,7 +32,7 @@ POCSAG/LBJ decoder are validated in `test/model_rx.py` against synthetic frames
 [LBJ RX] 821.2375             ███
 412 DN                              ← 车次 + 方向（DN 下行 / UP 上行 / ?? 未知，粗体）
 Sp 087 Km 01234                     ← 速度 / 公里标（与车次行同字体，粗体）
-                          1/3  -95  ← 右下角 x/y = 当前第 x 条 / 共 y 条（1 最新）；右侧为 RSSI(dBm)，每 0.5s 刷新
+                          1/3  -95  ← 右下角 x/y = 当前第 x 条 / 共 y 条（1 最新）；右侧为 RSSI(dBm)，每 0.5s 刷新（无报文时显示 0/0，进入即显示）
 ```
 
 > PDU 页（全部报文 + 地址/功能/LBJ/BCH + 原始 BCD）与 `M/S/W/F/B` 计数行、
@@ -157,7 +157,7 @@ overlay; they remain in the source under `#if 0` for later restoration.
 
 | Page | Content |
 |---|---|
-| **SUM** | Newest/selected record: train + direction (bold), speed + km (bold); for a 1234002 report also the model name (Chinese; ASCII abbreviation with key `5`) + registration number, the GB2312 route, longitude and latitude. The last row right shows `x/y` (selected / total, 1 = newest) and the live `-xx` dBm RSSI (every 0.5 s) |
+| **SUM** | Newest/selected record: train + direction (bold), speed + km (bold); for a 1234002 report also the model name (Chinese; ASCII abbreviation with key `5`) + registration number, the GB2312 route, longitude and latitude. The last row right shows `x/y` (selected / total, 1 = newest) and the live `-xx` dBm RSSI (every 0.5 s; shown from launch as `0/0` before the first message) |
 
 Keys: UP/DOWN pick the newer/older record (`nav_dir`: UV-K1 LEFT/RIGHT; one step
 per press — holding does not auto-repeat) · `1` speaker · `2` clear history +

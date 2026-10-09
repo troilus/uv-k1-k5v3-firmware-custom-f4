@@ -290,12 +290,28 @@ static int type_index(uint16_t code){
     return -1;
 }
 
+/* Footer right: x/y (selected / total, 1 = newest) and the live RSSI (-xx dBm),
+ * refreshed every 0.5 s in house(). Drawn even with no messages yet (0/0) so the
+ * RSSI is visible from launch. */
+static void drawFooter(void){
+    char *o=str;
+    o=putu(o, g.count ? (uint32_t)g.cur+1u : 0u);
+    *o++='/';
+    o=putu(o,g.count);
+    *o++=' '; *o++=' ';
+    int32_t r=g.rssi;
+    if(r<0){ *o++='-'; r=-r; }
+    o=putu(o,(uint32_t)r);
+    *o='\0';
+    g.A->print_tiny(str,(uint8_t)(128u-(uint8_t)(o-str)*4u),ROWY(6),false,true);
+}
+
 /* SUM page: the short block, plus the 1234002 detail fields when present. */
 __attribute__((noinline))
 static void drawSummary(char *s){
     const app_api_t *A=g.A;
     char *o;
-    if(!g.count){ if(A->ticks_ms()&512u) tiny(ROWY(1),put(str,s+T_WAIT)); return; }
+    if(!g.count){ if(A->ticks_ms()&512u) tiny(ROWY(1),put(str,s+T_WAIT)); drawFooter(); return; }
     const rec_t *rec=g.hist[g.cur];
     const char *b=rec->bcd;
     const bool det=(rec->addr==DET_ADDR && rec->len>=DET_NIB);
@@ -361,18 +377,7 @@ static void drawSummary(char *s){
         A->print_bold(str,0,0,(uint8_t)(det?5u:1u));
     }
 
-    /* Footer right: x/y (selected / total, 1 = newest) and the live RSSI
-     * (-xx dBm), refreshed every 0.5 s in house(). */
-    o=str;
-    o=putu(o,(uint32_t)g.cur+1u);
-    *o++='/';
-    o=putu(o,g.count);
-    *o++=' '; *o++=' ';
-    int32_t r=g.rssi;
-    if(r<0){ *o++='-'; r=-r; }
-    o=putu(o,(uint32_t)r);
-    *o='\0';
-    A->print_tiny(str,(uint8_t)(128u-(uint8_t)(o-str)*4u),ROWY(6),false,true);
+    drawFooter();
 }
 
 #if 0   /* DEBUG: the PDU page (all messages + address/func/LBJ/BCH + raw BCD).
