@@ -10,3 +10,4 @@ __pycache__/
 
 # Downloaded Windows tool binaries: keep on disk, not in the repo.
 *.exe
+test/pocsag-golang-windows-amd64/

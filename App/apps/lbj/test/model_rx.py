@@ -387,31 +387,37 @@ def sweep():
 
 
 def from_wav(path):
-    w = wave.open(path, "rb")
-    fs = w.getframerate()
-    ch = w.getnchannels()
-    n = w.getnframes()
-    raw = w.readframes(n)
-    w.close()
+    """Decode a discriminator recording with the same integer demodulator the C
+    app runs. 16-bit or 8-bit PCM, any sample rate; the signal is normalised to
+    the model's ADC scale, so recordings at very different levels all work."""
     import array
-    a = array.array("h")
-    a.frombytes(raw)
+    w = wave.open(path, "rb")
+    fs = w.getframerate(); ch = w.getnchannels(); n = w.getnframes(); sw = w.getsampwidth()
+    raw = w.readframes(n); w.close()
+    if sw == 2:
+        a = array.array("h"); a.frombytes(raw)
+    elif sw == 1:
+        a = array.array("B"); a.frombytes(raw)
+        a = array.array("h", [(v - 128) << 8 for v in a])
+    else:
+        sys.exit("unsupported sample width %d" % sw)
     if ch > 1:
         a = array.array("h", [a[i] for i in range(0, len(a), ch)])
-    # resample to 9.6 kHz from the file's rate, no bias (model adds BIAS)
-    step = fs / FS_ADC
+    peak = max(1, max(abs(v) for v in a))
+    g = 600.0 / peak
+    step = fs / float(FS_ADC)
     out = []
     i = 0.0
     while int(i) + 1 < len(a):
-        k = int(i)
-        f = i - k
-        out.append(BIAS + (a[k] * (1 - f) + a[k + 1] * f) / 16.0)
+        k = int(i); f = i - k
+        out.append(int(round(BIAS + (a[k] * (1 - f) + a[k + 1] * f) * g)))
         i += step
     rx = run_demod(out)
-    print("wav: sync=%d words=%d bch_ok=%d fix=%d bad=%d msgs=%d" %
-          (rx.syncs, rx.words, rx.bch_ok, rx.bch_fix, rx.bch_bad, len(rx.msgs)))
+    print("wav: fs=%d ch=%d n=%d sync=%d words=%d bch_ok=%d fix=%d bad=%d msgs=%d" %
+          (fs, ch, n, rx.syncs, rx.words, rx.bch_ok, rx.bch_fix, rx.bch_bad, len(rx.msgs)))
     for m in rx.msgs[:30]:
         print("  addr=%d func=%d err=%s bcd[%d]=%r" % (m[0], m[1], m[2], len(m[3]), m[3]))
+        print("     lbj=%s" % (parse_lbj(m[0], m[1], m[3], m[2]),))
 
 
 if __name__ == "__main__":

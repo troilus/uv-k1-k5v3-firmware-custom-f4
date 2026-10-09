@@ -79,6 +79,26 @@ python model_rx.py <file.wav>   # decode a discriminator recording
 `pocsag.py` builds/decodes POCSAG + LBJ payloads; `model_rx.py` is the receive
 chain (channel + `DemodInt`, the exact integer demodulator the C runs).
 
+### Cross-check with a POCSAG encoder
+
+`test/pocsag-golang-windows-amd64/` holds a Windows POCSAG encoder/decoder
+(`pocsag`, `pocsag-burst`, `pocsag-decode`; the `.exe`s are not versioned, only
+kept on disk). Generate a real LBJ short report and decode it with this app's
+model:
+
+```
+pocsag-windows-amd64.exe -a 1234000 -f 3 -type numeric -b 1200 \
+    -m "412   087 01234" -o lbj_short.wav
+python model_rx.py lbj_short.wav
+```
+
+Expected: `sync=1 ... fix=0 bad=0 msgs=1`, `addr=1234000 func=3
+bcd[15]='412   087 01234'`, train=412, speed=87, km=0123.4. The other LBJ
+addresses (1233999/1234001/1234002) and a 65-char (13-codeword) report decode
+the same way; `pocsag-burst` with a JSON message list makes a multi-address
+burst. On air, `pocsag-decode` / `multimon-ng -a POCSAG1200` are the ground
+truth.
+
 The reference `rtl_sdr_lbj_receiver.py` and a sample recording are kept here.
 That recording is a heavily filtered, AC-coupled off-radio capture: PDW needs
 maximum volume and yields wrong data, and the model finds no reliable batch in
