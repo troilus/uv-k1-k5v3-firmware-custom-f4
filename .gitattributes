@@ -1,3 +1,5 @@
 # Overlay-app build: keep LF so the Linux (Docker) build reads them as-is.
 compile-app.sh                 text eol=lf
 App/apps/**                    text eol=lf
+# ...but recordings/bitmaps under an app are binary.
+App/apps/**/*.wav              binary
