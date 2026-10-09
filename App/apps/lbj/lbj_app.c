@@ -306,12 +306,14 @@ static void draw(void){
 
     if(g.page==0u) drawSummary(s); else drawPdus(s);
 
+    /* Frequency on the status bar: the framebuffer is only FRAME_LINES (7) rows
+     * tall, so a y >= 56 would write past gFrameBuffer. */
     char *f=str; uint32_t fr=A->rx_freq();
     f=putu(f,sub(&fr,100000u)); *f++='.';
     *f++=(char)('0'+sub(&fr,10000u)); *f++=(char)('0'+sub(&fr,1000u));
     *f++=(char)('0'+sub(&fr,100u)); *f++=(char)('0'+sub(&fr,10u));
     *f='\0';
-    A->print_tiny(str,0,57,false,true);
+    A->print_tiny(str,46,0,true,true);
 
     A->blit_status();
     A->blit_full();

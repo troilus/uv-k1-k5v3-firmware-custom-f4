@@ -12,6 +12,76 @@ Status: **v0.1, first on-air build not yet tested.** The demodulator and the
 POCSAG/LBJ decoder are validated in `test/model_rx.py` against synthetic frames
 (clean / noise / ±1 % clock / AC-coupled); see the table below.
 
+## 中文说明
+
+### 使用步骤
+
+1. 把 VFO 调到 LBJ 频率、**FM**（如 **821.2375 MHz**；BK4829 覆盖 760–1160 MHz）。
+2. 进入 **F4HWN APPS → LBJ RX**。
+3. 按 `3` 在 SUM / PDU 两页间切换；扬声器默认关闭，按 `1` 开。
+
+### 屏幕说明
+
+顶部 1 行状态栏 + 主区 7 行。
+
+状态栏：`LBJ RX`（标题）· `[SUM]/[PDU]`（当前页）· 接收频率（如 `821.2375`）· 电池。
+
+**SUM 页（解析摘要）**
+
+```
+[LBJ RX] [SUM] 821.2375        ███
+412 DN                              ← 车次 + 方向（DN 下行 / UP 上行 / ?? 未知，粗体）
+Sp 087 Km 01234                     ← 速度 / 公里标
+A1234000 F3 LBJ +                   ← 地址 / 功能字 / 是否 LBJ 地址 / BCH 标志
+412   087 01234                     ← 原始 BCD（最多 32 字符）
+pp 320 d-12 R-95                    ← 峰峰值 / 基线 / RSSI
+M3 S6 W96 F2 B0                     ← 计数行
+```
+
+**PDU 页（全部解码报文，不限地址）**：一屏 3 条，每条 2 行——上行
+`A<addr> F<func> <LBJ/--> <+/!>`，下行原始 BCD（最多 32 字符）。
+
+### 按键操作
+
+| 键 | 作用 |
+|---|---|
+| `3` | 切换 SUM / PDU 页（回到顶部） |
+| UP / DOWN | SUM：选更新/更旧的记录；PDU：上下滚动（UV-K1 用左右，`nav_dir`） |
+| `1` | 扬声器开/关（默认关，退出保存） |
+| `2` | 清空报文历史与全部计数 |
+| EXIT | 退出（回 Apps 菜单） |
+
+### 计数行 `M S W F B`
+
+`M<msgs> S<sync> W<words> F<fix> B<bad>`
+
+| 字符 | 含义 | 正常 |
+|---|---|---|
+| **M** | 解出的**报文条数** | 随接收增长 |
+| **S** | 检测到的 **POCSAG 同步字**次数 | 有信号就增长 |
+| **W** | 处理过的 **32-bit 码字数**（每批 16） | ≈ `16×S` |
+| **F** | 经 **BCH 单比特纠错**的码字数 | 少量、接近 0 |
+| **B** | BCH **无法纠正**的码字数 | 接近 0 |
+
+每批 = 1 同步字 + 16 码字，故 `W ≈ 16×S`。例：`M3 S6 W96 F2 B0` = 3 条报文、
+6 个批次、96 个码字、2 个单比特纠错、0 个不可纠。
+
+判读：`S=0` → 没信号或 RAW 未生效；`F`/`B` 偏大 → 信噪比不足（距离/天线）；
+`S` 正常、`W≈16S`、`B≈0` → 链路健康，PDU 页应出现 `LBJ` 报文。按 `2` 清零。
+
+### 其它屏幕缩写
+
+| 记号 | 含义 |
+|---|---|
+| `pp <v>` | 解调基带峰峰值（信号幅度） |
+| `d<val>` | 慢速基线跟踪值（有符号） |
+| `R<val>` | RX VFO 的 RSSI（dBm） |
+| `A<addr>` | POCSAG 地址（RIC） |
+| `F<func>` | 功能字（本例 `1`=下行 `3`=上行） |
+| `LBJ` / `--` | 是否属于 LBJ 地址集（1233999/1234000/1234001/1234002） |
+| `+` / `!` | 该条报文 BCH 正常 / 不可纠正 |
+| `DN` / `UP` / `??` | 方向：下行 / 上行 / 未知 |
+
 ## Using the app
 
 1. Set the VFO to the LBJ frequency, **FM** (e.g. 821.2375 MHz). The BK4829
@@ -35,8 +105,7 @@ Per 9.6 kHz sample:
 1. Slow baseline tracker (1-pole, 128 samples ≈ 16 bits) — essential: the LBJ
    baseband is AC-coupled and the baseline drifts over many bits.
 2. Low-pass biquad 1500 Hz (Q14 fixed point).
-3. Symmetric peak trackers (attack/decay 1/256) → mid threshold, plus a small
-   manual trim (keys `4`/`6`).
+3. Symmetric peak trackers (attack/decay 1/256) → mid threshold.
 4. **DPLL**: 65536 per bit, 8192 per sample; each level transition pulls the
    phase toward the bit boundary (proportional + small integral); the bit is
    sampled at the 0.5 crossing.
