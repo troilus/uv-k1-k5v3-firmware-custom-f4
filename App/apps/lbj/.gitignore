@@ -7,3 +7,6 @@ lbj.map
 lbj.o
 LBJRX.app
 __pycache__/
+
+# Downloaded Windows tool binaries: keep on disk, not in the repo.
+*.exe

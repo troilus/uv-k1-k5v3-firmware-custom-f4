@@ -3,3 +3,4 @@ compile-app.sh                 text eol=lf
 App/apps/**                    text eol=lf
 # ...but recordings/bitmaps under an app are binary.
 App/apps/**/*.wav              binary
+App/apps/**/*.exe              binary
