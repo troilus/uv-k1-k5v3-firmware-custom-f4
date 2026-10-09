@@ -31,11 +31,11 @@ POCSAG/LBJ decoder are validated in `test/model_rx.py` against synthetic frames
 ```
 [LBJ RX] [SUM] 821.2375        ███
 412 DN                              ← 车次 + 方向（DN 下行 / UP 上行 / ?? 未知，粗体）
-Sp 087 Km 01234                     ← 速度 / 公里标
+Sp 087 Km 01234                     ← 速度 / 公里标（与车次行同字体，粗体）
 A1234000 F3 LBJ +                   ← 地址 / 功能字 / 是否 LBJ 地址 / BCH 标志
 412   087 01234                     ← 原始 BCD（最多 32 字符）
 pp 320 d-12 R-95                    ← 峰峰值 / 基线 / RSSI
-M3 S6 W96 F2 B0                     ← 计数行
+M3 S6 W96 F2 B0           1/3       ← 计数行；右侧 x/y = 当前第 x 条 / 共 y 条（1 最新）
 ```
 
 **PDU 页（全部解码报文，不限地址）**：一屏 3 条，每条 2 行——上行
@@ -46,9 +46,10 @@ M3 S6 W96 F2 B0                     ← 计数行
 | 键 | 作用 |
 |---|---|
 | `3` | 切换 SUM / PDU 页（回到顶部） |
-| UP / DOWN | SUM：选更新/更旧的记录；PDU：上下滚动（UV-K1 用左右，`nav_dir`） |
+| UP / DOWN | SUM：选更新/更旧的记录；PDU：上下滚动（UV-K1 用左右，`nav_dir`）。每次按键只走一步，按住不放不会连发 |
 | `1` | 扬声器开/关（默认关，退出保存） |
 | `2` | 清空报文历史与全部计数 |
+| `4` | 背光常亮 / 正常（仅本次运行有效，退出后恢复系统 BLTime） |
 | EXIT | 退出（回 Apps 菜单） |
 
 ### 计数行 `M S W F B`
@@ -130,11 +131,13 @@ F<fixed> B<bad>` (fixed = BCH single-bit corrected, bad = uncorrectable word).
 
 | Page | Content |
 |---|---|
-| **SUM** | Newest/selected record: train + direction (bold), speed, km, `A<addr> F<func> LBJ/--` and `+`/`!` (BCH), 32 raw BCD chars, plus a live `pp / d<baseline> / R<rssi>` row |
+| **SUM** | Newest/selected record: train + direction (bold), speed, km in the same bold font, `A<addr> F<func> LBJ/--` and `+`/`!` (BCH), 32 raw BCD chars, a live `pp / d<baseline> / R<rssi>` row, and `x/y` (selected / total, 1 = newest) at the right of the counter row |
 | **PDU** | Every decoded message, **any address**: `A<addr> F<func> LBJ/-- +/!`, then up to 32 raw BCD chars (3 records/screen, UP/DOWN scrolls) |
 
 Keys: `3` page · UP/DOWN scroll (PDU) or newer/older record (SUM) (`nav_dir`:
-UV-K1 LEFT/RIGHT) · `1` speaker · `2` clear history + counters · EXIT quit.
+UV-K1 LEFT/RIGHT; one step per press — holding does not auto-repeat) · `1`
+speaker · `2` clear history + counters · `4` backlight always-on / timeout
+(session-only) · EXIT quit.
 
 ## Tests (`test/`)
 

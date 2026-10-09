@@ -29,8 +29,10 @@
  * batch / BCH(31,21) single-bit correction and the LBJ BCD layout.
  *
  * Keys: 3 toggles the debug pages (SUMmary / all PDUs); UP/DOWN pick the
- * newer/older record or scroll; 1 speaker; 2 clear; EXIT quit. Every page foots
- * a shared counter row: M<msgs> S<sync> W<words> F<fixed> B<bad>.
+ * newer/older record or scroll (one step per press, no auto-repeat); 1 speaker;
+ * 2 clear; 4 backlight always-on / timeout; EXIT quit. Every page foots a shared
+ * counter row: M<msgs> S<sync> W<words> F<fixed> B<bad>; the SUM page also shows
+ * x/y (selected record / total, 1 = newest) at the right of that row.
  */
 
 #include <stdint.h>
@@ -114,7 +116,7 @@ static struct {
     lbj_rx_t rx;
     dem_t    dem;
     uint8_t  count, cur, prevKey, redraw, page, top;
-    bool     running, spk;
+    bool     running, spk, blAlways;
     uint8_t  busyFor;
     int32_t  rssi;
     uint32_t tPrev, tCyc;
@@ -258,7 +260,8 @@ static void drawSummary(char *s){
     for(uint8_t i=6;i<9u&&i<rec->len;i++) *o++=safe((uint8_t)b[i]);
     o=put(o,s+T_KM);
     for(uint8_t i=10;i<15u&&i<rec->len;i++) *o++=safe((uint8_t)b[i]);
-    tiny(ROWY(1),o);
+    *o='\0';
+    A->print_bold(str,0,0,1);       /* same font as the train/direction row */
     o=str; *o++='A'; o=putu(o,rec->addr);
     *o++=' '; *o++='F'; *o++=(char)('0'+rec->func);
     *o++=' '; o=put(o,(rec->flags&RF_LBJ)?s+T_LBJ:s+T_NOLBJ);
@@ -269,6 +272,13 @@ static void drawSummary(char *s){
     tiny(ROWY(3),o);
     sigrow(ROWY(4));
     counters(ROWY(6));
+    /* x/y at the right of the footer: selected record (1 = newest) / total. */
+    o=str;
+    o=putu(o,(uint32_t)g.cur+1u);
+    *o++='/';
+    o=putu(o,g.count);
+    *o='\0';
+    A->print_tiny(str,(uint8_t)(128u-(uint8_t)(o-str)*4u),ROWY(6),false,true);
 }
 
 /* All decoded messages, any address (page 1). */
@@ -323,18 +333,22 @@ static void draw(void){
 static void handleKeys(void){
     const app_api_t *A=g.A;
     uint8_t key=A->get_key();
+    /* One step per press: acting on the raw held key every house slot would
+     * auto-repeat at ~20/s and skip records. Only a new key does anything, and
+     * after release (prevKey=INVALID) nothing moves until the next press. */
+    if(key==APP_KEY_INVALID||key==g.prevKey){ g.prevKey=key; return; }
+    g.prevKey=key;
     int d=A->nav_dir(key);
     if(d){
         int t = (g.page==0u) ? ((int)g.cur+d) : ((int)g.top+d);
-        int hi = (g.page==0u) ? (int)g.count : (int)g.count;
+        int hi = (int)g.count;
         if(t<0) t=0;
         if(t>hi-1) t=hi-1;
         if(t<0) t=0;
         if(g.page==0u){ if((uint8_t)t!=g.cur){ g.cur=(uint8_t)t; g.redraw=1u; } }
         else if((uint8_t)t!=g.top){ g.top=(uint8_t)t; g.redraw=1u; }
+        return;
     }
-    if(key==APP_KEY_INVALID||key==g.prevKey){ g.prevKey=key; return; }
-    g.prevKey=key;
     g.redraw=1u;
     switch(key){
         case APP_KEY_EXIT: g.running=false; break;
@@ -343,6 +357,9 @@ static void handleKeys(void){
                            g.rx.syncs=g.rx.words=g.rx.ok=g.rx.fix=g.rx.bad=0;
                            g.rx.msgs=g.rx.up=g.rx.dn=0; break;
         case APP_KEY_3:    g.page^=1u; g.top=0; g.cur=0; break;
+        case APP_KEY_4:    g.blAlways=!g.blAlways;
+                           if(g.blAlways) A->backlight_on(); else A->backlight_update();
+                           break;
         default: break;
     }
 }
@@ -353,7 +370,8 @@ static void house(void){
     handleKeys();
     if(!g.running) return;
     g.rssi=A->rssi_dbm();
-    A->backlight_update();
+    if(g.blAlways) A->backlight_on();   /* re-arm every slot so it never fades */
+    else           A->backlight_update();
     if(!g.redraw) return;
     g.redraw=0;
     adcRestore();
