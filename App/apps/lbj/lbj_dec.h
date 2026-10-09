@@ -28,7 +28,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#define LBJ_CWMAX   20u     /* message codewords kept per report (100 BCD chars) */
+#define LBJ_CWMAX   14u     /* message codewords kept per report (70 BCD chars) */
 
 /* classification of a processed codeword (Raw CW debug page) */
 enum { LBJ_CLS_SYNC = 0u, LBJ_CLS_IDLE = 1u, LBJ_CLS_ADDR = 2u, LBJ_CLS_MSG = 3u };
@@ -37,15 +37,12 @@ typedef struct {
     uint32_t sr;
     uint32_t cws[LBJ_CWMAX];
     uint32_t addr;
-    uint16_t syn_lut[31];
     uint16_t hunt;
     uint8_t  n, nb, state, pol, wc, fp, inmsg, err, func;
-    uint8_t  lut_ready;
     /* counters shown on the debug pages */
     uint16_t syncs, words, ok, fix, bad, msgs, up, dn;
 } lbj_rx_t;
 
-void lbj_rx_init(lbj_rx_t *r);
 void lbj_rx_bit(lbj_rx_t *r, uint8_t bit);
 
 /* Provided by the app (same translation unit): one call per decoded word /

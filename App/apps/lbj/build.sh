@@ -29,9 +29,14 @@ step() { printf '\r  🔨 %-13s [%d/4] %-8s' "$APP_NAME" "$1" "$2"; }
 trap 'printf "\r  ❌ %-13s build failed            \n" "$APP_NAME"' ERR
 
 step 1 assets  ; APP_VER="$APP_VER" python3 ./gen_assets.py "${APP}_assets.bin" "${APP}_assets.h"
-# A failed link (4 KiB overflow) leaves no ELF: keep an object to disassemble.
+# A failed link (4 KiB overflow) leaves no ELF: keep an object and print its
+# largest symbols so the next iteration knows exactly what to cut.
 step 2 compile ; "$CC" $CFLAGS $LDFLAGS "${APP}_app.c" -lgcc -o "${APP}.elf" \
-                   || { "$CC" $CFLAGS -c "${APP}_app.c" -o "${APP}.o"; false; }
+                   || { "$CC" $CFLAGS -c "${APP}_app.c" -o "${APP}.o"
+                        SIZE="${OBJCOPY%objcopy}size"; NM="${OBJCOPY%objcopy}nm"
+                        echo; echo "--- ${APP}.o size ---"; "$SIZE" -A "${APP}.o" 2>/dev/null || true
+                        echo "--- largest symbols ---"; "$NM" --print-size --size-sort --radix=d "${APP}.o" 2>/dev/null | tail -50 || true
+                        false; }
 step 3 objcopy ; "$OBJCOPY" -O binary "${APP}.elf" "${APP}.bin"
 step 4 pack    ; python3 ../pack_app.py "${APP}.bin" "${OUT}.app" \
                    --name "$APP_NAME" --ver "$APP_VER" --api-min "$APP_API_MIN" --vma "${APP_VMA}" \

@@ -28,8 +28,9 @@ static uint16_t bch_syn(uint32_t d31)
     return r;
 }
 
-/* Correct a single-bit error; returns false when the word is uncorrectable. */
-static bool bch_dec(lbj_rx_t *r, uint32_t cw, uint32_t *out)
+/* Correct a single-bit error; returns false when the word is uncorrectable.
+ * The 31 single-bit syndromes are recomputed on demand (no 62-byte table). */
+static bool bch_dec(uint32_t cw, uint32_t *out)
 {
     uint32_t d31 = (cw >> 1) & 0x7FFFFFFFu;
     uint16_t s = bch_syn(d31);
@@ -38,7 +39,7 @@ static bool bch_dec(lbj_rx_t *r, uint32_t cw, uint32_t *out)
         return true;
     }
     for (uint8_t p = 0; p < 31u; p++) {
-        if (s == r->syn_lut[p]) {
+        if (bch_syn(1u << p) == s) {
             d31 ^= (1u << p);
             *out = (d31 << 1) | (cw & 1u);
             return true;
@@ -46,15 +47,6 @@ static bool bch_dec(lbj_rx_t *r, uint32_t cw, uint32_t *out)
     }
     *out = cw;
     return false;
-}
-
-void lbj_rx_init(lbj_rx_t *r)
-{
-    /* Zero everything the loader does not already zero is not needed for .bss;
-     * build the 31 single-bit syndromes once. */
-    for (uint8_t p = 0; p < 31u; p++)
-        r->syn_lut[p] = bch_syn(1u << p);
-    r->lut_ready = 1u;
 }
 
 /* One message finished: extract the BCD string and hand it to the app. */
@@ -109,7 +101,7 @@ void lbj_rx_bit(lbj_rx_t *r, uint8_t bit)
 
     uint32_t raw = r->pol ? r->sr : ~r->sr;
     uint32_t cor;
-    bool ok = bch_dec(r, raw, &cor);
+    bool ok = bch_dec(raw, &cor);
     uint8_t cls;
 
     r->words++;
