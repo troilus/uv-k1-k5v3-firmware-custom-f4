@@ -56,17 +56,16 @@ Chinese font at flash `0xA0000` is a separate blob and not assumed present).
 
 ## Debug pages (key `3`)
 
-Three pages; each foots the shared counter row `M<msgs> S<sync> W<words>
-F<fixed> B<bad>`.
+Two pages; each foots the shared counter row `M<msgs> S<sync> W<words>
+F<fixed> B<bad>` (fixed = BCH single-bit corrected, bad = uncorrectable word).
 
 | Page | Content |
 |---|---|
 | **SUM** | Newest/selected record: train + direction (bold), speed, km, `A<addr> F<func> LBJ/--` and `+`/`!` (BCH), 32 raw BCD chars, plus a live `pp / d<baseline> / R<rssi>` row |
 | **PDU** | Every decoded message, **any address**: `A<addr> F<func> LBJ/-- +/!`, then up to 32 raw BCD chars (3 records/screen, UP/DOWN scrolls) |
-| **RAW** | Last codewords in hex, `S`ync / `I`dle / `A`ddress / `M`essage and BCH `ok`/`XX` (6/screen, UP/DOWN scrolls) |
 
-Keys: `3` page · UP/DOWN scroll or newer/older record (`nav_dir`: UV-K1
-LEFT/RIGHT) · `1` speaker · `2` clear history + counters · EXIT quit.
+Keys: `3` page · UP/DOWN scroll (PDU) or newer/older record (SUM) (`nav_dir`:
+UV-K1 LEFT/RIGHT) · `1` speaker · `2` clear history + counters · EXIT quit.
 
 ## Tests (`test/`)
 
@@ -99,8 +98,8 @@ on-radio, DAC-biased RAW path is the real target.
 
 ## Notes
 
-- History is 8 records (on the stack), raw codeword ring 10; no external-flash
-  journal.
+- History is 8 records (on the stack); no raw-codeword ring and no external-flash
+  journal (the RAW page was removed to fit the 4 KiB overlay).
 - 4 KiB overlay: texts are read-only assets (`gen_assets.py`), as in APRS RX.
 - Built with `./compile-app.sh lbj` (Docker), `APP_NAME = "LBJ RX"`, blob
   `LBJRX.app`.

@@ -15,17 +15,12 @@ from app_assets import Assets
 TITLE = "LBJ RX"
 WAIT = "WAIT"
 
+# Only the labels the two pages actually read (SUM + PDU).
 UI = [
     ("T_TITLE",  TITLE),
     ("T_WAIT",   WAIT),
-    ("T_DBM",    "dBm"),
-    ("T_KMH",    "km/h"),
-    ("T_SEP",    " "),
-    # page capsules
     ("T_SUM",    "SUM"),
     ("T_PDU",    "PDU"),
-    ("T_RAW",    "RAW"),
-    # LBJ fields
     ("T_SPD",    "Sp "),
     ("T_KM",     "Km "),
     ("T_LBJ",    "LBJ"),
@@ -33,10 +28,6 @@ UI = [
     ("T_DN",     "DN"),
     ("T_UP",     "UP"),
     ("T_UNK",    "??"),
-    # raw codeword page
-    ("T_CLS",    "SIAM"),   # classification letter by index
-    ("T_OK",     "ok"),
-    ("T_XX",     "XX"),
 ]
 
 a = Assets("LBJ")

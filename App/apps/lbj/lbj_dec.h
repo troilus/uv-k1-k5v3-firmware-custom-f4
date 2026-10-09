@@ -30,9 +30,6 @@
 
 #define LBJ_CWMAX   14u     /* message codewords kept per report (70 BCD chars) */
 
-/* classification of a processed codeword (Raw CW debug page) */
-enum { LBJ_CLS_SYNC = 0u, LBJ_CLS_IDLE = 1u, LBJ_CLS_ADDR = 2u, LBJ_CLS_MSG = 3u };
-
 typedef struct {
     uint32_t sr;
     uint32_t cws[LBJ_CWMAX];
@@ -45,9 +42,7 @@ typedef struct {
 
 void lbj_rx_bit(lbj_rx_t *r, uint8_t bit);
 
-/* Provided by the app (same translation unit): one call per decoded word /
- * completed message, for the raw ring and the history. */
-void lbj_emit_word(uint32_t cw, uint8_t cls, uint8_t ok);
+/* Provided by the app (same translation unit): one call per completed message. */
 void lbj_emit_msg(const lbj_rx_t *r, const char *bcd, uint16_t len);
 
 #endif /* LBJ_DEC_H */

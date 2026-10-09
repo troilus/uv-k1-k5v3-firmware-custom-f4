@@ -102,7 +102,6 @@ void lbj_rx_bit(lbj_rx_t *r, uint8_t bit)
     uint32_t raw = r->pol ? r->sr : ~r->sr;
     uint32_t cor;
     bool ok = bch_dec(raw, &cor);
-    uint8_t cls;
 
     r->words++;
     if (ok) {
@@ -117,11 +116,9 @@ void lbj_rx_bit(lbj_rx_t *r, uint8_t bit)
 
     if (pc32(cor ^ POC_SYNC) <= 2u) {
         r->wc = r->fp = 0u;
-        cls = LBJ_CLS_SYNC;
     } else if (pc32(cor ^ POC_IDLE) <= 2u) {
         if (r->inmsg)
             lbj_flush(r);
-        cls = LBJ_CLS_IDLE;
     } else if (!(cor >> 31)) {
         if (r->inmsg)
             lbj_flush(r);
@@ -130,17 +127,12 @@ void lbj_rx_bit(lbj_rx_t *r, uint8_t bit)
         r->n = 0u;
         r->inmsg = 1u;
         r->err = ok ? 0u : 1u;
-        cls = LBJ_CLS_ADDR;
-    } else {
-        cls = LBJ_CLS_MSG;
-        if (r->inmsg) {
-            if (r->n < LBJ_CWMAX)
-                r->cws[r->n++] = cor;
-            if (!ok)
-                r->err = 1u;
-        }
+    } else if (r->inmsg) {
+        if (r->n < LBJ_CWMAX)
+            r->cws[r->n++] = cor;
+        if (!ok)
+            r->err = 1u;
     }
-    lbj_emit_word(cor, cls, ok ? 1u : 0u);
 
     if (r->wc >= 16u)
         r->state = 0u;              /* end of batch: hunt the next sync */

@@ -27,5 +27,5 @@ SECTIONS {
     ASSERT(__app_end <= APP_VMA + APP_LENGTH,
            "LBJ RX overlay app overflows the 4 KiB overlay")
 
-    /DISCARD/ : { *(.ARM.exidx*) *(.ARM.extab*) *(.eh_frame*) *(.comment) *(.note.*) }
+    /DISCARD/ : { *(.ARM.exidx*) *(.ARM.extab*) *(.ARM.attributes) *(.eh_frame*) *(.comment) *(.note.*) }
 }

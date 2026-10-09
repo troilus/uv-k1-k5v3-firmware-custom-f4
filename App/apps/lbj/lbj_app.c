@@ -28,9 +28,9 @@
  * low-pass biquad, symmetric peak tracker, DPLL (65536/bit), then POCSAG sync /
  * batch / BCH(31,21) single-bit correction and the LBJ BCD layout.
  *
- * Keys: 3 cycles the debug pages (SUMmary / all PDUs / RAW codewords); UP/DOWN
- * pick the newer/older record or scroll; 1 speaker; 2 clear; EXIT quit. Every
- * page foots a shared counter row: M<msgs> S<sync> W<words> F<fixed> B<bad>.
+ * Keys: 3 toggles the debug pages (SUMmary / all PDUs); UP/DOWN pick the
+ * newer/older record or scroll; 1 speaker; 2 clear; EXIT quit. Every page foots
+ * a shared counter row: M<msgs> S<sync> W<words> F<fixed> B<bad>.
  */
 
 #include <stdint.h>
@@ -95,9 +95,8 @@ typedef struct {
     uint8_t last;
 } dem_t;
 
-/* ---- decoded-message history + raw codeword ring ---- */
+/* ---- decoded-message history ---- */
 #define HISTORY   8u
-#define RAWWORDS  10u
 #define BCDMAX    96u
 
 typedef struct {
@@ -114,9 +113,6 @@ static struct {
     char   *text;              /* formatting buffer (app_main's stack) */
     lbj_rx_t rx;
     dem_t    dem;
-    uint32_t wcw[RAWWORDS];
-    uint8_t  wcls[RAWWORDS], wok[RAWWORDS];
-    uint8_t  wpos, wcount;
     uint8_t  count, cur, prevKey, redraw, page, top;
     bool     running, spk;
     uint8_t  busyFor;
@@ -146,8 +142,6 @@ static char *puti(char *o,int32_t v){
     if(v<0){ *o++='-'; return putu(o,(uint32_t)(-v)); }
     return putu(o,(uint32_t)v);
 }
-static char hexd(uint8_t v){ return (char)(v<10u?(char)('0'+v):(char)('A'+v-10u)); }
-static char *puthex8(char *o,uint32_t v){ for(int8_t s=28;s>=0;s-=4) *o++=hexd((uint8_t)((v>>s)&0xFu)); return o; }
 static char safe(uint8_t c){ return (c<0x20u||c>0x7Eu)?'.':(char)c; }
 static void tiny(uint8_t y,char *end){ *end='\0'; g.A->print_tiny(str,0,y,false,true); }
 
@@ -214,11 +208,6 @@ static void dem_sample(int32_t x){
 
 /* ---- callbacks from the decoder core ---- */
 static bool is_lbj(uint32_t a){ return (uint32_t)(a - 1233999u) <= 3u; }
-void lbj_emit_word(uint32_t cw, uint8_t cls, uint8_t ok){
-    g.wcw[g.wpos]=cw; g.wcls[g.wpos]=cls; g.wok[g.wpos]=ok;
-    g.wpos=(uint8_t)((g.wpos+1u)%RAWWORDS);
-    if(g.wcount<RAWWORDS) g.wcount++;
-}
 void lbj_emit_msg(const lbj_rx_t *r, const char *bcd, uint16_t len){
     rec_t *rec=g.hist[HISTORY-1u];
     for(uint8_t k=HISTORY-1u;k;k--) g.hist[k]=g.hist[k-1u];
@@ -282,36 +271,23 @@ static void drawSummary(char *s){
     counters(ROWY(6));
 }
 
-/* PDU (page 1) and RAW codewords (page 2) share the loop/footer/WAIT shape. */
+/* All decoded messages, any address (page 1). */
 __attribute__((noinline))
-static void drawList(char *s){
-    if(!g.count && !g.wcount){ if(g.A->ticks_ms()&512u) tiny(ROWY(1),put(str,s+T_WAIT)); counters(ROWY(6)); return; }
-    if(g.page==1u){
-        uint8_t shown=0;
-        for(uint8_t i=g.top;i<g.count && shown<3u;i++,shown++){
-            const rec_t *rec=g.hist[i];
-            const char *b=rec->bcd;
-            char *o=str;
-            *o++='A'; o=putu(o,rec->addr);
-            *o++=' '; *o++='F'; *o++=(char)('0'+rec->func);
-            *o++=' '; o=put(o,(rec->flags&RF_LBJ)?s+T_LBJ:s+T_NOLBJ);
-            *o++=' '; *o++=(rec->flags&RF_ERR)?'!':'+';
-            tiny(ROWY((uint8_t)(shown*2u)),o);
-            o=str; uint8_t n=(uint8_t)(rec->len<32u?rec->len:32u);
-            for(uint8_t k=0;k<n;k++) *o++=safe((uint8_t)b[k]);
-            tiny(ROWY((uint8_t)(shown*2u+1u)),o);
-        }
-    } else {
-        for(uint8_t r=0;r<6u;r++){
-            if((unsigned)(g.top+r)>=g.wcount) break;
-            uint8_t idx=(uint8_t)((g.wpos + RAWWORDS*2u - 1u - g.top - r) % RAWWORDS);
-            char *o=str;
-            o=puthex8(o,g.wcw[idx]);
-            *o++=' '; *o++=s[T_CLS+g.wcls[idx]]; *o++=' ';
-            *o++=s[g.wok[idx]?T_OK:T_XX];
-            *o++=s[g.wok[idx]?T_OK+1:T_XX+1];
-            tiny(ROWY(r),o);
-        }
+static void drawPdus(char *s){
+    if(!g.count){ if(g.A->ticks_ms()&512u) tiny(ROWY(1),put(str,s+T_WAIT)); counters(ROWY(6)); return; }
+    uint8_t shown=0;
+    for(uint8_t i=g.top;i<g.count && shown<3u;i++,shown++){
+        const rec_t *rec=g.hist[i];
+        const char *b=rec->bcd;
+        char *o=str;
+        *o++='A'; o=putu(o,rec->addr);
+        *o++=' '; *o++='F'; *o++=(char)('0'+rec->func);
+        *o++=' '; o=put(o,(rec->flags&RF_LBJ)?s+T_LBJ:s+T_NOLBJ);
+        *o++=' '; *o++=(rec->flags&RF_ERR)?'!':'+';
+        tiny(ROWY((uint8_t)(shown*2u)),o);
+        o=str; uint8_t n=(uint8_t)(rec->len<32u?rec->len:32u);
+        for(uint8_t k=0;k<n;k++) *o++=safe((uint8_t)b[k]);
+        tiny(ROWY((uint8_t)(shown*2u+1u)),o);
     }
     counters(ROWY(6));
 }
@@ -325,10 +301,10 @@ static void draw(void){
     A->status_clear();
     A->print_inverse(s+T_TITLE,2,0,true,true,(uint8_t)(2u+T_TITLE_CHARS*4u));
     A->draw_battery();
-    const char *pg = g.page==0?s+T_SUM : g.page==1?s+T_PDU : s+T_RAW;
+    const char *pg = g.page==0?s+T_SUM : s+T_PDU;
     A->print_inverse(pg,30,0,true,true,42u);
 
-    if(g.page==0u) drawSummary(s); else drawList(s);
+    if(g.page==0u) drawSummary(s); else drawPdus(s);
 
     char *f=str; uint32_t fr=A->rx_freq();
     f=putu(f,sub(&fr,100000u)); *f++='.';
@@ -347,21 +323,13 @@ static void handleKeys(void){
     uint8_t key=A->get_key();
     int d=A->nav_dir(key);
     if(d){
-        int t;
-        if(g.page==0u){
-            t=(int)g.cur+d;
-            if(t<0) t=0;
-            if(t>=(int)g.count) t=(int)g.count-1;
-            if(t<0) t=0;
-            if((uint8_t)t!=g.cur){ g.cur=(uint8_t)t; g.redraw=1u; }
-        } else {
-            t=(int)g.top+d;
-            int hi=(g.page==1u)?(int)g.count:(int)g.wcount;
-            if(t<0) t=0;
-            if(t>hi-1) t=hi-1;
-            if(t<0) t=0;
-            if((uint8_t)t!=g.top){ g.top=(uint8_t)t; g.redraw=1u; }
-        }
+        int t = (g.page==0u) ? ((int)g.cur+d) : ((int)g.top+d);
+        int hi = (g.page==0u) ? (int)g.count : (int)g.count;
+        if(t<0) t=0;
+        if(t>hi-1) t=hi-1;
+        if(t<0) t=0;
+        if(g.page==0u){ if((uint8_t)t!=g.cur){ g.cur=(uint8_t)t; g.redraw=1u; } }
+        else if((uint8_t)t!=g.top){ g.top=(uint8_t)t; g.redraw=1u; }
     }
     if(key==APP_KEY_INVALID||key==g.prevKey){ g.prevKey=key; return; }
     g.prevKey=key;
@@ -369,10 +337,10 @@ static void handleKeys(void){
     switch(key){
         case APP_KEY_EXIT: g.running=false; break;
         case APP_KEY_1:    g.spk=!g.spk; A->audio_path(g.spk); break;
-        case APP_KEY_2:    g.count=g.cur=g.top=0; g.wcount=g.wpos=0;
+        case APP_KEY_2:    g.count=g.cur=g.top=0;
                            g.rx.syncs=g.rx.words=g.rx.ok=g.rx.fix=g.rx.bad=0;
                            g.rx.msgs=g.rx.up=g.rx.dn=0; break;
-        case APP_KEY_3:    g.page=(uint8_t)((g.page+1u)%3u); g.top=0; g.cur=0; break;
+        case APP_KEY_3:    g.page^=1u; g.top=0; g.cur=0; break;
         default: break;
     }
 }
