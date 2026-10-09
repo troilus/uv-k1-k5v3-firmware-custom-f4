@@ -38,28 +38,26 @@ pp 320 d-12 R-95                    ← 峰峰值 / 基线 / RSSI
 M3 S6 W96 F2 B0           1/3       ← 计数行；右侧 x/y = 当前第 x 条 / 共 y 条（1 最新）
 ```
 
-**PDU 页（全部解码报文，不限地址）**：一屏 2 条，每条 2 行——上行
-`A<addr> F<func> <LBJ/--> <+/!>`，下行原始 BCD（最多 32 字符）；底部一行为
-`pp/d/R` 调试值（峰峰值 / 基线 / RSSI）。
+**PDU 页（全部解码报文，不限地址）**：一屏 3 条，每条 2 行——上行
+`A<addr> F<func> <LBJ/--> <+/!>`，下行原始 BCD（最多 32 字符）。
 
 **1234002 新版 LB 预警**：SUM 页解析报文尾部 50 个 nibble——
 
 ```
 [LBJ RX] [SUM] 821.2375        ███
-412 DN A                            ← 车次 + 方向 + 机车端号(A/B/-，粗体)
-东风4C 12345                        ← 车型(中文，按表查) + 8位机车登记号
+412 DN                              ← 车次 + 方向（粗体）
+105 12345678                        ← 车型代码(4位BCD) + 8位机车登记号
 线路 京沪线                          ← GB2312 线路名
-经度 E116 23.4567                   ← XXX°XX.XXXX'E
-纬度 N39 54.3210                    ← XX°XX.XXXX'N
+经度 E11623.4567                    ← DDMM.MMMM'E
+纬度 N3954.3210                     ← DDMM.MMMM'N
 Sp 087 Km 01234                     ← 速度 / 公里标（合并报文的前 15 字符）
 M3 S6 W96 F2 B0           1/3       ← 计数行 + x/y
 ```
 
-0-3 为 4 位十进制 BCD 车型代码（查表），4-11 为 8 位机车登记号，
-12-13 端号（30 未知 / 31 A 端 / 32 B 端），14-29 线路 GB2312，
-30-38 经度，39-46 纬度，47-49 保留。车型名/线路用设备内置 8×8 中文字库；
-按 `5` 切到英文时车型显示数字代码、字段用英文缩写。`1233999/1234000` 仍为
-传统基础预警（车次/速度/公里标）。
+0-3 为 4 位十进制 BCD 车型代码，4-11 为 8 位机车登记号，14-29 线路
+GB2312，30-38 经度，39-46 纬度，47-49 保留（12-13 端号暂未显示）。线路用设备
+内置 8×8 中文字库；按 `5` 切到英文时线路隐藏、字段用英文缩写。
+`1233999/1234000` 仍为传统基础预警（车次/速度/公里标）。
 
 ### 按键操作
 
@@ -138,12 +136,13 @@ Per 9.6 kHz sample:
 
 LBJ addresses: `1233999`, `1234000` (short / merged), `1234001`, `1234002`
 (standalone / merged); `func 1 = 下行`, `3 = 上行`. Short reports pack
-train `[0:6]`, speed `[6:9]`, position km `[10:15]`; a detailed report carries a
-prefix, the loco code and the GBK route in the last 50 characters.
+train `[0:6]`, speed `[6:9]`, position km `[10:15]`; a 1234002 report carries
+the new-LB block in its last 50 nibbles: model code `0:4` (4-digit BCD),
+registration number `4:12`, GB2312 route `14:30`, longitude `30:39`, latitude
+`39:47`.
 
-Chinese (route / loco name / category) is GBK and the radio's built-in font is
-ASCII, so those fields are shown as `--` / raw BCD only (the optional 16×16
-Chinese font at flash `0xA0000` is a separate blob and not assumed present).
+The route is GB2312 and is drawn with the radio's built-in 8x8 Chinese font;
+key `5` falls back to ASCII labels for radios without it.
 
 ## Debug pages (key `3`)
 
@@ -153,7 +152,7 @@ F<fixed> B<bad>` (fixed = BCH single-bit corrected, bad = uncorrectable word).
 | Page | Content |
 |---|---|
 | **SUM** | Newest/selected record: train + direction (bold), speed, km in the same bold font, `A<addr> F<func> LBJ/--` and `+`/`!` (BCH), 32 raw BCD chars, a live `pp / d<baseline> / R<rssi>` row, and `x/y` (selected / total, 1 = newest) at the right of the counter row |
-| **PDU** | Every decoded message, **any address**: `A<addr> F<func> LBJ/-- +/!`, then up to 32 raw BCD chars (2 records/screen, UP/DOWN scrolls); the `pp/d/R` debug row is below them |
+| **PDU** | Every decoded message, **any address**: `A<addr> F<func> LBJ/-- +/!`, then up to 32 raw BCD chars (3 records/screen, UP/DOWN scrolls) |
 
 Keys: `3` page · UP/DOWN scroll (PDU) or newer/older record (SUM) (`nav_dir`:
 UV-K1 LEFT/RIGHT; one step per press — holding does not auto-repeat) · `1`

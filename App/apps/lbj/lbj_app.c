@@ -37,11 +37,10 @@
  *
  * For the new-generation LB alert (addr 1234002) the SUM page decodes the last
  * 50 nibbles of the report: 0-3 model code (4 BCD digits), 4-11 registration
- * number, 12-13 loco end, 14-29 GB2312 route, 30-38 longitude, 39-46 latitude.
- * The model name and route use the radio's built-in 8x8 Chinese font; key 5
- * switches to an ASCII fallback (numeric model code, English labels) for radios
- * without a font. All the debug rows (address/func/LBJ/BCH, pp/d/R) live on the
- * PDU page.
+ * number, 14-29 GB2312 route, 30-38 longitude, 39-46 latitude. The route uses
+ * the radio's built-in 8x8 Chinese font; key 5 switches to an ASCII fallback
+ * (English labels, route hidden) for radios without a font. All the debug rows
+ * (address/func/LBJ/BCH, pp/d/R) live on the PDU page.
  */
 
 #include <stdint.h>
@@ -149,10 +148,6 @@ static char *putu(char *o,uint32_t v){
     }
     return o;
 }
-static char *puti(char *o,int32_t v){
-    if(v<0){ *o++='-'; return putu(o,(uint32_t)(-v)); }
-    return putu(o,(uint32_t)v);
-}
 static char safe(uint8_t c){ return (c<0x20u||c>0x7Eu)?'.':(char)c; }
 static void tiny(uint8_t y,char *end){ *end='\0'; g.A->print_tiny(str,0,y,false,true); }
 
@@ -244,28 +239,10 @@ static void counters(uint8_t y){
     *o++=' '; *o++='B'; o=putu(o,g.rx.bad);
     tiny(y,o);
 }
-/* Live front-end values: peak-to-peak, baseline, RSSI. */
-static void sigrow(uint8_t y){
-    char *o=str;
-    *o++='p'; *o++='p'; *o++=' '; o=putu(o,(uint32_t)(g.dem.hi-g.dem.lo));
-    *o++=' '; *o++='d'; o=puti(o,g.dem.dc);
-    *o++=' '; *o++='R'; o=puti(o,g.rssi);
-    tiny(y,o);
-}
-
 /* ---- new-generation LB alert (addr 1234002): the last 50 nibbles ---- */
 #define DET_ADDR   1234002u
 #define DET_NIB    50u         /* detail block length (nibbles)              */
 #define DET_MERGED 65u         /* 15-char short block + 50-char detail       */
-
-typedef struct {
-    uint16_t type;             /* 0-3: 4-digit BCD model code                */
-    uint8_t  end;              /* 12-13: 30 unknown / 31 A / 32 B            */
-    char     no[9];            /* 4-11: 8-digit registration number          */
-    char     route[12];        /* 14-29: GB2312 route bytes                  */
-    char     lon[13];          /* 30-38: E<deg> <min>.<frac>                 */
-    char     lat[13];          /* 39-46: N<deg> <min>.<frac>                 */
-} detail_t;
 
 /* bcd char -> raw 4-bit value (inverse of the decoder's BCD alphabet). */
 static uint8_t nib(char c){
@@ -276,148 +253,73 @@ static uint8_t nib(char c){
         default:  return 0u;
     }
 }
-static char dig(char c){ return (c>='0'&&c<='9')?c:'0'; }
-
-/* Fill d from the last DET_NIB chars; false when the record is too short. */
-static bool parse_detail(const rec_t *rec, detail_t *d){
-    if(rec->len < DET_NIB) return false;
-    const char *b=rec->bcd+(rec->len-DET_NIB);
-    uint16_t t=0;
-    for(uint8_t i=0;i<4u;i++) t=(uint16_t)(t*10u+(uint8_t)(dig(b[i])-'0'));
-    d->type=t;
-    for(uint8_t i=0;i<8u;i++) d->no[i]=dig(b[4u+i]);
-    d->no[8]='\0';
-    d->end=(uint8_t)((uint8_t)(dig(b[12])-'0')*10u+(uint8_t)(dig(b[13])-'0'));
-    uint8_t k=0;
-    for(uint8_t i=0;i<8u;i++){
-        uint8_t v=(uint8_t)((nib(b[14u+i*2u])<<4)|nib(b[15u+i*2u]));
-        if(v==0u) break;
-        d->route[k++]=(char)v;
-    }
-    d->route[k]='\0';
-    char *o=d->lon; *o++='E';
-    for(uint8_t i=0;i<3u;i++) *o++=dig(b[30u+i]);
-    *o++=' ';
-    for(uint8_t i=0;i<2u;i++) *o++=dig(b[33u+i]);
-    *o++='.';
-    for(uint8_t i=0;i<4u;i++) *o++=dig(b[35u+i]);
-    *o='\0';
-    o=d->lat; *o++='N';
-    for(uint8_t i=0;i<2u;i++) *o++=dig(b[39u+i]);
-    *o++=' ';
-    for(uint8_t i=0;i<2u;i++) *o++=dig(b[41u+i]);
-    *o++='.';
-    for(uint8_t i=0;i<4u;i++) *o++=dig(b[43u+i]);
-    *o='\0';
-    return true;
+/* Copy n BCD chars from b+off (fields are BCH-checked; no sanitising). */
+static char *putn(char *o, const char *b, uint8_t off, uint8_t n){
+    while(n--) *o++=b[off++];
+    return o;
 }
 
-/* Binary search the sorted u16 model-code asset; returns the GB2312 name. */
-static const char *type_name(uint16_t code, char *buf){
-    int lo=0, hi=(int)TY_COUNT-1;
-    while(lo<=hi){
-        int mid=(lo+hi)>>1;
-        uint16_t c=0;
-        g.A->asset_read((uint16_t)(TY_CODE+(uint16_t)mid*2u),&c,2u);
-        if(c==code){
-            g.A->asset_read((uint16_t)(TY_NAME+(uint16_t)mid*TY_NAME_STRIDE),buf,TY_NAME_STRIDE);
-            buf[TY_NAME_STRIDE-1u]='\0';
-            return buf;
-        }
-        if(c<code) lo=mid+1; else hi=mid-1;
-    }
-    return NULL;
-}
-
-/* SUM page for a 1234002 report: model / number / route / lat / lon. */
-__attribute__((noinline))
-static void drawDetail(const rec_t *rec, const char *s){
-    const app_api_t *A=g.A;
-    const char *b=rec->bcd;
-    const bool merged=(rec->len>=DET_MERGED);
-    detail_t d;
-    char nb[TY_NAME_STRIDE];
-    char *o;
-    parse_detail(rec,&d);
-    (void)merged;
-
-    /* row0: short-block train + direction + loco end (A/B). */
-    o=str;
-    if(merged){ uint8_t n=(uint8_t)(rec->len<6u?rec->len:6u);
-        for(uint8_t i=0;i<n;i++) if(b[i]!=' ') *o++=safe((uint8_t)b[i]); }
-    else o=put(o,"--");
-    *o++=' ';
-    o=put(o, rec->func==1u?s+T_DN:(rec->func==3u?s+T_UP:s+T_UNK));
-    *o++=' ';
-    o=put(o, d.end==31u?"A":(d.end==32u?"B":"-"));
-    *o='\0';
-    A->print_bold(str,0,0,0);
-
-    /* row1: model name (or numeric code) + registration number. */
-    o=str;
-    if(g.en) o=putu(o,d.type);
-    else { const char *nm=type_name(d.type,nb); o=put(o,nm?nm:"--"); }
-    *o++=' ';
-    o=put(o,d.no);
-    *o='\0';
-    A->print_bold(str,0,0,1);
-
-    /* row2: route (Chinese) or a plain fallback without a font. */
-    o=str;
-    if(!g.en){ o=put(o,s+T_ROUTE); o=put(o,d.route); }
-    else { o=put(o,"RTE "); o=put(o,(d.route[0]>='!'&&d.route[0]<0x7Fu)?d.route:"--"); }
-    *o='\0';
-    A->print_bold(str,0,0,2);
-
-    /* row3/4: longitude and latitude. */
-    o=str; o=put(o, g.en?"LON ":s+T_LON); o=put(o,d.lon); *o='\0';
-    A->print_bold(str,0,0,3);
-    o=str; o=put(o, g.en?"LAT ":s+T_LAT); o=put(o,d.lat); *o='\0';
-    A->print_bold(str,0,0,4);
-
-    /* row5: speed / position km from the short block. */
-    o=str;
-    if(merged){
-        o=put(o,s+T_SPD);
-        for(uint8_t i=6;i<9u&&i<rec->len;i++) *o++=safe((uint8_t)b[i]);
-        o=put(o,s+T_KM);
-        for(uint8_t i=10;i<15u&&i<rec->len;i++) *o++=safe((uint8_t)b[i]);
-    }
-    *o='\0';
-    A->print_bold(str,0,0,5);
-}
-
-/* SUM page for everything else: the traditional short report. */
-__attribute__((noinline))
-static void drawShort(const rec_t *rec, const char *s){
-    const app_api_t *A=g.A;
-    const char *b=rec->bcd;
-    char *o=str;
-    uint8_t n=(uint8_t)(rec->len<6u?rec->len:6u);
-    for(uint8_t i=0;i<n;i++) if(b[i]!=' ') *o++=safe((uint8_t)b[i]);
-    *o++=' ';
-    o=put(o, rec->func==1u?s+T_DN:(rec->func==3u?s+T_UP:s+T_UNK));
-    *o='\0';
-    A->print_bold(str,0,0,0);
-    o=str; o=put(o,s+T_SPD);
-    for(uint8_t i=6;i<9u&&i<rec->len;i++) *o++=safe((uint8_t)b[i]);
-    o=put(o,s+T_KM);
-    for(uint8_t i=10;i<15u&&i<rec->len;i++) *o++=safe((uint8_t)b[i]);
-    *o='\0';
-    A->print_bold(str,0,0,1);
-    o=str; n=(uint8_t)(rec->len<32u?rec->len:32u);
-    for(uint8_t i=0;i<n;i++) *o++=safe((uint8_t)b[i]);
-    *o='\0';
-    A->print_bold(str,0,0,2);
-}
-
+/* SUM page: the short block, plus the 1234002 detail fields when present. */
 __attribute__((noinline))
 static void drawSummary(char *s){
     const app_api_t *A=g.A;
     char *o;
     if(!g.count){ if(A->ticks_ms()&512u) tiny(ROWY(1),put(str,s+T_WAIT)); counters(ROWY(6)); return; }
     const rec_t *rec=g.hist[g.cur];
-    if(rec->addr==DET_ADDR && rec->len>=DET_NIB) drawDetail(rec,s); else drawShort(rec,s);
+    const char *b=rec->bcd;
+    const bool det=(rec->addr==DET_ADDR && rec->len>=DET_NIB);
+    const bool merged=(rec->len>=DET_MERGED);
+
+    /* row0: train + direction (the short block precedes the 50-nibble detail). */
+    o=str;
+    if(det && !merged) o=put(o,"--");
+    else { uint8_t n=(uint8_t)(rec->len<6u?rec->len:6u);
+           for(uint8_t i=0;i<n;i++) if(b[i]!=' ') *o++=safe((uint8_t)b[i]); }
+    *o++=' ';
+    o=put(o, rec->func==1u?s+T_DN:(rec->func==3u?s+T_UP:s+T_UNK));
+    *o='\0';
+    A->print_bold(str,0,0,0);
+
+    if(det){
+        const char *d=b+(rec->len-DET_NIB);
+        /* row1: model code + registration number. */
+        o=str;
+        o=putu(o,(uint32_t)((d[0]-'0')*1000u+(d[1]-'0')*100u+(d[2]-'0')*10u+(d[3]-'0')));
+        *o++=' ';
+        o=putn(o,d,4u,8u);
+        *o='\0';
+        A->print_bold(str,0,0,1);
+        /* row2: route (GB2312), or a plain fallback without a font. */
+        o=str;
+        if(g.en) o=put(o,"RTE --");
+        else {
+            o=put(o,s+T_ROUTE);
+            for(uint8_t i=0;i<8u;i++){ uint8_t v=(uint8_t)((nib(d[14u+i*2u])<<4)|nib(d[15u+i*2u])); if(!v) break; *o++=(char)v; }
+        }
+        *o='\0';
+        A->print_bold(str,0,0,2);
+        /* row3: longitude DDMM.MMMM E. */
+        o=str; o=put(o, g.en?"LON ":s+T_LON); *o++='E';
+        o=putn(o,d,30u,5u); *o++='.'; o=putn(o,d,35u,4u);
+        *o='\0';
+        A->print_bold(str,0,0,3);
+        /* row4: latitude DDMM.MMMM N. */
+        o=str; o=put(o, g.en?"LAT ":s+T_LAT); *o++='N';
+        o=putn(o,d,39u,4u); *o++='.'; o=putn(o,d,43u,4u);
+        *o='\0';
+        A->print_bold(str,0,0,4);
+    }
+
+    /* row1 (short) / row5 (detail): speed and position km. */
+    if(!det || merged){
+        o=str; o=put(o,s+T_SPD);
+        for(uint8_t i=6;i<9u&&i<rec->len;i++) *o++=b[i];
+        o=put(o,s+T_KM);
+        for(uint8_t i=10;i<15u&&i<rec->len;i++) *o++=b[i];
+        *o='\0';
+        A->print_bold(str,0,0,(uint8_t)(det?5u:1u));
+    }
+
     counters(ROWY(6));
     /* x/y at the right of the footer: selected record (1 = newest) / total. */
     o=str;
@@ -433,7 +335,7 @@ __attribute__((noinline))
 static void drawPdus(char *s){
     if(!g.count){ if(g.A->ticks_ms()&512u) tiny(ROWY(1),put(str,s+T_WAIT)); counters(ROWY(6)); return; }
     uint8_t shown=0;
-    for(uint8_t i=g.top;i<g.count && shown<2u;i++,shown++){
+    for(uint8_t i=g.top;i<g.count && shown<3u;i++,shown++){
         const rec_t *rec=g.hist[i];
         const char *b=rec->bcd;
         char *o=str;
@@ -446,7 +348,6 @@ static void drawPdus(char *s){
         for(uint8_t k=0;k<n;k++) *o++=safe((uint8_t)b[k]);
         tiny(ROWY((uint8_t)(shown*2u+1u)),o);
     }
-    sigrow(ROWY(4));
     counters(ROWY(6));
 }
 
