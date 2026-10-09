@@ -29,8 +29,8 @@
 28. *快捷切换信道1、信道2
 29. 信道1、2闪烁灯，不同色
 30. 电压电量显示
-31. 字符大小优化
-中文字库：https://gitee.com/oldlicn/uv-k1_font-tool
+31. 字符大小优化, 中文字库：https://gitee.com/oldlicn/uv-k1_font-tool
+32. 增加6.1.0 APP功能
 
 中文字库readme：
 UV-K1_FontTool
