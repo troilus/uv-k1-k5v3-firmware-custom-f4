@@ -58,7 +58,7 @@ KM 0344.7                           ← 第3行：公里标
 HXD1C 23900050                      ← 第2行：车型(中文) + 8位机车登记号（3位车型码 + 5位车号）
 京沪线                               ← 第3行：GB2312 线路名（中文模式，不带"线路"标签）
 SPD 87 KM 00344.7                   ← 第4行：速度 + 公里标
-LON 104.2064 LAT 30.4129            ← 第5行：经纬度（小字体、英文标签、十进制度）
+104-16.1280E 30-35.0780N            ← 第5行：经纬度（小字体、DMS 原样显示，与上游安卓一致）
 1234002                             ← 第6行：解出的地址值
 5ZH 4BL:OFF 1SPK:ON 1/3 -95         ← 底部状态栏（同前）
 ```
@@ -66,9 +66,12 @@ LON 104.2064 LAT 30.4129            ← 第5行：经纬度（小字体、英文
 详情块内偏移：`0-3` 为 2 个 ASCII 车次前缀字符，`4-6` 为 3 位车型代码，
 `7-11` 为 5 位机车号（`4-11` 合起来即 8 位登记号），`12-13` 端号
 （31=A、32=B、30=未知，暂未显示），`14-29` 线路 GB2312，`30-38` 经度
-`DDDMM.MMMM`，`39-46` 纬度 `DDMM.MMMM`。经纬度按 `度 + 分/60` 换算成十进制度
-（`104°12.3856′` → `104.2064`），保留 4 位小数；独立详情不足 47 字符时不画
-此行。车型名/线路用设备内置 8×8 中文字库；按 `5` 切到英文时线路隐藏、车型
+`DDD MM MMMM`，`39-46` 纬度 `DD MM MMMM`（均为纯数字，没有小数点）。
+经纬度**照搬上游安卓接收机（`LbjDecoder.kt`）的做法**：直接把 DMS 原样打成
+`104-16.1280E 30-35.0780N`（小字体里没有度/分字形，用 `-` 分隔度与分），并套用
+它的合法性校验：9/8 个数字必须全是 0-9、分钟 <60、经度首位 ≤1。校验不通过、
+或独立详情不足 47 字符时**整行不显示** —— 不会把坏数据印成一个“看着挺像”的
+十进制数。车型名/线路用设备内置 8×8 中文字库；按 `5` 切到英文时线路隐藏、车型
 显示英文缩写（如 东风4C→DF4C、韶山7E→SS7E、东方红21→DFH21）。
 
 详情卡与它的 `1233999/1234000` 基础预警卡**各留一条**，历史里不做自动合并或
@@ -184,7 +187,7 @@ only LBJ-family messages reach it nowadays.
 
 | Page | Content |
 |---|---|
-| **SUM** | Newest/selected record. Short report (1233999/1234000): train + direction, `SPEED xx km/h`, `KM xxxx.x`, the decoded address value. New-gen alert (1234001/1234002, standalone or merged; 1233999/1234000 merged): train + direction, model (Chinese; ASCII abbreviation with key `5`) + 8-digit registration number, GB2312 route, `SPD xx KM xxxx.x`, `LON .. LAT ..` in decimal degrees (tiny font, merged blocks only), the decoded address value; a merged report uses its own short prefix, a standalone one the last short report. The bottom bar shows the key hints (`5` language, `4` backlight, `1` speaker) then `x/y` (selected/count, 1 = newest) and the live `-xx` dBm RSSI (every 0.5 s; shown from launch as `0/0`) |
+| **SUM** | Newest/selected record. Short report (1233999/1234000): train + direction, `SPEED xx km/h`, `KM xxxx.x`, the decoded address value. New-gen alert (1234001/1234002, standalone or merged; 1233999/1234000 merged): train + direction, model (Chinese; ASCII abbreviation with key `5`) + 8-digit registration number, GB2312 route, `SPD xx KM xxxx.x`, `104-16.1280E 30-35.0780N` DMS coordinates, shown as the upstream Android receiver shows them, with its validity check (tiny font, merged blocks only; the row is hidden when the pair is rejected or the block is short), the decoded address value; a merged report uses its own short prefix, a standalone one the last short report. The bottom bar shows the key hints (`5` language, `4` backlight, `1` speaker) then `x/y` (selected/count, 1 = newest) and the live `-xx` dBm RSSI (every 0.5 s; shown from launch as `0/0`) |
 
 Keys: UP/DOWN pick the newer/older record (`nav_dir`: UV-K1 LEFT/RIGHT; one step
 per press — holding does not auto-repeat) · `1` speaker · `2` clear history +

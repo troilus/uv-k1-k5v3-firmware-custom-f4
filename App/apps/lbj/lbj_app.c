@@ -42,8 +42,10 @@
  * report (15-char short prefix + 50-char block); 1233999/1234000 carry the
  * merged form. Inside the block, [0:4] is 2 ASCII prefix chars, [4:7] the
  * 3-digit model code, [7:12] the loco number, [12:14] the end flag, [14:30]
- * the GB2312 route, [30:39]/[39:47] the DDDMM.MMMM/DDMM.MMMM coordinates.
- * The coordinates are shown in decimal degrees; the train/speed/km come from
+ * the GB2312 route, [30:39]/[39:47] the coordinates as DDD MM MMMM (degrees
+ * + minutes, plain decimal nibbles, no decimal point). They are shown as DMS
+ * with the same validity check the upstream Android receiver applies; a bad
+ * pair hides the row. The train/speed/km come from
  * a merged report's own short prefix, or from the most recent 1233999/1234000
  * short report. A detail report and its 1233999/1234000 base alert stay as
  * separate history entries. The route and the model name use the radio's
@@ -172,16 +174,22 @@ static char *putkm(char *o,const char *p){
     return o;
 }
 
-/* DMS BCD (DDDMM.MMMM / DDMM.MMMM) -> decimal degrees with 4 decimals:
- * v = degrees*10000 + (minutes x10000)/60, then split. No float and no
- * division: sub() is repeated subtraction, so libgcc's __udivsi3 stays out.
- * Needs dg+6 chars at p. Two calls per redraw, worst case ~2 ms. */
-static char *putdec(char *o,const char *p,uint8_t dg){
-    uint32_t m=digv(p+dg,6u);                       /* MM.MMMM as x10000 */
-    uint32_t v=digv(p,dg)*10000u+(uint32_t)sub(&m,60u);
-    o=putu(o,sub(&v,10000u));                       /* whole degrees */
-    *o++='.';
-    for(uint8_t i=3u;i<7u;i++) *o++=(char)('0'+sub(&v,P10U[i]));
+/* One DMS coordinate field, read exactly as the upstream Android receiver
+ * reads the detail block: dg degree nibbles then MM MMMM minutes - all plain
+ * decimal nibbles with no decimal point (lon [30:39], lat [39:47]). Writes
+ * "DDD-MM.MMMM<E>" and returns the new end, or NULL when a nibble is not a
+ * digit, the minutes are >= 60 or the longitude starts above 1, so a
+ * corrupted block shows no coordinates at all instead of a plausible wrong
+ * pair. No arithmetic at all: degrees and minutes are copied digit by digit,
+ * exactly as upstream prints them (leading zeros kept). */
+static char *putdms(char *o,const char *p,uint8_t dg,char hemi){
+    for(uint8_t i=0;i<dg+6u;i++) if(p[i]<'0'||p[i]>'9') return NULL;
+    if(p[dg]>'5') return NULL;                  /* minutes must be < 60  */
+    if(dg==3u && p[0]>'1') return NULL;         /* longitude <= 19x      */
+    for(uint8_t i=0;i<dg;i++) *o++=p[i];        /* degrees, as upstream  */
+    *o++='-'; *o++=p[dg]; *o++=p[dg+1u]; *o++='.';
+    *o++=p[dg+2u]; *o++=p[dg+3u]; *o++=p[dg+4u]; *o++=p[dg+5u];
+    *o++=hemi;
     return o;
 }
 
@@ -434,15 +442,15 @@ static void drawSummary(char *s){
         *o='\0';
         A->print_bold(str,0,0,3);
 
-        /* row4: longitude/latitude in decimal degrees (tiny font). Only the
-         * full 50-char block carries the coordinates; a short standalone
-         * detail stops before them. */
+        /* row4: the coordinates, DMS exactly as the upstream Android receiver
+         * shows them (the 3x5 tiny font has no degree/minute glyphs, so the
+         * separator is a '-'). A rejected pair hides the whole row instead of
+         * printing a plausible wrong value. Only the full 50-char block
+         * carries the coordinates; a short standalone detail stops before. */
         if(dlen>=47u){
-            o=str;
-            o=put(o,s+T_LON); o=putdec(o,d+30u,3u); *o++=' ';
-            o=put(o,s+T_LAT); o=putdec(o,d+39u,2u);
-            *o='\0';
-            A->print_tiny(str,0,ROWY(4),false,true);
+            char *e=putdms(str,d+30u,3u,'E');
+            if(e){ *e++=' '; e=putdms(e,d+39u,2u,'N'); }
+            if(e){ *e='\0'; A->print_tiny(str,0,ROWY(4),false,true); }
         }
 
         /* row5: the decoded address value. */

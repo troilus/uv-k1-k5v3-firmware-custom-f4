@@ -33,8 +33,6 @@ UI = [
     ("T_UP",     "UP"),
     ("T_UNK",    "??"),
     ("T_ROUTE",  "线路 "),
-    ("T_LON",    "LON "),
-    ("T_LAT",    "LAT "),
     # footer flags (bottom status bar): "5EN 4BL:ON 1SPK:ON x/y -rr"
     ("T_L5",     "5"),
     ("T_EN",     "EN"),
