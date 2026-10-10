@@ -45,10 +45,10 @@
  * the GB2312 route, [30:39]/[39:47] the DDDMM.MMMM/DDMM.MMMM coordinates.
  * The coordinates are shown in decimal degrees; the train/speed/km come from
  * a merged report's own short prefix, or from the most recent 1233999/1234000
- * short report. A detail report (merged or standalone) also drops the short
- * record it supersedes from the history. The route and the model name use the
- * radio's built-in 8x8 Chinese font; key 5 switches to an ASCII fallback
- * (English abbreviations like DF4C/SS7E, route hidden) for radios without it.
+ * short report. A detail report and its 1233999/1234000 base alert stay as
+ * separate history entries. The route and the model name use the radio's
+ * built-in 8x8 Chinese font; key 5 switches to an ASCII fallback (English
+ * abbreviations like DF4C/SS7E, route hidden) for radios without it.
  */
 
 #include <stdint.h>
@@ -294,27 +294,6 @@ void lbj_emit_msg(const lbj_rx_t *r, const char *bcd, uint16_t len){
         g.sessValid=true;
     }
     if(g.count<HISTORY) g.count++;
-    /* Any detail report (merged or standalone) supersedes the base alert it
-     * belongs to: if the most recent 1233999/1234000 short record is the same
-     * train, drop it, so one history slot = one train. A merged report carries
-     * its own short prefix, so the train numbers can be compared; a standalone
-     * detail has no full train number, so the short is simply dropped. */
-    if(hasdet(r->addr,rec->len)){
-        const bool merged=(len>=DET_MERGED);
-        for(uint8_t i=1u;i<g.count;i++){
-            rec_t *h=g.hist[i];
-            if(h->addr!=1233999u && h->addr!=1234000u) continue;
-            bool same=true;
-            if(merged)
-                for(uint8_t k=0;k<6u;k++) if(h->bcd[k]!=bcd[k]){ same=false; break; }
-            if(same){
-                for(uint8_t k=i;k+1u<g.count;k++) g.hist[k]=g.hist[k+1u];
-                g.hist[g.count-1u]=h;          /* freed slot becomes the spare */
-                g.count--;
-            }
-            break;
-        }
-    }
     g.cur=0;
     g.redraw=1u;
 }
