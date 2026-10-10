@@ -66,11 +66,7 @@ static void lbj_flush(lbj_rx_t *r)
             bcd[k++] = "0123456789*U -)("[rev];
         }
     }
-    r->msgs++;
-    if (r->func == 1u)
-        r->dn++;
-    else if (r->func == 3u)
-        r->up++;
+    /* debug counters (see lbj_dec.h): r->msgs++, r->dn++ / r->up++ */
     lbj_emit_msg(r, bcd, k);
     r->n = 0;
 }
@@ -80,14 +76,14 @@ void lbj_rx_bit(lbj_rx_t *r, uint8_t bit)
     r->sr = (r->sr << 1) | (bit & 1u);
 
     if (r->state == 0u) {
-        if (pc32(r->sr ^ POC_SYNC) <= 2u) {
+        if (pc32(r->sr ^ POC_SYNC) <= 3u) {
             r->pol = 1u; r->state = 1u; r->wc = r->fp = r->nb = 0u;
             r->hunt = 0u;
-            r->syncs++;
-        } else if (pc32(r->sr ^ POC_SYNC_INV) <= 2u) {
+            /* r->syncs++; */
+        } else if (pc32(r->sr ^ POC_SYNC_INV) <= 3u) {
             r->pol = 0u; r->state = 1u; r->wc = r->fp = r->nb = 0u;
             r->hunt = 0u;
-            r->syncs++;
+            /* r->syncs++; */
         } else if (r->inmsg) {
             if (++r->hunt > 64u)
                 lbj_flush(r);        /* message not closed by a sync/idle/batch end */
@@ -103,20 +99,14 @@ void lbj_rx_bit(lbj_rx_t *r, uint8_t bit)
     uint32_t cor;
     bool ok = bch_dec(raw, &cor);
 
-    r->words++;
-    if (ok) {
-        r->ok++;
-        if (cor != raw)
-            r->fix++;
-    } else {
-        r->bad++;
-    }
+    /* debug counters (see lbj_dec.h):
+     * r->words++; if (ok) { r->ok++; if (cor != raw) r->fix++; } else r->bad++; */
     r->fp++;
     r->wc++;
 
-    if (pc32(cor ^ POC_SYNC) <= 2u) {
+    if (pc32(cor ^ POC_SYNC) <= 3u) {
         r->wc = r->fp = 0u;
-    } else if (pc32(cor ^ POC_IDLE) <= 2u) {
+    } else if (pc32(cor ^ POC_IDLE) <= 3u) {
         if (r->inmsg)
             lbj_flush(r);
     } else if (!(cor >> 31)) {

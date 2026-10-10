@@ -40,27 +40,35 @@ KM 0344.7                           ← 第3行：公里标
 ```
 
 > PDU 页（全部报文 + 地址/功能/LBJ/BCH + 原始 BCD）与 `M/S/W/F/B` 计数行、
-> `pp/d/R` 调试行因 4 KiB 容量暂时停用（源码中以 `#if 0` 保留，便于日后恢复）。
+> `pp/d/R` 调试行因 4 KiB 容量暂时停用（源码中以 `#if 0` 保留，便于日后恢复）；
+> `lbj_rx_t` 的计数字段、`rec->flags`、计数自增也一并注释掉了。
 
-**1234002 新版 LB 预警**：SUM 页解析报文尾部 50 个 nibble——
+**1234001 / 1234002 新版 LB 预警**：SUM 页解析详情块——独立的 30~64 字符
+详情，或 65 字符合并报文（前 15 字符短前缀 + 后 50 字符详情）；1233999/1234000
+只可能有合并形式。
 
 ```
 [LBJ RX] 821.2375             ███
-412 DN                              ← 第1行：车次 + 方向（取自最近一条 1234000）
-东风4C 00000080                     ← 第2行：车型(中文) + 8位机车登记号
+412 DN                              ← 第1行：车次 + 方向（合并报文取自身短前缀；独立详情取最近一条 1234000）
+HXD1C 23900050                      ← 第2行：车型(中文) + 8位机车登记号（3位车型码 + 5位车号）
 线路 京沪线                          ← 第3行：GB2312 线路名
-SPD 87 KM 0344.7                    ← 第4行：速度 + 公里标（取自最近一条 1234000）
-LON 104.1238 LAT 30.2477            ← 第5行：经度/纬度（小字体、英文标签、十进制度）
+SPD 87 KM 00344.7                   ← 第4行：速度 + 公里标
+LON 104.2064 LAT 30.4129            ← 第5行：经纬度（小字体、英文标签、十进制度）
 1234002                             ← 第6行：解出的地址值
 5ZH 4BL:OFF 1SPK:ON 1/3 -95         ← 底部状态栏（同前）
 ```
 
-0-3 为 4 位十进制 BCD 车型代码，4-11 为 8 位机车登记号，12-13 端号
-（31=A、32=B、30=未知，暂未显示），14-29 线路 GB2312，30-38 经度，39-46
-纬度，47-49 保留。经纬度把小数点移到"度"后显示 4 位小数（如 `104.1238`）。
-车型名/线路用设备内置 8×8 中文字库；按 `5` 切到英文时线路隐藏、车型显示英文
-缩写（如 东风4C→DF4C、韶山7E→SS7E、东方红21→DFH21）。1234002 报文本身不含
-车次/速度/公里标，显示的是**最近一条 1233999/1234000** 的值。
+详情块内偏移：`0-3` 为 2 个 ASCII 车次前缀字符，`4-6` 为 3 位车型代码，
+`7-11` 为 5 位机车号（`4-11` 合起来即 8 位登记号），`12-13` 端号
+（31=A、32=B、30=未知，暂未显示），`14-29` 线路 GB2312，`30-38` 经度
+`DDDMM.MMMM`，`39-46` 纬度 `DDMM.MMMM`。经纬度按 `度 + 分/60` 换算成十进制度
+（`104°12.3856′` → `104.2064`），保留 4 位小数；独立详情不足 47 字符时不画
+此行。车型名/线路用设备内置 8×8 中文字库；按 `5` 切到英文时线路隐藏、车型
+显示英文缩写（如 东风4C→DF4C、韶山7E→SS7E、东方红21→DFH21）。
+
+收到**合并报文**时，若历史里最近一条 `1233999/1234000` 短报文与它车次相同，
+就把那条短报文记录删掉（一条记录对应一列车）；独立详情没有完整车次可比，
+仍借用 `g.sess` 里最近一条短报文的车次/速度/公里标。
 `1233999/1234000` 仍为传统基础预警（车次/速度/公里标）。
 
 ### 按键操作
@@ -69,7 +77,7 @@ LON 104.1238 LAT 30.2477            ← 第5行：经度/纬度（小字体、�
 |---|---|
 | UP / DOWN | SUM：选更新/更旧的记录（UV-K1 用左右，`nav_dir`）。每次按键只走一步，按住不放不会连发 |
 | `1` | 扬声器开/关（默认关，退出保存） |
-| `2` | 清空报文历史与全部计数 |
+| `2` | 清空报文历史（含最近一条短报文会话） |
 | `4` | 背光常亮 / 自动熄灭（等效收音机 F+8 的常亮功能；仅本次运行有效，退出后恢复系统 BLTime） |
 | `5` | 中文 / 英文显示切换（无字库设备用英文缩写，退出保存） |
 | EXIT | 退出（回 Apps 菜单） |
@@ -77,7 +85,9 @@ LON 104.1238 LAT 30.2477            ← 第5行：经度/纬度（小字体、�
 ### 计数行 `M S W F B`（暂时停用）
 
 `M<msgs> S<sync> W<words> F<fix> B<bad>`。此调试行与 PDU 页一起在源码中以
-`#if 0` 停用（4 KiB 容量），下表仅作恢复后的说明：
+`#if 0` 停用（4 KiB 容量），`lbj_rx_t` 里的 8 个计数字段及其自增也已注释掉；
+恢复时要把 `lbj_dec.h` 的字段、`lbj_dec.c` 的自增和 `lbj_app.c` 的 `#if 0`
+页面一起解注释。下表仅作恢复后的说明：
 
 | 字符 | 含义 | 正常 |
 |---|---|---|
@@ -138,17 +148,18 @@ Per 19.2 kHz sample:
 5. **DPLL**: 65536 per bit, 4096 per sample; each level transition pulls the
    phase toward the bit boundary (proportional + small integral); the bit is
    sampled at the 0.5 crossing.
-6. POCSAG: sync `0x7CD215D8` / its inverse (popcount ≤ 2, polarity auto),
+6. POCSAG: sync `0x7CD215D8` / its inverse (popcount ≤ 3, polarity auto),
    16 codewords per batch, idle word, address/message words, **BCH(31,21)**
    single-bit correction (feedback 873, 31-entry syndrome table), then the LBJ
    BCD layout: 5 bit-reversed nibbles per word, alphabet `0123456789*U -)(`.
 
-LBJ addresses: `1233999`, `1234000` (short / merged), `1234001`, `1234002`
-(standalone / merged); `func 1 = 下行`, `3 = 上行`. Short reports pack
-train `[0:6]`, speed `[6:9]`, position km `[10:15]`; a 1234002 report carries
-the new-LB block in its last 50 nibbles: model code `0:4` (4-digit BCD),
-registration number `4:12`, GB2312 route `14:30`, longitude `30:39`, latitude
-`39:47`.
+LBJ addresses: `1233999`, `1234000` (short, or merged), `1234001`, `1234002`
+(standalone detail, or merged); `func 1 = 下行`, `3 = 上行`. Short reports pack
+train `[0:6]`, speed `[6:9]`, position km `[10:15]`. A detail block sits at
+`[0:len)` of a standalone 30..64-char report, or at the last 50 chars of a
+65-char merged report: 2 ASCII prefix chars `0:4`, 3-digit model code `4:7`,
+loco number `7:12`, end flag `12:14`, GB2312 route `14:30`, longitude `30:39`,
+latitude `39:47` (`DDDMM.MMMM` / `DDMM.MMMM`, shown as decimal degrees).
 
 The model name and route are GB2312 and are drawn with the radio's built-in 8x8
 Chinese font; key `5` switches to ASCII abbreviations (DF4C/SS7E/DFH21) and
@@ -163,7 +174,7 @@ overlay; they remain in the source under `#if 0` for later restoration.
 
 | Page | Content |
 |---|---|
-| **SUM** | Newest/selected record. Short report (1233999/1234000): train + direction, `SPEED xx km/h`, `KM xxxx.x`, the decoded address value. New-gen alert (1234002): train + direction, model (Chinese; ASCII abbreviation with key `5`) + 8-digit registration number, GB2312 route, `SPD xx KM xxxx.x`, `LON .. LAT ..` (tiny font, decimal), the decoded address value; the train/speed/km come from the last short report. The bottom bar shows the key hints (`5` language, `4` backlight, `1` speaker) then `x/y` (selected/count, 1 = newest) and the live `-xx` dBm RSSI (every 0.5 s; shown from launch as `0/0`) |
+| **SUM** | Newest/selected record. Short report (1233999/1234000): train + direction, `SPEED xx km/h`, `KM xxxx.x`, the decoded address value. New-gen alert (1234001/1234002, standalone or merged; 1233999/1234000 merged): train + direction, model (Chinese; ASCII abbreviation with key `5`) + 8-digit registration number, GB2312 route, `SPD xx KM xxxx.x`, `LON .. LAT ..` in decimal degrees (tiny font, merged blocks only), the decoded address value; a merged report uses its own short prefix, a standalone one the last short report. The bottom bar shows the key hints (`5` language, `4` backlight, `1` speaker) then `x/y` (selected/count, 1 = newest) and the live `-xx` dBm RSSI (every 0.5 s; shown from launch as `0/0`) |
 
 Keys: UP/DOWN pick the newer/older record (`nav_dir`: UV-K1 LEFT/RIGHT; one step
 per press — holding does not auto-repeat) · `1` speaker · `2` clear history +

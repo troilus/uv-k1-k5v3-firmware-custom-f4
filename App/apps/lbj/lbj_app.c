@@ -37,14 +37,18 @@
  * launch (0/0). The PDU page and the M/S/W/F/B counter row are kept under #if 0
  * (they overflowed the 4 KiB overlay); restore them together.
  *
- * For the new-generation LB alert (addr 1234002) the SUM page decodes the last
- * 50 nibbles of the report: 0-3 model code (4 BCD digits), 4-11 registration
- * number, 12-13 loco end, 14-29 GB2312 route, 30-38 longitude, 39-46 latitude.
- * Longitude/latitude are shown in decimal degrees (DDDMM.MMMM -> dd.dddd). The
- * train/speed/km come from a merged report's short prefix, or from the most
- * recent 1233999/1234000 short report. The route and the model name use the
- * radio's built-in 8x8 Chinese font; key 5 switches to an ASCII fallback
- * (English abbreviations like DF4C/SS7E, route hidden) for radios without it.
+ * For the new-generation LB alert the SUM page decodes the detail block:
+ * 1234001/1234002 carry a standalone 30..64-char block, or a merged 65-char
+ * report (15-char short prefix + 50-char block); 1233999/1234000 carry the
+ * merged form. Inside the block, [0:4] is 2 ASCII prefix chars, [4:7] the
+ * 3-digit model code, [7:12] the loco number, [12:14] the end flag, [14:30]
+ * the GB2312 route, [30:39]/[39:47] the DDDMM.MMMM/DDMM.MMMM coordinates.
+ * The coordinates are shown in decimal degrees; the train/speed/km come from
+ * a merged report's own short prefix, or from the most recent 1233999/1234000
+ * short report. A merged report also drops the short record it supersedes
+ * (same train) from the history. The route and the model name use the radio's
+ * built-in 8x8 Chinese font; key 5 switches to an ASCII fallback (English
+ * abbreviations like DF4C/SS7E, route hidden) for radios without it.
  */
 
 #include <stdint.h>
@@ -168,6 +172,19 @@ static char *putkm(char *o,const char *p){
     return o;
 }
 
+/* DMS BCD (DDDMM.MMMM / DDMM.MMMM) -> decimal degrees with 4 decimals:
+ * v = degrees*10000 + (minutes x10000)/60, then split. No float and no
+ * division: sub() is repeated subtraction, so libgcc's __udivsi3 stays out.
+ * Needs dg+6 chars at p. Two calls per redraw, worst case ~2 ms. */
+static char *putdec(char *o,const char *p,uint8_t dg){
+    uint32_t m=digv(p+dg,6u);                       /* MM.MMMM as x10000 */
+    uint32_t v=digv(p,dg)*10000u+(uint32_t)sub(&m,60u);
+    o=putu(o,sub(&v,10000u));                       /* whole degrees */
+    *o++='.';
+    for(uint8_t i=3u;i<7u;i++) *o++=(char)('0'+sub(&v,P10U[i]));
+    return o;
+}
+
 #define ROWY(i) ((uint8_t)((i)*8u))
 
 /* ---- PA4 bias (AC-coupled audio needs a mid-scale reference; EPIRB 406) ---- */
@@ -243,13 +260,33 @@ static void dem_sample(dem_t *m,int32_t x){
 
 /* ---- callbacks from the decoder core ---- */
 static bool is_lbj(uint32_t a){ return (uint32_t)(a - 1233999u) <= 3u; }
+
+/* ---- new-generation LB alert: the detail block -------------------------
+ * 1234001/1234002: standalone detail of 30..64 chars at [0:len), or merged
+ * after a 15-char short prefix ([15:65] of a 65-char report).
+ * 1233999/1234000: only the merged form (len >= 65).
+ * Inside the block: [0:4] 2 ASCII prefix chars, [4:7] 3-digit model code,
+ * [7:12] loco number, [12:14] end flag, [14:30] GB2312 route, [30:39] and
+ * [39:47] DDDMM.MMMM / DDMM.MMMM coordinates. */
+#define DET_NIB    50u         /* detail block length (nibbles)   */
+#define DET_MERGED 65u         /* 15-char short block + 50 detail */
+#define DET_MIN30  30u         /* shortest standalone detail      */
+
+/* true when the record carries a decodable detail block. */
+static bool hasdet(uint32_t a,uint8_t len){
+    if(!is_lbj(a)) return false;                 /* only 1233999..1234002 */
+    if(a>=1234001u) return len>=DET_MIN30;       /* 1234001/1234002: standalone or merged */
+    return len>=DET_MERGED;                      /* 1233999/1234000: merged only */
+}
+
 void lbj_emit_msg(const lbj_rx_t *r, const char *bcd, uint16_t len){
     rec_t *rec=g.hist[HISTORY-1u];
     for(uint8_t k=HISTORY-1u;k;k--) g.hist[k]=g.hist[k-1u];
     g.hist[0]=rec;
     rec->addr=r->addr;
     rec->func=r->func;
-    rec->flags=(uint8_t)((r->err?RF_ERR:0u) | (is_lbj(r->addr)?RF_LBJ:0u));
+    /* rec->flags (RF_ERR/RF_LBJ) is only read by the #if 0 PDU page. */
+    /* rec->flags=(uint8_t)((r->err?RF_ERR:0u) | (is_lbj(r->addr)?RF_LBJ:0u)); */
     rec->len=(uint8_t)(len>BCDMAX?BCDMAX:len);
     for(uint8_t i=0;i<rec->len;i++) rec->bcd[i]=bcd[i];
     if((r->addr==1233999u||r->addr==1234000u) && len>=15u){   /* remember the short block */
@@ -257,13 +294,32 @@ void lbj_emit_msg(const lbj_rx_t *r, const char *bcd, uint16_t len){
         g.sessValid=true;
     }
     if(g.count<HISTORY) g.count++;
+    /* A merged report (65 chars) repeats the short block it supersedes: if the
+     * most recent 1233999/1234000 short record is the same train, drop it, so
+     * one history slot = one train. Only for merged blocks (a standalone
+     * detail carries no full train number to compare). */
+    if(len>=DET_MERGED && hasdet(r->addr,rec->len)){
+        for(uint8_t i=1u;i<g.count;i++){
+            rec_t *h=g.hist[i];
+            if(h->addr!=1233999u && h->addr!=1234000u) continue;
+            bool same=true;
+            for(uint8_t k=0;k<6u;k++) if(h->bcd[k]!=bcd[k]){ same=false; break; }
+            if(same){
+                for(uint8_t k=i;k+1u<g.count;k++) g.hist[k]=g.hist[k+1u];
+                g.hist[g.count-1u]=h;          /* freed slot becomes the spare */
+                g.count--;
+            }
+            break;
+        }
+    }
     g.cur=0;
     g.redraw=1u;
 }
 
 /* ---- display ---- */
 #if 0   /* DEBUG: shared counter row (M/S/W/F/B). Disabled to fit the 4 KiB
-         * overlay; restore together with the PDU page below. */
+         * overlay; restore together with the PDU page below AND the counter
+         * fields in lbj_rx_t (lbj_dec.h) plus their increments in lbj_dec.c. */
 static void counters(uint8_t y){
     char *o=str;
     *o++='M'; o=putu(o,g.rx.msgs);
@@ -274,11 +330,6 @@ static void counters(uint8_t y){
     tiny(y,o);
 }
 #endif
-/* ---- new-generation LB alert (addr 1234002): the last 50 nibbles ---- */
-#define DET_ADDR   1234002u
-#define DET_NIB    50u         /* detail block length (nibbles)              */
-#define DET_MERGED 65u         /* 15-char short block + 50-char detail       */
-
 /* bcd char -> raw 4-bit value (inverse of the decoder's BCD alphabet). */
 static uint8_t nib(char c){
     if(c>='0'&&c<='9') return (uint8_t)(c-'0');
@@ -287,11 +338,6 @@ static uint8_t nib(char c){
         case '-': return 13u; case ')': return 14u; case '(': return 15u;
         default:  return 0u;
     }
-}
-/* Copy n BCD chars from b+off (fields are BCH-checked; no sanitising). */
-static char *putn(char *o, const char *b, uint8_t off, uint8_t n){
-    while(n--) *o++=b[off++];
-    return o;
 }
 /* Binary search the sorted u16 model-code asset; returns the index or -1. */
 static int type_index(uint16_t code){
@@ -338,9 +384,10 @@ static char *puttrain(char *o,const char *sb,const char *s,uint8_t func,bool hav
 }
 
 /* SUM page. 1233999/1234000 (short): train/dir, SPEED, KM, address value.
- * 1234002 (detail): train/dir + model + route, speed/km, LON/LAT (tiny font),
- * address value. The train/speed/km come from the in-message short prefix
- * (merged report) or from the last short report kept in g.sess. */
+ * 1234001/1234002 (detail): train/dir + model + route, speed/km, LON/LAT
+ * (tiny font), address value. A merged 65-char report carries its own short
+ * prefix; a standalone detail (30..64 chars) borrows the most recent short
+ * report kept in g.sess. */
 __attribute__((noinline))
 static void drawSummary(char *s){
     const app_api_t *A=g.A;
@@ -348,21 +395,27 @@ static void drawSummary(char *s){
     if(!g.count){ drawFooter(s); return; }
     const rec_t *rec=g.hist[g.cur];
     const char *b=rec->bcd;
-    const bool det=(rec->addr==DET_ADDR && rec->len>=DET_NIB);
+    const bool det=hasdet(rec->addr,rec->len);
 
     if(det){
-        const char *d=b+(rec->len-DET_NIB);
-        const char *sb=g.sess; const bool have=g.sessValid;  /* from the last short report */
+        const bool merged=(rec->len>=DET_MERGED);
+        const uint8_t start=merged?(uint8_t)(rec->len-DET_NIB):0u;
+        const char *d=b+start;                 /* the 50-char (or shorter) block */
+        const uint8_t dlen=(uint8_t)(rec->len-start);
+        const char *sb=merged?b:g.sess;        /* merged carries its own short block */
+        const bool have=merged||g.sessValid;
 
         /* row0: train + direction. */
         o=str; o=puttrain(o,sb,s,rec->func,have); *o='\0';
         A->print_bold(str,0,0,0);
 
-        /* row1: model name (CN) / abbreviation (EN) + registration number. */
+        /* row1: model name (CN) / abbreviation (EN) + registration number.
+         * The 3-digit model code is [4:7] (the 2 ASCII prefix chars are at
+         * [0:4]); [4:12] as a whole is the 8-char code+number registration. */
         o=str;
         {
             char nb[TY_NAME_STRIDE];
-            int idx=type_index((uint16_t)digv(d,4u));
+            int idx=type_index((uint16_t)digv(d+4u,3u));
             if(idx<0) o=put(o,"--");
             else {
                 if(g.en) A->asset_read((uint16_t)(TY_EN+(uint16_t)idx*TY_EN_STRIDE),nb,TY_EN_STRIDE);
@@ -370,7 +423,8 @@ static void drawSummary(char *s){
                 o=put(o,nb);
             }
         }
-        *o++=' '; o=putn(o,d,4u,8u);
+        *o++=' ';
+        for(uint8_t i=4u;i<12u;i++) *o++=d[i];   /* the 8-char code+number registration */
         *o='\0';
         A->print_bold(str,0,0,1);
 
@@ -389,12 +443,16 @@ static void drawSummary(char *s){
         *o='\0';
         A->print_bold(str,0,0,3);
 
-        /* row4: longitude/latitude (one tiny line, decimal after the degrees). */
-        o=str;
-        o=put(o,s+T_LON); o=putn(o,d,30u,3u); *o++='.'; o=putn(o,d,33u,4u); *o++=' ';
-        o=put(o,s+T_LAT); o=putn(o,d,39u,2u); *o++='.'; o=putn(o,d,41u,4u);
-        *o='\0';
-        A->print_tiny(str,0,ROWY(4),false,true);
+        /* row4: longitude/latitude in decimal degrees (tiny font). Only the
+         * full 50-char block carries the coordinates; a short standalone
+         * detail stops before them. */
+        if(dlen>=47u){
+            o=str;
+            o=put(o,s+T_LON); o=putdec(o,d+30u,3u); *o++=' ';
+            o=put(o,s+T_LAT); o=putdec(o,d+39u,2u);
+            *o='\0';
+            A->print_tiny(str,0,ROWY(4),false,true);
+        }
 
         /* row5: the decoded address value. */
         o=str; o=putu(o,rec->addr); *o='\0';
@@ -494,8 +552,10 @@ static void handleKeys(void){
         case APP_KEY_EXIT: g.running=false; break;
         case APP_KEY_1:    g.spk=!g.spk; A->audio_path(g.spk); break;
         case APP_KEY_2:    g.count=g.cur=g.top=0;
-                           g.rx.syncs=g.rx.words=g.rx.ok=g.rx.fix=g.rx.bad=0;
-                           g.rx.msgs=g.rx.up=g.rx.dn=0; g.sessValid=false; break;
+                           /* reset the debug counters too (see lbj_dec.h):
+                            * g.rx.syncs=g.rx.words=g.rx.ok=g.rx.fix=g.rx.bad=0;
+                            * g.rx.msgs=g.rx.up=g.rx.dn=0; */
+                           g.sessValid=false; break;
         /* case APP_KEY_3: g.page^=1u; g.top=0; g.cur=0; break;  PDU page off */
         case APP_KEY_4:    g.blAlways=!g.blAlways;
                            A->backlight_on();   /* re-arm now; house() holds it on when ON */

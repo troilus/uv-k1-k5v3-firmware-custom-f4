@@ -36,8 +36,10 @@ typedef struct {
     uint32_t addr;
     uint16_t hunt;
     uint8_t  n, nb, state, pol, wc, fp, inmsg, err, func;
-    /* counters shown on the debug pages */
-    uint16_t syncs, words, ok, fix, bad, msgs, up, dn;
+    /* Debug counters for the counter row / PDU page. Commented out to save
+     * .bss and code for the 4 KiB overlay; restore this field together with
+     * the increments in lbj_dec.c and lbj_app.c's #if 0 pages. */
+    /* uint16_t syncs, words, ok, fix, bad, msgs, up, dn; */
 } lbj_rx_t;
 
 void lbj_rx_bit(lbj_rx_t *r, uint8_t bit);
