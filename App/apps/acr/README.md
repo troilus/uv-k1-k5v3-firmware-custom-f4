@@ -9,13 +9,14 @@ Thierry Leconte) — its DSP is the demodulator below, transcribed to fixed poin
 The APRS RX / LBJ RX / EPIRB 406 apps of this firmware provide the PA4 sampling
 and the overlay-app conventions.
 
-Status: **v0.4, decoding on air.** With the VFO on 131.525 MHz **AM**, the app
-now shows messages; the demodulator was already validated on real ACARS audio
-(acarsdec's `test.wav`, 4 channels, 12500 Hz: **7/7 messages, no CRC errors**).
-v0.1 never displayed anything (the screen stayed on `WAIT`) and the on-air
-bring-up found why: the AF output mode must be **AM (7)**, and v0.1's strict
-`crc == 0` test dropped every frame, because the radio's frames mostly fail the
-CRC as received (see `!` below).
+Status: **v0.5, decoding on air with error repair.** With the VFO on 131.525 MHz
+**AM**, the app shows messages; the demodulator was already validated on real
+ACARS audio (acarsdec's `test.wav`, 4 channels, 12500 Hz: **7/7 messages, no CRC
+errors**). v0.1 never displayed anything (the screen stayed on `WAIT`); the
+on-air bring-up found why: the AF output mode must be **AM (7)**, and v0.1's
+strict `crc == 0` test dropped every frame, because the radio's frames often
+fail the CRC as received. v0.5 repairs them (acarsdec's parity/syndrome fix)
+and keeps the last four messages.
 
 ## On-air bring-up notes
 
@@ -25,13 +26,17 @@ CRC as received (see `!` below).
   line stays random. (Counter-intuitive: this firmware's own *listening* AM path
   uses `AF_FM` + `REG_31` AM enable; decoding instead wants `AF_AM`.) v0.4
   defaults to AM; **key 2** cycles AM / FM / RAW / USB as a fallback.
-- **Lowered bar.** A frame that reaches `SYN SYN SOH ... ETX/ETB crc` is shown
-  even when the CRC fails, with a `!` appended to the header line, instead of
-  being dropped. On air most frames arrive `!` while the flight/registration is
-  already legible: the 7 data bits are right but at least one bit (usually the
-  odd-parity bit 7) is wrong, and there is no error correction yet. Full
-  parity/syndrome correction (acarsdec's `syndrom.h`) is ~1.3 KiB and does not
-  fit the 4 KiB overlay; a lighter parity-bit fix is the planned next step.
+- **Error repair (no `!` on most frames).** A frame with a bad CRC is repaired
+  with acarsdec's parity/syndrome algorithm (`fixprerr` / `fixdberr`, up to 3
+  parity errors, single-bit and same-byte double-bit errors). A repaired frame
+  gets `*` after the header line; a frame that cannot be repaired keeps `!`. The
+  3872-byte `syndrom[]` table does **not** fit the 4 KiB overlay, so the
+  syndrome of a bit at a given distance is computed on the fly from the CRC
+  (same linear result, ~24 candidates per bad frame, only at frame end).
+- **History.** The last four messages stay in RAM (newest first): UP/DOWN pick
+  the newer/older one, 6/9 page its text. Records live on the app stack, and the
+  stored text is capped at 200 chars to stay within the stack budget (a rare
+  longer message loses its tail).
 - **DC tracker rounding.** The carrier tracker rounds to nearest instead of
   flooring its arithmetic shift, the same bias EPIRB 406 hit at PA4 levels.
 - **Debug view.** Automatic while no frame has been seen, or forced with **key
@@ -39,9 +44,10 @@ CRC as received (see `!` below).
   decode):
   - `T ..` - the 8 raw bytes after the last detected `SYN`. A real frame reads
     `16 01 <mode> 02 ..`; noise reads something random.
-  - `AF<n>` - AF output mode (key 2). `SYN<n> S2<n> HDR<n>` - header starts /
-    2nd `SYN` seen / full `SYN SYN SOH` headers. `BY<n> CE<n>` - bytes after a
-    header / CRC failures. `LV<n>` - matched-filter magnitude.
+  - `AF<n> n/m` - AF output mode (key 2) and the selected message. `SYN<n>
+    S2<n> HDR<n>` - header starts / 2nd `SYN` seen / full `SYN SYN SOH` headers.
+    `BY<n> CE<n> FX<n>` - bytes after a header / CRC failures / repaired frames.
+    `LV<n>` - matched-filter magnitude.
 
 ## 中文说明
 
@@ -58,14 +64,16 @@ CRC as received (see `!` below).
 
 ```
 [ACARS RX] 131.5250           ███   ← 状态栏：标题 · 接收频率 · 电池
-F-GTAE  H1 A                        ← 第0行（粗体）：机号(7) + Label(2) + Block ID
+F-GTAE  H1 A*                       ← 第0行（粗体）：机号(7)+Label(2)+Block ID+标记
 D65CAF7728#DFB00000/V206,05,124,... ← 第1~5行：报文正文（小字体，每行32字符）
-...                                    （按 ↑/↓ 翻页，每次32字符）
-1SPK: ON 4BL: OFF 7 -85             ← 底部：按键状态 · 收到条数 · 实时RSSI(dBm)
+...                                    （按 ↑/↓ 选报文，6/9 翻正文页）
+1SPK: ON 4BL: OFF 2/4 -85           ← 底部：按键状态 · 当前/共几条 · 实时RSSI(dBm)
 ```
 
 - 机号 = 航空器注册号（7 字符，如 `F-GTAE`）或航班号；`Label` 与 `Block ID`
   是 ACARS 的报文类型/分块标识。
+- 行尾标记：无 = CRC 正确；`*` = 坏 CRC 已纠错修复；`!` = 修不好（仍显示）。
+- **最多保留 4 条**历史报文（新的在前）；↑/↓ 选报文，6/9 翻当前正文页。
 - 空 `text` 的短帧（只有报头）只增加计数，不覆盖正在显示的内容。
 - 正文里的控制字符（CR/LF 等）显示为空格，末尾空格已裁掉。
 
@@ -78,11 +86,12 @@ D65CAF7728#DFB00000/V206,05,124,... ← 第1~5行：报文正文（小字体，�
 
 | 键 | 作用 |
 |---|---|
-| UP / DOWN | 正文翻页，每次一行（32 字符）；UV-K1 用左右键（`nav_dir`），每次按键只走一步，按住不连发 |
+| UP / DOWN | **选历史报文**：更新的 / 更旧的（最新在前，最多 4 条）；UV-K1 用左右键（`nav_dir`），每次只走一步，按住不连发 |
+| `6` / `9` | **翻当前正文页**：6 上一页、9 下一页（每次 32 字符一行） |
 | `1` | 扬声器开 / 关（默认关，退出保存） |
 | `5` | **报文 ↔ 调试屏切换**（默认显示报文；没报文时自动显示调试屏。这样调试行不会盖住报文） |
 | `2` | **备用**：循环 AF 输出模式 AM(默认) → FM → RAW → USB，屏上 `AF<n>` 显示当前值 |
-| `3` | **调试用**：清空计数并回到 `WAIT` 调试屏 |
+| `3` | 清空历史与计数，回到 `WAIT` 调试屏 |
 | `4` | 背光常亮 / 自动熄灭。ON 时每个屏刷新槽都重新武装 BLTime，所以解码唤醒后一直亮着不灭；OFF 时按收音机 `BLTime` 自动熄灭（等效收音机 F+8 的常亮功能；仅本次运行有效） |
 | EXIT | 退出（回 Apps 菜单） |
 
@@ -92,11 +101,11 @@ D65CAF7728#DFB00000/V206,05,124,... ← 第1~5行：报文正文（小字体，�
    131.825 / 136.975 MHz). The app never retunes and cannot read the modulation
    from the API, so pick AM yourself.
 2. Launch **ACARS RX** (APPS menu). The speaker is off by default (key `1`).
-3. UP/DOWN scrolls the message text by one 32-character row; `4` keeps the
-   backlight on; `5` switches message/debug; EXIT quits.
-4. A message line ending in `!` (e.g. `F-GTAE H1 A!`) means the CRC failed; the
-   registration/label are usually still legible. If it stays on `WAIT`, read the
-   `T ..` trace line after a burst (see *On-air bring-up notes*).
+3. UP/DOWN picks the newer/older of the last four messages; `6`/`9` page the
+   text; `4` keeps the backlight on; `5` switches message/debug; EXIT quits.
+4. Header marks: none = CRC ok, `*` = repaired, `!` = uncorrectable (still
+   shown). If it stays on `WAIT`, read the `T ..` trace line after a burst (see
+   *On-air bring-up notes*).
 
 ## Receive path
 

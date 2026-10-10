@@ -18,13 +18,15 @@
  * MSK 2400 baud, 1200/2400 Hz tones, LSB-first bytes with odd parity in bit 7)
  * and shows the decoded message. Reference: acarsdec msk.c / acars.c (Thierry
  * Leconte); the demodulator below is a fixed-point transcription of its DSP and
- * was validated against its test.wav (7 real messages, 4 channels).
+ * was validated against its test.wav (7 real messages, 4 channels). The frame
+ * repair ported from acars.c fixes the single-bit / odd-parity errors that make
+ * most on-air frames fail the CRC.
  *
  * The BK4819 has no ACARS/MSK demodulator, so as LBJ RX / APRS RX / EPIRB 406
  * do, the RX audio reaches PA4 (voice DAC pin, held at mid-scale by the MCU DAC)
  * and is sampled on ADC channel 4 at 19.2 kHz (8 samples per 2400-baud bit),
  * timed from SysTick, continuously. The receiver is switched to RAW (RX HPF/LPF,
- * de-emphasis and AFC off) and to AM.
+ * de-emphasis and AFC off) and to AM; the AF output must be AF_AM (measured).
  *
  * Demodulator (why it is shaped this way):
  *   - the audio is real, so the complex baseband is made by multiplying every
@@ -37,21 +39,19 @@
  *     with that cosine window.
  *   - the decision is a plain sign test on the alternating Re/Im component
  *     (MSK is OQPSK), so no level threshold has to be tracked and long runs of
- *     equal bits cannot drag the slicer (the failure mode of a delay-multiply
- *     demodulator on real signals).
- *   - a bang-bang carrier PLL (+-2/4096 turn per sample) locks the LO phase on
+ *     equal bits cannot drag the slicer.
+ *   - a bang-bang carrier PLL (+-1/4096 turn per sample) locks the LO phase on
  *     the preamble through the quadrature component.
  * Frames: SYN SYN SOH txt... ETX/ETB crc_lo crc_hi; CRC-16/KERMIT (0x8408,
  * reflected, init 0) over txt+CRC must be 0. The burst polarity is recovered
- * from SYN vs ~SYN and folded into the demodulator's quadrature counter, which
- * inverts the whole bit stream (CRC bytes included).
+ * from SYN vs ~SYN and folded into the demodulator's quadrature counter.
  *
- * Keys: 1 speaker; 4 backlight always-on; UP/DOWN scroll the message text;
- * EXIT quit. A decode blinks the green LED (on/off/on/off, 100 ms a step - the
- * same 100 ms "on" the radio's own RX-end blink uses) and wakes the backlight.
- * The footer shows the key state, the number of messages received and the live
- * RSSI; the frequency is on the status bar. Tune the VFO to 131.525 MHz AM
- * manually (129.525 / 136.975 also carry ACARS).
+ * Keys: 1 speaker; 2 AF output mode (fallback); 3 clear history; 4 backlight
+ * always-on; 5 message <-> debug view; UP/DOWN pick the newer/older message;
+ * 6 / 9 page the text up / down; EXIT quit. A decode blinks the green LED and
+ * wakes the backlight. The last four messages stay in RAM (newest first). A
+ * frame whose CRC was repaired shows '*' after its header, an unrecoverable one
+ * shows '!'; a clean frame shows neither.
  */
 
 #include <stdint.h>
@@ -102,12 +102,11 @@ static inline volatile uint32_t *hw(uint32_t a){
 #define ACR_PLLMAX 1           /* bang-bang carrier PLL step, in 1/4096 turn   */
 #define ACR_DCSH   8           /* audio DC tracker (carrier level) shift       */
 #define ACR_MSGMAX 240u        /* ACARS text limit (acarsdec aborts past 240)  */
+#define ACR_MAXPERR 3u         /* acarsdec MAXPERR: most fixable parity errors */
 
-/* AF output modes the WAIT screen's key 2 cycles through, for on-air bring-up.
- * On the radio AM (7) is the one that decodes ACARS (FM/1 only made the burst
- * audible and the trace line random), so it is the default; the rest are
- * fallbacks. The mode that makes the trace line show 16 01 (2nd SYN + SOH) is
- * the right one. */
+/* AF output modes the debug screen's key 2 cycles through. On the radio AM (7)
+ * is the one that decodes ACARS (FM/1 only made the burst audible and the trace
+ * line random), so it is the default; the rest are fallbacks. */
 static const uint8_t AF_CYCLE[]={7u,1u,4u,5u};
 #define AF_CYCLE_N (sizeof AF_CYCLE / sizeof AF_CYCLE[0])
 
@@ -130,24 +129,34 @@ typedef struct {
     int16_t  ring[2u * ACR_FLEN];  /* complex baseband ring                    */
     uint8_t  idx, msks;            /* ring write index, MSK quadrature counter */
     int8_t   corr;                 /* carrier PLL frequency correction         */
-    /* frame assembler */
-    uint8_t  st, n, ob, c0, len, tlen;
+    /* frame assembler: one buffer for the whole frame (mode..ETX), so the
+     * parity/CRC repair can flip bits in place */
+    uint8_t  st, n, ob, c0, len;
     uint16_t crc;
-    uint8_t  raw[13];              /* mode, STX, flight[7], label[2], bid, STX */
-    char     buf[ACR_MSGMAX];      /* the message text field                   */
+    uint8_t  txt[ACR_MSGMAX];
 } dem_t;
+
+/* ---- decoded-message history: newest first, records live on app_main's stack.
+ * The text is capped below ACR_MSGMAX so four records still fit in the limited
+ * stack (a >200-char message loses its tail; almost all are far shorter). ---- */
+#define HISTORY  4u
+#define HIST_TXT 200u
+typedef struct {
+    char    flt[8], lbl[3], bid;
+    uint8_t status;                /* 0 valid, 1 CRC repaired, 2 uncorrectable */
+    uint8_t len;
+    char    txt[HIST_TXT];
+} hist_t;
 
 /* ---- app state ---- */
 static struct {
     const app_api_t *A;
     char   *text;                  /* formatting buffer (app_main's stack)     */
-    char   *msg;                   /* current message text (app_main's stack)  */
-    char    flt[8], lbl[3], bid;
-    uint8_t mlen, top, prevKey, redraw, ledPhase, busyFor;
+    hist_t **hist;                 /* -> the records on app_main's stack        */
+    uint8_t top, cur, prevKey, redraw, ledPhase, busyFor;
     uint16_t count;
-    uint16_t nSyn, nSyn2, nHdr, nCrcErr, nBytes; /* debug counters (WAIT screen) */
+    uint16_t nSyn, nSyn2, nHdr, nCrcErr, nBytes, nFix; /* debug counters */
     int32_t  level;                 /* last matched-filter magnitude          */
-    uint8_t  badcrc;                /* shown frame failed its CRC             */
     uint8_t  trace[8], traceN;      /* bytes following the last detected SYN  */
     uint8_t  afIdx;                 /* AF output-mode cycle index (key 2)     */
     uint8_t  debug;                 /* key 5: force the debug view (0=message) */
@@ -222,23 +231,82 @@ static uint16_t crcu(uint16_t crc,uint8_t c){
     for(uint8_t i=0;i<8u;i++) crc=(uint16_t)((crc&1u)?((crc>>1)^0x8408u):(crc>>1));
     return crc;
 }
+static uint8_t acr_odd(uint8_t v){        /* 1 = odd number of set bits */
+    v^=(uint8_t)(v>>4); v^=(uint8_t)(v>>2); v^=(uint8_t)(v>>1);
+    return (uint8_t)(v&1u);
+}
 
-/* ---- a frame: copy what the screen needs (crcok=0: shown flagged) ---- */
-static void acr_emit(const dem_t *m,uint8_t crcok){
-    g.count++;
-    g.badcrc=(uint8_t)(crcok?0u:1u);
-    uint8_t n=m->tlen;
-    if(n==0u) return;                       /* no text: keep what is shown */
-    char *o=g.msg;
-    for(uint8_t i=0;i<n;i++) *o++=pch((uint8_t)m->buf[i]);
-    while(o>g.msg && o[-1]==' ') o--;       /* trim trailing blanks */
+/* ---- frame repair (acarsdec fixprerr/fixdberr, but with the syndrome row
+ * computed on the fly: the 3872-byte syndrom[] table does not fit the 4 KiB
+ * overlay, and this is the same linear-CRC result). s[i] is the CRC remainder
+ * of a single bit i set in a byte that has k bytes after it. ---- */
+static void acr_syn(uint16_t s[8],uint8_t k){
+    for(uint8_t i=0u;i<8u;i++){
+        uint16_t c=crcu(0u,(uint8_t)(1u<<i));
+        for(uint8_t j=0u;j<k;j++) c=crcu(c,0u);
+        s[i]=c;
+    }
+}
+static uint8_t acr_fixpr(dem_t *m,uint16_t crc,const uint8_t *pr,uint8_t pn){
+    uint16_t s[8];
+    if(pn==0u){
+        if(crc==0u) return 1u;
+        for(uint8_t k=0u;k<2u;k++){          /* a single error in a CRC byte */
+            acr_syn(s,k);
+            for(uint8_t i=0u;i<8u;i++) if(s[i]==crc) return 1u;
+        }
+        return 0u;
+    }
+    acr_syn(s,(uint8_t)(m->len - pr[0] + 1u));
+    for(uint8_t i=0u;i<8u;i++){
+        if(acr_fixpr(m,(uint16_t)(crc^s[i]),pr+1u,(uint8_t)(pn-1u))){
+            m->txt[pr[0]]^=(uint8_t)(1u<<i);
+            return 1u;
+        }
+    }
+    return 0u;
+}
+static uint8_t acr_fixdb(dem_t *m,uint16_t crc){
+    uint16_t s[8];
+    for(uint8_t k=0u;k<2u;k++){
+        acr_syn(s,k);
+        for(uint8_t i=0u;i<8u;i++) if(s[i]==crc) return 1u;
+    }
+    for(uint8_t kb=0u;kb<m->len;kb++){       /* two errors in one byte */
+        acr_syn(s,(uint8_t)(m->len - kb + 1u));
+        for(uint8_t i=0u;i<8u;i++)
+            for(uint8_t j=0u;j<8u;j++){
+                if(i==j) continue;
+                if((uint16_t)(crc^s[i]^s[j])==0u){
+                    m->txt[kb]^=(uint8_t)(1u<<i);
+                    m->txt[kb]^=(uint8_t)(1u<<j);
+                    return 1u;
+                }
+            }
+    }
+    return 0u;
+}
+
+/* ---- a decoded frame -> the history (status 0 valid, 1 repaired, 2 bad) ---- */
+static void acr_emit(const dem_t *m,uint8_t status){
+    uint8_t tl=(uint8_t)(m->len>13u ? m->len-13u : 0u);
+    if(tl>HIST_TXT-1u) tl=(uint8_t)(HIST_TXT-1u);
+    hist_t *rec=g.hist[HISTORY-1u];
+    for(uint8_t k=HISTORY-1u;k;k--) g.hist[k]=g.hist[k-1u];   /* newest first */
+    g.hist[0]=rec;
+    rec->status=status;
+    for(uint8_t i=0u;i<7u;i++) rec->flt[i]=pch(m->txt[2u+i]);
+    rec->flt[7]='\0';
+    for(uint8_t i=0u;i<2u;i++) rec->lbl[i]=pch(m->txt[9u+i]);
+    rec->lbl[2]='\0';
+    rec->bid=pch(m->txt[11u]);
+    char *o=rec->txt;
+    for(uint8_t i=0u;i<tl;i++) *o++=pch(m->txt[13u+i]);
+    while(o>rec->txt && o[-1]==' ') o--;       /* trim trailing blanks */
     *o='\0';
-    g.mlen=(uint8_t)(o-g.msg);
-    for(uint8_t i=0;i<7u;i++) g.flt[i]=pch(m->raw[2u+i]);
-    g.flt[7]='\0';
-    for(uint8_t i=0;i<2u;i++) g.lbl[i]=pch(m->raw[9u+i]);
-    g.lbl[2]='\0';
-    g.bid=pch(m->raw[11]);
+    rec->len=(uint8_t)(o-rec->txt);
+    if(g.count<HISTORY) g.count++;
+    g.cur=0u;
     g.top=0u;
     g.redraw=1u;
     g.A->backlight_on();                    /* wake the screen on a decode */
@@ -251,50 +319,67 @@ static void acr_byte(dem_t *m,uint8_t r){
     if(m->st!=0u) g.nBytes++;               /* a real byte boundary, not a slide */
     switch(m->st){
     case 0u:                                /* WSYN, sliding */
-        if(r==0x16u){ g.nSyn++; m->st=1u; m->n=8u; }
-        else if(r==0xE9u){ g.nSyn++; m->msks^=2u; m->st=1u; m->n=8u; }
+        if(r==0x16u){ g.nSyn++; g.traceN=0u; m->st=1u; m->n=8u; }
+        else if(r==0xE9u){ g.nSyn++; g.traceN=0u; m->msks^=2u; m->st=1u; m->n=8u; }
         else m->n=1u;
         return;
     case 1u:                                /* SYN2 */
-        if(r==0x16u){ m->st=2u; m->n=8u; }
+        if(r==0x16u){ g.nSyn2++; m->st=2u; m->n=8u; }
         else { m->st=0u; m->n=1u; }
         return;
     case 2u:                                /* SOH1 */
-        if(r==0x01u){ m->st=3u; m->n=8u; m->crc=0u; m->len=0u; m->tlen=0u; g.nHdr++; }
+        if(r==0x01u){ m->st=3u; m->n=8u; m->crc=0u; m->len=0u; g.nHdr++; }
         else { m->st=0u; m->n=1u; }
         return;
     case 3u:                                /* TXT */
-        if(m->len<13u){ if(m->len<sizeof m->raw) m->raw[m->len]=r; }
-        else if(m->tlen<ACR_MSGMAX) m->buf[m->tlen++]=r;
+        if(m->len<ACR_MSGMAX) m->txt[m->len]=r;
         m->crc=crcu(m->crc,r);
         m->len++;
         if(r==0x83u||r==0x97u){ m->st=4u; m->n=8u; }
-        else if(m->len>=240u){ m->st=0u; m->n=1u; }    /* runaway frame */
+        else if(m->len>=ACR_MSGMAX){ m->st=0u; m->n=1u; }   /* runaway frame */
         else m->n=8u;
         return;
     case 4u:                                /* CRC1 */
         m->c0=r; m->crc=crcu(m->crc,r); m->st=5u; m->n=8u;
         return;
-    default:                                /* CRC2 */
+    default: {                              /* CRC2 */
         m->crc=crcu(m->crc,r);
         if(m->len>=13u){
-            if(m->crc==0u) acr_emit(m,1u);
-            /* Lowered bar (debug): once SYN SYN SOH ... ETX got through, show
-             * the frame even with a failed CRC, flagged '!', instead of dropping
-             * it. Nothing reaches here without a full header, so false hits are
-             * still rare. */
-            else { g.nCrcErr++; if(m->tlen>0u) acr_emit(m,0u); }
+            uint8_t status=0u;
+            if(m->crc!=0u){
+                g.nCrcErr++;
+                uint8_t pr[ACR_MAXPERR], pn=0u;
+                for(uint8_t i=0u;i<m->len;i++){
+                    if(!acr_odd(m->txt[i])){ if(pn<ACR_MAXPERR) pr[pn]=i; pn++; }
+                }
+                if(pn>ACR_MAXPERR) status=2u;
+                else if(pn>0u) status=acr_fixpr(m,m->crc,pr,pn)?1u:2u;
+                else status=acr_fixdb(m,m->crc)?1u:2u;
+                if(status==1u){             /* verify the repair */
+                    uint16_t c=0u;
+                    for(uint8_t i=0u;i<m->len;i++) c=crcu(c,m->txt[i]);
+                    c=crcu(c,m->c0); c=crcu(c,r);
+                    if(c!=0u) status=2u;
+                }
+                if(status==1u) g.nFix++;
+            }
+            /* Lowered bar: a frame past SYN SYN SOH ... ETX is shown even if it
+             * could not be repaired ('!'); clean frames show no mark. */
+            if(status!=2u || m->len>13u) acr_emit(m,status);
         }
         m->st=0u; m->n=1u;
-        return;
+        return; }
     }
 }
 
-/* ---- assembled bit -> byte -> frame ---- */
+/* ---- assembled bit -> byte -> frame (keeps the trace for the debug view) ---- */
 static void acr_putbit(dem_t *m,uint8_t b){
     m->ob=(uint8_t)(m->ob>>1);
     if(b) m->ob|=0x80u;
-    if(--m->n==0u) acr_byte(m,m->ob);
+    if(--m->n==0u){
+        if(m->st!=0u && g.traceN<8u) g.trace[g.traceN++]=m->ob;
+        acr_byte(m,m->ob);
+    }
 }
 
 /* ---- one ADC sample through the demodulator (FxDemod.push) ---- */
@@ -342,12 +427,14 @@ static void dem_sample(dem_t *m,int32_t x){
     m->corr=(int8_t)((dphi>0)?ACR_PLLMAX:((dphi<0)?-ACR_PLLMAX:0));
 }
 
-/* ---- bottom status bar: key state, message count, live RSSI ---- */
+/* ---- bottom status bar: key state, selected message, live RSSI ---- */
 static void drawFooter(const char *s){
     char *o=str;
     o=put(o,s+T_SPK); *o++=' '; o=put(o,g.spk?s+T_ON:s+T_OFF); *o++=' ';
     o=put(o,s+T_BL);  *o++=' '; o=put(o,g.blAlways?s+T_ON:s+T_OFF); *o++=' ';
-    o=putu(o,g.count); *o++=' ';
+    if(g.count){ o=putu(o,(uint32_t)(g.cur+1u)); *o++='/'; o=putu(o,(uint32_t)g.count); }
+    else *o++='0';
+    *o++=' ';
     int32_t r=g.rssi;
     if(r<0){ *o++='-'; r=-r; }
     o=putu(o,(uint32_t)r);
@@ -357,6 +444,12 @@ static void drawFooter(const char *s){
 
 #define TXTCOLS 32u            /* 3x5 font, 4 px advance -> 128 px / 32 chars */
 #define TXTROWS 5u             /* display rows 1..5 */
+
+/* Text scroll limit of the selected message (byte offset of the last page). */
+static uint16_t acr_maxTop(const hist_t *rec){
+    const uint16_t lines=(uint16_t)(((uint16_t)rec->len+TXTCOLS-1u)/TXTCOLS);
+    return (uint16_t)((lines>TXTROWS?(uint16_t)(lines-TXTROWS):0u)*TXTCOLS);
+}
 
 __attribute__((noinline))
 static void draw(void){
@@ -369,14 +462,15 @@ static void draw(void){
     A->draw_battery();
 
     if(g.debug || g.count==0u){
-        /* Debug view: automatic while waiting, or forced with key 5. Read the trace
-         * line first - after a detected SYN it shows the next 8 raw bytes: a
-         * real frame reads 16 01 <mode> 02 .., noise reads something random.
-         * AF = current output mode (key 2 cycles it),
-         * SYN = header starts, S2 = a 2nd SYN, HDR = SYN SYN SOH, BY = bytes
-         * after a SYN, CE = CRC fails, LV = matched-filter magnitude. */
+        /* Debug view: automatic while waiting, or forced with key 5. Read the
+         * trace line first - after a detected SYN it shows the next 8 raw
+         * bytes: a real frame reads 16 01 <mode> 02 .., noise something random.
+         * AF = output mode (key 2), n/m = selected message; SYN/S2/HDR, BY,
+         * CE = CRC failures, FX = repaired, LV = matched-filter magnitude. */
         char *o=str;
-        o=put(o,"AF"); o=putu(o,AF_CYCLE[g.afIdx]); *o='\0';
+        o=put(o,"AF"); o=putu(o,AF_CYCLE[g.afIdx]);
+        if(g.count){ *o++=' '; o=putu(o,(uint32_t)(g.cur+1u)); *o++='/'; o=putu(o,(uint32_t)g.count); }
+        *o='\0';
         A->print_tiny(str,0,ROWY(0),false,true);
         o=str; *o++='T';
         for(uint8_t i=0;i<g.traceN;i++){ *o++=' '; o=putx2(o,g.trace[i]); }
@@ -387,22 +481,25 @@ static void draw(void){
         o=put(o,"SYN"); o=putu(o,g.nSyn); o=put(o," S2"); o=putu(o,g.nSyn2);
         o=put(o," HDR"); o=putu(o,g.nHdr); *o='\0';
         A->print_tiny(str,0,ROWY(3),false,true);
-        o=str; o=put(o,"BY"); o=putu(o,g.nBytes); o=put(o," CE"); o=putu(o,g.nCrcErr); *o='\0';
+        o=str; o=put(o,"BY"); o=putu(o,g.nBytes); o=put(o," CE"); o=putu(o,g.nCrcErr);
+        o=put(o," FX"); o=putu(o,g.nFix); *o='\0';
         A->print_tiny(str,0,ROWY(4),false,true);
         o=str; o=put(o,"LV"); o=putu(o,(uint32_t)(g.level<0?-g.level:g.level)); *o='\0';
         A->print_tiny(str,0,ROWY(5),false,true);
     } else {
+        const hist_t *rec=g.hist[g.cur];
         char *o=str;
-        o=put(o,g.flt); *o++=' '; o=put(o,g.lbl); *o++=' '; *o++=g.bid;
-        if(g.badcrc) *o++='!';        /* frame shown without a valid CRC */
+        o=put(o,rec->flt); *o++=' '; o=put(o,rec->lbl); *o++=' '; *o++=rec->bid;
+        if(rec->status==1u) *o++='*';       /* CRC repaired */
+        else if(rec->status==2u) *o++='!';  /* uncorrectable */
         *o='\0';
         A->print_bold(str,0,0,0);
-        for(uint8_t row=0;row<TXTROWS;row++){
+        for(uint8_t row=0u;row<TXTROWS;row++){
             uint16_t off=(uint16_t)g.top+(uint16_t)row*TXTCOLS;
-            if(off>=g.mlen) break;
-            uint8_t n=(uint8_t)(g.mlen-off);
+            if(off>=rec->len) break;
+            uint8_t n=(uint8_t)(rec->len-off);
             if(n>TXTCOLS) n=(uint8_t)TXTCOLS;
-            for(uint8_t i=0;i<n;i++) str[i]=g.msg[off+i];
+            for(uint8_t i=0u;i<n;i++) str[i]=rec->txt[off+i];
             str[n]='\0';
             A->print_tiny(str,0,ROWY((uint8_t)(row+1u)),false,true);
         }
@@ -430,15 +527,14 @@ static void handleKeys(void){
      * auto-repeat at ~20/s. */
     if(key==APP_KEY_INVALID||key==g.prevKey){ g.prevKey=key; return; }
     g.prevKey=key;
+    /* UP/DOWN pick the newer/older message. */
     const int d=A->nav_dir(key);
     if(d){
         if(g.count){
-            const uint16_t lines=((uint16_t)g.mlen+TXTCOLS-1u)/TXTCOLS;
-            const uint16_t maxl=(lines>TXTROWS)?(uint16_t)(lines-TXTROWS):0u;
-            int t=(int)(g.top/TXTCOLS)+d;
-            if(t<0) t=0;
-            if(t>(int)maxl) t=(int)maxl;
-            if((uint8_t)(t*TXTCOLS)!=g.top){ g.top=(uint8_t)(t*TXTCOLS); g.redraw=1u; }
+            int c=(int)g.cur+d;
+            if(c<0) c=0;
+            if(c>(int)g.count-1) c=(int)g.count-1;
+            if((uint8_t)c!=g.cur){ g.cur=(uint8_t)c; g.top=0u; g.redraw=1u; }
         }
         return;
     }
@@ -446,19 +542,29 @@ static void handleKeys(void){
     switch(key){
         case APP_KEY_EXIT: g.running=false; break;
         case APP_KEY_1:    g.spk=!g.spk; A->audio_path(g.spk); break;
-        case APP_KEY_2:    /* bring-up: cycle the AF output mode, watch the trace */
+        case APP_KEY_2:    /* AF output mode: AM (working) / FM / RAW / USB */
                            g.afIdx=(uint8_t)((g.afIdx+1u)%AF_CYCLE_N);
                            A->set_af(AF_CYCLE[g.afIdx]);
                            break;
-        case APP_KEY_3:    /* back to the WAIT debug screen (clear everything) */
-                           g.count=0u; g.mlen=0u; g.top=0u;
-                           g.nSyn=g.nSyn2=g.nHdr=g.nCrcErr=g.nBytes=0u;
+        case APP_KEY_3:    /* clear the history and go back to WAIT */
+                           g.count=0u; g.cur=0u; g.top=0u;
+                           g.nSyn=g.nSyn2=g.nHdr=g.nCrcErr=g.nBytes=g.nFix=0u;
                            g.traceN=0u;
                            break;
         case APP_KEY_4:    g.blAlways=!g.blAlways;
                            A->backlight_on();   /* re-arm; house() holds it on when ON */
                            break;
         case APP_KEY_5:    g.debug=!g.debug; break;   /* message <-> debug view */
+        case APP_KEY_6:                 /* page the text up */
+        case APP_KEY_9: {               /* page the text down */
+            if(g.count){
+                const uint16_t mt=acr_maxTop(g.hist[g.cur]);
+                uint16_t t=g.top;
+                if(key==APP_KEY_6) t=(t>=TXTCOLS)?(uint16_t)(t-TXTCOLS):0u;
+                else { t=(uint16_t)(t+TXTCOLS); if(t>mt) t=mt; }
+                if((uint8_t)t!=g.top) g.top=(uint8_t)t;
+            }
+            break; }
         default: break;
     }
 }
@@ -520,13 +626,13 @@ static void listen(void){
 __attribute__((section(".text.entry"),used))
 void app_main(const app_api_t *api){
     char text[48];
-    char msg[ACR_MSGMAX];
+    hist_t recs[HISTORY];          /* on the stack: the 4 KiB overlay holds .bss */
+    hist_t *hist[HISTORY];
+    for(uint8_t k=0u;k<HISTORY;k++) hist[k]=&recs[k];
     g.A=api;
     g.text=text;
-    g.msg=msg;
-    g.flt[0]=g.lbl[0]=g.bid='\0';
+    g.hist=hist;
     g.prevKey=APP_KEY_INVALID;
-    msg[0]='\0';
     g.savedSqr3=ADC_SQR3; g.savedSmpr3=ADC_SMPR3;
     const uint32_t savedModer=GPIOA_MODER, savedDac=DAC_CR;
     const uint32_t savedRcc=RCC_APBENR1, savedDhr=DAC_DHR12R1;
@@ -542,9 +648,7 @@ void app_main(const app_api_t *api){
      *
      * AF output mode: AM (7) - measured on the radio, AF_AM is the output that
      * decodes ACARS; FM (1) only made the burst audible while the trace line
-     * stayed random. v0.1 also used AF_AM but dropped every frame on the strict
-     * crc==0 test, so it never displayed anything. Default is AF_AM; key 2 still
-     * cycles AM/FM/RAW/USB as a fallback. */
+     * stayed random. Default is AF_AM; key 2 still cycles as a fallback. */
     api->bk_write(REG_2B,(uint16_t)((api->bk_read(REG_2B)|0x0700u)&~0x0007u));
     api->bk_write(REG_73,(uint16_t)(api->bk_read(REG_73)|0x0010u));
     api->audio_path(g.spk);
