@@ -103,11 +103,12 @@ static inline volatile uint32_t *hw(uint32_t a){
 #define ACR_DCSH   8           /* audio DC tracker (carrier level) shift       */
 #define ACR_MSGMAX 240u        /* ACARS text limit (acarsdec aborts past 240)  */
 
-/* AF output modes the WAIT screen's key 2 cycles through, for on-air bring-up:
- * FM (1, what this firmware's own AM path and every RX app use), AM (7),
- * BASEBAND1/RAW (4), BASEBAND2/USB (5). The mode that makes the trace line show
- * 16 01 (2nd SYN + SOH) is the right one. */
-static const uint8_t AF_CYCLE[]={1u,7u,4u,5u};
+/* AF output modes the WAIT screen's key 2 cycles through, for on-air bring-up.
+ * On the radio AM (7) is the one that decodes ACARS (FM/1 only made the burst
+ * audible and the trace line random), so it is the default; the rest are
+ * fallbacks. The mode that makes the trace line show 16 01 (2nd SYN + SOH) is
+ * the right one. */
+static const uint8_t AF_CYCLE[]={7u,1u,4u,5u};
 #define AF_CYCLE_N (sizeof AF_CYCLE / sizeof AF_CYCLE[0])
 
 /* Q12 cosine, one period: T[i] = round(4096*cos(2*pi*i/64)). The matched filter
@@ -149,6 +150,7 @@ static struct {
     uint8_t  badcrc;                /* shown frame failed its CRC             */
     uint8_t  trace[8], traceN;      /* bytes following the last detected SYN  */
     uint8_t  afIdx;                 /* AF output-mode cycle index (key 2)     */
+    uint8_t  debug;                 /* key 5: force the debug view (0=message) */
     bool    running, spk, blAlways;
     int32_t rssi;
     uint32_t tPrev, tCyc, rssiMs;
@@ -366,8 +368,8 @@ static void draw(void){
     A->print_inverse(s+T_TITLE,2,0,true,true,(uint8_t)(2u+T_TITLE_CHARS*4u));
     A->draw_battery();
 
-    if(g.count==0u){
-        /* Bring-up debug, waiting: where the pipeline stops. Read the trace
+    if(g.debug || g.count==0u){
+        /* Debug view: automatic while waiting, or forced with key 5. Read the trace
          * line first - after a detected SYN it shows the next 8 raw bytes: a
          * real frame reads 16 01 <mode> 02 .., noise reads something random.
          * AF = current output mode (key 2 cycles it),
@@ -380,7 +382,7 @@ static void draw(void){
         for(uint8_t i=0;i<g.traceN;i++){ *o++=' '; o=putx2(o,g.trace[i]); }
         *o='\0';
         A->print_tiny(str,0,ROWY(1),false,true);
-        A->print_tiny(s+T_WAIT,0,ROWY(2),false,true);
+        if(g.count==0u) A->print_tiny(s+T_WAIT,0,ROWY(2),false,true);
         o=str;
         o=put(o,"SYN"); o=putu(o,g.nSyn); o=put(o," S2"); o=putu(o,g.nSyn2);
         o=put(o," HDR"); o=putu(o,g.nHdr); *o='\0';
@@ -456,6 +458,7 @@ static void handleKeys(void){
         case APP_KEY_4:    g.blAlways=!g.blAlways;
                            A->backlight_on();   /* re-arm; house() holds it on when ON */
                            break;
+        case APP_KEY_5:    g.debug=!g.debug; break;   /* message <-> debug view */
         default: break;
     }
 }
@@ -537,16 +540,15 @@ void app_main(const app_api_t *api){
     /* RAW RX: HPF/LPF, de-emphasis and AFC off (EPIRB 406); AM for the ACARS
      * subcarrier. The loader restores the registers on exit.
      *
-     * AF output mode: FM (1) by default, like the radio's own AM path
-     * (RADIO_SetModulation: "AM no longer needs special AF setting", REG_47 =
-     * 0x6140) and like the LBJ/APRS/EPIRB apps; AF_AM (7) writes 0x6740, which
-     * this firmware uses nowhere else. v0.1 was stuck on AF_AM and never
-     * decoded, so v0.2 starts on FM and lets key 2 cycle FM/AM/RAW/USB while
-     * the trace line shows which one yields a real 16 01 (see README). */
+     * AF output mode: AM (7) - measured on the radio, AF_AM is the output that
+     * decodes ACARS; FM (1) only made the burst audible while the trace line
+     * stayed random. v0.1 also used AF_AM but dropped every frame on the strict
+     * crc==0 test, so it never displayed anything. Default is AF_AM; key 2 still
+     * cycles AM/FM/RAW/USB as a fallback. */
     api->bk_write(REG_2B,(uint16_t)((api->bk_read(REG_2B)|0x0700u)&~0x0007u));
     api->bk_write(REG_73,(uint16_t)(api->bk_read(REG_73)|0x0010u));
     api->audio_path(g.spk);
-    g.afIdx=0u;                    /* AF_CYCLE[0] = FM, the radio's own AM path */
+    g.afIdx=0u;                    /* AF_CYCLE[0] = 7 (AM), the working mode */
     api->set_af(AF_CYCLE[g.afIdx]);
     api->delay_ms(50);
 
