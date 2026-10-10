@@ -15,9 +15,9 @@
 
 /*
  * LBJ RX (development build) - receives Chinese railway LBJ (POCSAG 1200 baud,
- * direct FSK, ~821.24 MHz) and shows every decoded POCSAG message plus the
- * receive chain stats for debugging. Reference: Sdr-Is-Fun/RTL_SDR_LBJ_RECEIVER
- * and APRS RX on this firmware.
+ * direct FSK, ~821.24 MHz) and shows the decoded LBJ-family messages (address
+ * window 1233980..1234020; other POCSAG traffic is ignored). Reference:
+ * Sdr-Is-Fun/RTL_SDR_LBJ_RECEIVER and APRS RX on this firmware.
  *
  * The BK4829 has no POCSAG/FM-data demodulator, so as EPIRB 406 / APRS RX do,
  * the RX audio reaches PA4 (voice DAC pin, held at mid-scale by the MCU DAC) and
@@ -259,6 +259,12 @@ static void dem_sample(dem_t *m,int32_t x){
 }
 
 /* ---- callbacks from the decoder core ---- */
+/* LBJ address family receive window (matches the upstream receiver):
+ * 1233980..1234020. Anything else is other POCSAG traffic and is dropped
+ * before it can reach the history (note: the #if 0 PDU page used to show
+ * every address - restore this filter's removal together with that page). */
+static bool in_lbj(uint32_t a){ return (uint32_t)(a - 1233980u) <= 40u; }
+/* The addresses the SUM page knows how to lay out: 1233999..1234002. */
 static bool is_lbj(uint32_t a){ return (uint32_t)(a - 1233999u) <= 3u; }
 
 /* ---- new-generation LB alert: the detail block -------------------------
@@ -280,6 +286,7 @@ static bool hasdet(uint32_t a,uint8_t len){
 }
 
 void lbj_emit_msg(const lbj_rx_t *r, const char *bcd, uint16_t len){
+    if(!in_lbj(r->addr)) return;      /* keep the LBJ family only */
     rec_t *rec=g.hist[HISTORY-1u];
     for(uint8_t k=HISTORY-1u;k;k--) g.hist[k]=g.hist[k-1u];
     g.hist[0]=rec;

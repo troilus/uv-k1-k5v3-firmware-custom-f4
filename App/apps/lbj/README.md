@@ -2,7 +2,7 @@
 
 Goal: an overlay app that receives the Chinese railway LBJ signal (POCSAG,
 1200 baud, **direct FSK**, around **821.24 MHz**) on the UV-K1 / UV-K5 v3 and
-shows every decoded message plus the whole receive chain for debugging.
+shows the decoded LBJ messages plus the whole receive chain for debugging.
 
 Reference: [Sdr-Is-Fun/RTL_SDR_LBJ_RECEIVER](https://github.com/Sdr-Is-Fun/RTL_SDR_LBJ_RECEIVER)
 (the Python chain this app is modelled on) and the APRS RX app of this firmware
@@ -39,7 +39,7 @@ KM 0344.7                           ← 第3行：公里标
                                       进入即显示 0/0
 ```
 
-> PDU 页（全部报文 + 地址/功能/LBJ/BCH + 原始 BCD）与 `M/S/W/F/B` 计数行、
+> PDU 页（报文 + 地址/功能/LBJ/BCH + 原始 BCD）与 `M/S/W/F/B` 计数行、
 > `pp/d/R` 调试行因 4 KiB 容量暂时停用（源码中以 `#if 0` 保留，便于日后恢复）；
 > `lbj_rx_t` 的计数字段、`rec->flags`、计数自增也一并注释掉了。
 
@@ -111,7 +111,7 @@ LON 104.2064 LAT 30.4129            ← 第5行：经纬度（小字体、英文
 | `R<val>` | RX VFO 的 RSSI（dBm） |
 | `A<addr>` | POCSAG 地址（RIC） |
 | `F<func>` | 功能字（本例 `1`=下行 `3`=上行） |
-| `LBJ` / `--` | 是否属于 LBJ 地址集（1233999/1234000/1234001/1234002） |
+| `LBJ` / `--` | 是否属于 SUM 页认识的地址（1233999/1234000/1234001/1234002） |
 | `+` / `!` | 该条报文 BCH 正常 / 不可纠正 |
 | `DN` / `UP` / `??` | 方向：下行 / 上行 / 未知 |
 
@@ -152,8 +152,12 @@ Per 19.2 kHz sample:
    single-bit correction (feedback 873, 31-entry syndrome table), then the LBJ
    BCD layout: 5 bit-reversed nibbles per word, alphabet `0123456789*U -)(`.
 
-LBJ addresses: `1233999`, `1234000` (short, or merged), `1234001`, `1234002`
-(standalone detail, or merged); `func 1 = 下行`, `3 = 上行`. Short reports pack
+Only messages whose address falls in the LBJ family window `1233980..1234020`
+(matching the upstream receiver) reach the history; other POCSAG traffic is
+dropped on arrival. Inside the window the SUM page has layouts for `1233999`,
+`1234000` (short, or merged), `1234001`, `1234002` (standalone detail, or
+merged); other addresses (e.g. `1234008`, the tail-of-train signal) are shown
+with the short layout. `func 1 = 下行`, `3 = 上行`. Short reports pack
 train `[0:6]`, speed `[6:9]`, position km `[10:15]`. A detail block sits at
 `[0:len)` of a standalone 30..64-char report, or at the last 50 chars of a
 65-char merged report: 2 ASCII prefix chars `0:4`, 3-digit model code `4:7`,
@@ -166,10 +170,12 @@ hides the route for radios without it.
 
 ## Pages
 
-SUM only for now. The PDU page (every decoded message with
+SUM only for now. The PDU page (one line per message with
 `A<addr> F<func> LBJ/-- +/!` + raw BCD) and the shared counter row
 `M<msgs> S<sync> W<words> F<fixed> B<bad>` were disabled to fit the 4 KiB
-overlay; they remain in the source under `#if 0` for later restoration.
+overlay; they remain in the source under `#if 0` for later restoration. The
+PDU page listed every address; with the LBJ window filter in `lbj_emit_msg`
+only LBJ-family messages reach it nowadays.
 
 | Page | Content |
 |---|---|
