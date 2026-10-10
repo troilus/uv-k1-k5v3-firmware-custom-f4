@@ -33,8 +33,8 @@
 #include "driver/st7565.h"
 #include "driver/system.h"
 #include "driver/backlight.h"
-#ifdef ENABLE_FEAT_F4HWN_K5VIEWER
-#include "k5viewer.h"
+#ifdef ENABLE_FEAT_F4HWN_SCREENSHOT
+#include "screenshot.h"
 #endif
 #include "app/app.h"
 #ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
@@ -147,10 +147,10 @@ static void app_backlight_update(void)
 
 static uint8_t app_get_key(void)
 {
-#ifdef ENABLE_FEAT_F4HWN_K5VIEWER
+#ifdef ENABLE_FEAT_F4HWN_SCREENSHOT
     /* Overlay apps run synchronously outside APP_Update(). Keep serial key
      * injection alive while an app owns the foreground loop. */
-    K5VIEWER_ParseInput();
+    SCREENSHOT_ParseInput();
 #endif
     const KEY_Code_t key = KEYBOARD_GetKey();
 
@@ -179,13 +179,13 @@ static uint8_t app_get_key(void)
     return APP_KEY_WAKE;
 }
 
-#ifdef ENABLE_FEAT_F4HWN_K5VIEWER
+#ifdef ENABLE_FEAT_F4HWN_SCREENSHOT
 static void app_blit_full(void)
 {
     ST7565_BlitFullScreen();
     /* The normal loop mirrors completed frames after drawing. Overlay apps
      * bypass that loop, so publish the frame from this ABI wrapper. */
-    K5VIEWER_Update(false);
+    SCREENSHOT_Update(false);
 }
 #endif
 
@@ -727,7 +727,7 @@ static const app_api_t app_api = {
     .draw_rect        = UI_DrawRectangleBuffer,
     .print_bold       = UI_PrintStringSmallBold,
     .print_tiny       = GUI_DisplaySmallest,
-#ifdef ENABLE_FEAT_F4HWN_K5VIEWER
+#ifdef ENABLE_FEAT_F4HWN_SCREENSHOT
     .blit_full        = app_blit_full,
 #else
     .blit_full        = ST7565_BlitFullScreen,
@@ -876,7 +876,7 @@ uint8_t APP_LaunchOverlay(uint8_t slot)
     APP_ModalScreenSaverExit();
     BACKLIGHT_TurnOn();
 
-#ifdef ENABLE_FEAT_F4HWN_K5VIEWER
+#ifdef ENABLE_FEAT_F4HWN_SCREENSHOT
     /* The caller enters from a debounced key event, so the resident key state
      * still contains that trigger while the modal app is running. Clear it so
      * K5Viewer is allowed to mirror overlay frames immediately. */

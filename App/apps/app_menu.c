@@ -28,8 +28,8 @@
 #include "driver/system.h"
 #include "driver/gpio.h"
 #include "ui/helper.h"
-#ifdef ENABLE_FEAT_F4HWN_K5VIEWER
-#include "k5viewer.h"
+#ifdef ENABLE_FEAT_F4HWN_SCREENSHOT
+#include "screenshot.h"
 #endif
 
 /* "F4HWN APPS" banner and the same thin separator used by the multiboot
@@ -88,10 +88,10 @@ static KEY_Code_t app_get_key(void)
 
     for (;;)
     {
-#ifdef ENABLE_FEAT_F4HWN_K5VIEWER
+#ifdef ENABLE_FEAT_F4HWN_SCREENSHOT
         /* APP_MenuOpen() is modal and does not return to APP_Update(). Keep
          * serial key injection and the viewer connection alive while waiting. */
-        K5VIEWER_ParseInput();
+        SCREENSHOT_ParseInput();
 #endif
 #if defined(ENABLE_UART) || defined(ENABLE_USB)
         app_service_uart();
@@ -114,8 +114,8 @@ static KEY_Code_t app_get_key(void)
             continue;
         }
 
-#ifdef ENABLE_FEAT_F4HWN_K5VIEWER
-        K5VIEWER_Update(false);
+#ifdef ENABLE_FEAT_F4HWN_SCREENSHOT
+        SCREENSHOT_Update(false);
 #endif
         KEY_Code_t key = KEYBOARD_Poll();
         if (key != KEY_INVALID)
@@ -248,7 +248,7 @@ void APP_MenuOpen(void)
     APP_ModalScreenSaverExit();
     BACKLIGHT_TurnOn();
 
-#ifdef ENABLE_FEAT_F4HWN_K5VIEWER
+#ifdef ENABLE_FEAT_F4HWN_SCREENSHOT
     /* Detach the modal selector from the key state that triggered F+7. The
      * normal K5Viewer updater suppresses frames while a key is held; without
      * clearing this stale state, the selector could never publish its first
@@ -327,8 +327,8 @@ void APP_MenuOpen(void)
 
         ST7565_BlitStatusLine();
         ST7565_BlitFullScreen();
-#ifdef ENABLE_FEAT_F4HWN_K5VIEWER
-        K5VIEWER_Update(false);
+#ifdef ENABLE_FEAT_F4HWN_SCREENSHOT
+        SCREENSHOT_Update(false);
 #endif
 
         const KEY_Code_t key = app_get_key();
