@@ -103,6 +103,13 @@ static inline volatile uint32_t *hw(uint32_t a){
 #define ACR_DCSH   8           /* audio DC tracker (carrier level) shift       */
 #define ACR_MSGMAX 240u        /* ACARS text limit (acarsdec aborts past 240)  */
 
+/* AF output modes the WAIT screen's key 2 cycles through, for on-air bring-up:
+ * FM (1, what this firmware's own AM path and every RX app use), AM (7),
+ * BASEBAND1/RAW (4), BASEBAND2/USB (5). The mode that makes the trace line show
+ * 16 01 (2nd SYN + SOH) is the right one. */
+static const uint8_t AF_CYCLE[]={1u,7u,4u,5u};
+#define AF_CYCLE_N (sizeof AF_CYCLE / sizeof AF_CYCLE[0])
+
 /* Q12 cosine, one period: T[i] = round(4096*cos(2*pi*i/64)). The matched filter
  * taps are T[(2*(i-8)) & 63] and the LO is (T[i], -T[i+16]) = (cos p, sin p). */
 static const int16_t ACR_T[64] = {
@@ -137,9 +144,11 @@ static struct {
     char    flt[8], lbl[3], bid;
     uint8_t mlen, top, prevKey, redraw, ledPhase, busyFor;
     uint16_t count;
-    uint16_t nSyn, nHdr, nCrcErr, nBytes;   /* debug counters (WAIT screen) */
+    uint16_t nSyn, nSyn2, nHdr, nCrcErr, nBytes; /* debug counters (WAIT screen) */
     int32_t  level;                 /* last matched-filter magnitude          */
     uint8_t  badcrc;                /* shown frame failed its CRC             */
+    uint8_t  trace[8], traceN;      /* bytes following the last detected SYN  */
+    uint8_t  afIdx;                 /* AF output-mode cycle index (key 2)     */
     bool    running, spk, blAlways;
     int32_t rssi;
     uint32_t tPrev, tCyc, rssiMs;
@@ -159,6 +168,11 @@ static char *putu(char *o,uint32_t v){
         unsigned c=sub(&v,P10U[i]);
         if(c||lead||i==6u){ *o++=(char)('0'+c); lead=true; }
     }
+    return o;
+}
+static char *putx2(char *o,uint8_t v){
+    const char *H="0123456789ABCDEF";
+    *o++=H[(v>>4)&0xFu]; *o++=H[v&0xFu];
     return o;
 }
 /* printable ASCII, controls (CR/LF and the odd-parity leftovers) blanked */
@@ -353,12 +367,23 @@ static void draw(void){
     A->draw_battery();
 
     if(g.count==0u){
-        A->print_tiny(s+T_WAIT,0,ROWY(2),false,true);
-        /* Debug, waiting: where the pipeline stops. SYN = header start seen,
-         * HDR = SYN SYN SOH assembled, BY = bytes after a SYN, CE = CRC fails,
-         * LV = last matched-filter magnitude (audio present if it moves). */
+        /* Bring-up debug, waiting: where the pipeline stops. Read the trace
+         * line first - after a detected SYN it shows the next 8 raw bytes: a
+         * real frame reads 16 01 <mode> 02 .., noise reads something random.
+         * AF = current output mode (key 2 cycles it),
+         * SYN = header starts, S2 = a 2nd SYN, HDR = SYN SYN SOH, BY = bytes
+         * after a SYN, CE = CRC fails, LV = matched-filter magnitude. */
         char *o=str;
-        o=put(o,"SYN"); o=putu(o,g.nSyn); o=put(o," HDR"); o=putu(o,g.nHdr); *o='\0';
+        o=put(o,"AF"); o=putu(o,AF_CYCLE[g.afIdx]); *o='\0';
+        A->print_tiny(str,0,ROWY(0),false,true);
+        o=str; *o++='T';
+        for(uint8_t i=0;i<g.traceN;i++){ *o++=' '; o=putx2(o,g.trace[i]); }
+        *o='\0';
+        A->print_tiny(str,0,ROWY(1),false,true);
+        A->print_tiny(s+T_WAIT,0,ROWY(2),false,true);
+        o=str;
+        o=put(o,"SYN"); o=putu(o,g.nSyn); o=put(o," S2"); o=putu(o,g.nSyn2);
+        o=put(o," HDR"); o=putu(o,g.nHdr); *o='\0';
         A->print_tiny(str,0,ROWY(3),false,true);
         o=str; o=put(o,"BY"); o=putu(o,g.nBytes); o=put(o," CE"); o=putu(o,g.nCrcErr); *o='\0';
         A->print_tiny(str,0,ROWY(4),false,true);
@@ -419,6 +444,15 @@ static void handleKeys(void){
     switch(key){
         case APP_KEY_EXIT: g.running=false; break;
         case APP_KEY_1:    g.spk=!g.spk; A->audio_path(g.spk); break;
+        case APP_KEY_2:    /* bring-up: cycle the AF output mode, watch the trace */
+                           g.afIdx=(uint8_t)((g.afIdx+1u)%AF_CYCLE_N);
+                           A->set_af(AF_CYCLE[g.afIdx]);
+                           break;
+        case APP_KEY_3:    /* back to the WAIT debug screen (clear everything) */
+                           g.count=0u; g.mlen=0u; g.top=0u;
+                           g.nSyn=g.nSyn2=g.nHdr=g.nCrcErr=g.nBytes=0u;
+                           g.traceN=0u;
+                           break;
         case APP_KEY_4:    g.blAlways=!g.blAlways;
                            A->backlight_on();   /* re-arm; house() holds it on when ON */
                            break;
@@ -503,16 +537,17 @@ void app_main(const app_api_t *api){
     /* RAW RX: HPF/LPF, de-emphasis and AFC off (EPIRB 406); AM for the ACARS
      * subcarrier. The loader restores the registers on exit.
      *
-     * AF output mode MUST be AF_FM, exactly like the radio's own AM path
-     * (RADIO_SetModulation: "AM no longer needs special AF setting") and like
-     * the LBJ/APRS/EPIRB apps: REG_47 = 0x6140. AF_AM (7) writes 0x6740 - an
-     * output mode this firmware never uses anywhere else - and the audio at PA4
-     * is then wrong enough that the MSK demod never locks (heard as a beep,
-     * never decoded). */
+     * AF output mode: FM (1) by default, like the radio's own AM path
+     * (RADIO_SetModulation: "AM no longer needs special AF setting", REG_47 =
+     * 0x6140) and like the LBJ/APRS/EPIRB apps; AF_AM (7) writes 0x6740, which
+     * this firmware uses nowhere else. v0.1 was stuck on AF_AM and never
+     * decoded, so v0.2 starts on FM and lets key 2 cycle FM/AM/RAW/USB while
+     * the trace line shows which one yields a real 16 01 (see README). */
     api->bk_write(REG_2B,(uint16_t)((api->bk_read(REG_2B)|0x0700u)&~0x0007u));
     api->bk_write(REG_73,(uint16_t)(api->bk_read(REG_73)|0x0010u));
     api->audio_path(g.spk);
-    api->set_af(APP_AF_FM);
+    g.afIdx=0u;                    /* AF_CYCLE[0] = FM, the radio's own AM path */
+    api->set_af(AF_CYCLE[g.afIdx]);
     api->delay_ms(50);
 
     g.running=true;

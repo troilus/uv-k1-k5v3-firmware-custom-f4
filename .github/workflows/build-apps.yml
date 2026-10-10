@@ -1,7 +1,18 @@
 name: Build Apps
 
 on:
+  push:
+    branches: [ main00, main ]
+    paths:
+      - 'App/apps/**'
+      - 'compile-app.sh'
+      - 'Dockerfile'
+      - '.github/workflows/build-apps.yml'
   workflow_dispatch:
+
+concurrency:
+  group: build-apps-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -9,7 +20,7 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
 
     - name: Compile overlay apps
       run: |
@@ -21,3 +32,4 @@ jobs:
       with:
         name: overlay-apps
         path: build/Apps/*.app
+        if-no-files-found: error

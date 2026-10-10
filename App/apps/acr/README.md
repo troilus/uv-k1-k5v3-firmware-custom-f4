@@ -9,31 +9,39 @@ Thierry Leconte) — its DSP is the demodulator below, transcribed to fixed poin
 The APRS RX / LBJ RX / EPIRB 406 apps of this firmware provide the PA4 sampling
 and the overlay-app conventions.
 
-Status: **v0.2, on-radio bring-up.** The demodulator is validated on real ACARS
+Status: **v0.3, on-radio bring-up.** The demodulator is validated on real ACARS
 audio (acarsdec's `test.wav`, 4 channels, 12500 Hz: **7/7 messages, no CRC
 errors**, identical to the reference implementation). v0.1 never decoded on air
-(the screen stayed on `WAIT` while the burst was audible); v0.2 fixes the AF
-output mode and adds on-screen debug (see below). On-air confirmation pending a
-flash.
+(the screen stayed on `WAIT` while the burst was audible); v0.2 added on-screen
+debug; v0.3 lets the AF output mode be cycled on the fly (key 2) and adds the
+`T` trace line that shows the raw bytes behind a detected `SYN`, so the right
+mode is picked from data instead of by ear.
 
-## v0.2 bring-up changes
+## v0.2 / v0.3 bring-up changes
 
-- **AF mode fix (the v0.1 bug).** v0.1 selected `BK4819_AF_AM` (REG_47 = 0x6740)
-  for the output. This firmware's own AM path uses `BK4819_AF_FM`
+- **AF output mode.** v0.1 forced `BK4819_AF_AM` (REG_47 = 0x6740) and never got
+  a single frame. This firmware's own AM path uses `BK4819_AF_FM`
   (`RADIO_SetModulation`: *"AM no longer needs special AF setting"*, REG_47 =
-  0x6140), and so do the LBJ / APRS RX / EPIRB 406 apps and `BK4819_EnterRaw`.
-  `AF_AM` is used nowhere else in the firmware; with it the audio at PA4 is
-  wrong enough that the MSK demod never locks - the burst is audible but never
-  decoded. v0.2 uses `APP_AF_FM`.
+  0x6140), and so do the LBJ / APRS RX / EPIRB 406 apps and `BK4819_EnterRaw`;
+  `AF_AM` is used nowhere else. v0.2 starts on `AF_FM`, and **key 2** cycles
+  FM / AM / RAW / USB on the fly so the right one can be picked by the trace
+  line below, not by ear.
 - **DC tracker rounding.** The carrier tracker now rounds to nearest instead of
   flooring its arithmetic shift, the same bias EPIRB 406 hit at PA4 levels.
 - **Lowered bar (debug).** A frame that reaches `SYN SYN SOH ... ETX/ETB crc` is
   now shown even when the CRC fails, with a `!` appended to the header line,
   instead of being dropped.
-- **Debug screen.** While no frame has been seen (`WAIT`), three lines show the
-  pipeline: `SYN<n> HDR<n>` (header starts / full `SYN SYN SOH` headers seen),
-  `BY<n> CE<n>` (bytes behind a header / CRC failures), `LV<n>` (last
-  matched-filter magnitude - it moves when there is audio on PA4).
+- **Debug screen.** While no frame has been seen (`WAIT`):
+  - `T ..` - the 8 raw bytes after the last detected `SYN`. A real frame reads
+    `16 01 <mode> 02 ..` here; noise reads something random. This is the line
+    that says whether the audio path is good.
+  - `AF<n>` - current AF output mode (key 2). `SYN<n> S2<n> HDR<n>` - header
+    starts / 2nd `SYN` seen / full `SYN SYN SOH` headers. `BY<n> CE<n>` -
+    bytes after a header / CRC failures. `LV<n>` - last matched-filter
+    magnitude (it moves when there is audio on PA4).
+
+  Bring-up verdict: `SYN` rising with a random `T` line means the audio is not
+  right yet (cycle `AF`); a `T` line with `16 01` but no `HDR` was never seen.
 
 ## 中文说明
 
@@ -72,10 +80,10 @@ D65CAF7728#DFB00000/V206,05,124,... ← 第1~5行：报文正文（小字体，�
 |---|---|
 | UP / DOWN | 正文翻页，每次一行（32 字符）；UV-K1 用左右键（`nav_dir`），每次按键只走一步，按住不连发 |
 | `1` | 扬声器开 / 关（默认关，退出保存） |
+| `2` | **调试用**：循环 AF 输出模式 FM → AM → RAW → USB，屏上 `AF<n>` 显示当前值；用 `T` 调试行的字节判断哪种能出报文 |
+| `3` | **调试用**：清空计数并回到 `WAIT` 调试屏（看到一条坏帧后又想继续观察时用） |
 | `4` | 背光常亮 / 自动熄灭。ON 时每个屏刷新槽都重新武装 BLTime，所以解码唤醒后一直亮着不灭；OFF 时按收音机 `BLTime` 自动熄灭（等效收音机 F+8 的常亮功能；仅本次运行有效） |
 | EXIT | 退出（回 Apps 菜单） |
-
-`2` 清空、`3` 页切换都不需要，未占用。
 
 ## Using the app
 
@@ -84,7 +92,9 @@ D65CAF7728#DFB00000/V206,05,124,... ← 第1~5行：报文正文（小字体，�
    from the API, so pick AM yourself.
 2. Launch **ACARS RX** (APPS menu). The speaker is off by default (key `1`).
 3. UP/DOWN scrolls the message text by one 32-character row; `4` keeps the
-   backlight on; EXIT quits.
+   backlight on; `2` cycles the AF output mode (bring-up); EXIT quits.
+4. If it stays on `WAIT`, read the `T ..` trace line after a burst and cycle
+   `AF` with key 2 until it reads `16 01` (see *v0.2 bring-up changes*).
 
 ## Receive path
 
