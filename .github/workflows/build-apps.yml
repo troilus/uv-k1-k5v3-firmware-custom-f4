@@ -1,4 +1,4 @@
-name: Build Firmware
+name: Build Apps
 
 on:
   workflow_dispatch:
@@ -10,17 +10,6 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v3
-
-    - name: Compile firmware
-      run: |
-        chmod +x compile-with-docker.sh
-        ./compile-with-docker.sh Fusion
-
-    - name: Upload firmware artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: firmware-artifact
-        path: build/Fusion/f4hwn.fusion.bin
 
     - name: Compile overlay apps
       run: |
