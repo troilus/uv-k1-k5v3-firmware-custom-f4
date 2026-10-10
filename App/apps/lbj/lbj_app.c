@@ -288,7 +288,7 @@ static bool hasdet(uint32_t a,uint8_t len){
 void lbj_emit_msg(const lbj_rx_t *r, const char *bcd, uint16_t len){
     if(!in_lbj(r->addr)) return;      /* keep the LBJ family only */
     g.A->backlight_on();              /* wake the screen on RX activity */
-    g.ledPhase=4u;                    /* green LED: on/off/on/off, 10 ms a step */
+    g.ledPhase=4u;                    /* green LED: on/off/on/off, 100 ms a step */
     rec_t *rec=g.hist[HISTORY-1u];
     for(uint8_t k=HISTORY-1u;k;k--) g.hist[k]=g.hist[k-1u];
     g.hist[0]=rec;
@@ -587,16 +587,17 @@ static void listen(void){
     clkStart();
     uint32_t next=0;
     uint16_t cnt=0;
-    uint8_t  ledCnt=0;
+    uint16_t ledCnt=0;
     g.redraw=1u;
     while(g.running){
         while((int32_t)(clkCyc()-next)<0){}
         next+=CYC_PER_SAMPLE;
         dem_sample(&dm,adcRead());
-        /* Green-LED double-blink: one step every 192 samples (10 ms). The
-         * BK4819 GPIO6 write costs ~40 us (< one sample period), so the
-         * sampler is not disturbed. */
-        if(++ledCnt>=192u){ ledCnt=0; if(g.ledPhase){ g.A->led((g.ledPhase&1u)==0u); g.ledPhase--; } }
+        /* Green-LED double-blink: one step every 1920 samples (100 ms), i.e.
+         * on 100 / off 100 / on 100 / off 100 - the same 100 ms "on" width the
+         * radio's own A/B (RX-end) blink uses. The BK4819 GPIO6 write costs
+         * ~40 us (< one sample period), so the sampler is not disturbed. */
+        if(++ledCnt>=1920u){ ledCnt=0; if(g.ledPhase){ g.A->led((g.ledPhase&1u)==0u); g.ledPhase--; } }
         if(++cnt<HOUSE_EVERY) continue;
         cnt=0;
         if(g.rx.inmsg && ++g.busyFor<BUSY_MAX) continue;   /* keep sampling a message */
