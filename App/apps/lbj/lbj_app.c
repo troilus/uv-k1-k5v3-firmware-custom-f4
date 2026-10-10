@@ -135,7 +135,7 @@ static struct {
     lbj_rx_t rx;
     uint8_t  count, cur, prevKey, redraw, page, top;
     bool     running, spk, blAlways, en, sessValid;
-    uint8_t  busyFor;
+    uint8_t  busyFor, ledPhase;   /* ledPhase: green-LED double-blink steps */
     char     sess[16];         /* last 1233999/1234000 short block (train/spd/km) */
     int32_t  rssi;
     uint32_t tPrev, tCyc, rssiMs;
@@ -287,6 +287,8 @@ static bool hasdet(uint32_t a,uint8_t len){
 
 void lbj_emit_msg(const lbj_rx_t *r, const char *bcd, uint16_t len){
     if(!in_lbj(r->addr)) return;      /* keep the LBJ family only */
+    g.A->backlight_on();              /* wake the screen on RX activity */
+    g.ledPhase=4u;                    /* green LED: on/off/on/off, 10 ms a step */
     rec_t *rec=g.hist[HISTORY-1u];
     for(uint8_t k=HISTORY-1u;k;k--) g.hist[k]=g.hist[k-1u];
     g.hist[0]=rec;
@@ -417,9 +419,9 @@ static void drawSummary(char *s){
         *o='\0';
         A->print_bold(str,0,0,1);
 
-        /* row2: route (GB2312); hidden in English mode. */
+        /* row2: route (GB2312), no label; hidden in English mode. */
         if(!g.en){
-            o=str; o=put(o,s+T_ROUTE);
+            o=str;
             for(uint8_t i=0;i<8u;i++){ uint8_t v=(uint8_t)((nib(d[14u+i*2u])<<4)|nib(d[15u+i*2u])); if(!v) break; *o++=(char)v; }
             *o='\0';
             A->print_bold(str,0,0,2);
@@ -562,8 +564,11 @@ static void house(void){
     g.rssi=A->rssi_dbm();
     uint32_t now=A->ticks_ms();
     if((uint32_t)(now-g.rssiMs)>=500u){ g.rssiMs=now; g.redraw=1u; }  /* RSSI every 0.5 s */
-    if(g.blAlways) A->backlight_on();   /* re-arm every slot so it never fades */
-    else           A->backlight_update();
+    if(g.blAlways) A->backlight_on();   /* re-arm BLTime every slot so it never expires */
+    /* The fade only advances inside BACKLIGHT_Update(), which this service
+     * drives: without it a dark panel would never light up after key 4 or a
+     * decode wake-up (TurnOn just sets the target brightness). */
+    A->backlight_update();
     if(!g.redraw) return;
     g.redraw=0;
     adcRestore();
@@ -582,11 +587,16 @@ static void listen(void){
     clkStart();
     uint32_t next=0;
     uint16_t cnt=0;
+    uint8_t  ledCnt=0;
     g.redraw=1u;
     while(g.running){
         while((int32_t)(clkCyc()-next)<0){}
         next+=CYC_PER_SAMPLE;
         dem_sample(&dm,adcRead());
+        /* Green-LED double-blink: one step every 192 samples (10 ms). The
+         * BK4819 GPIO6 write costs ~40 us (< one sample period), so the
+         * sampler is not disturbed. */
+        if(++ledCnt>=192u){ ledCnt=0; if(g.ledPhase){ g.A->led((g.ledPhase&1u)==0u); g.ledPhase--; } }
         if(++cnt<HOUSE_EVERY) continue;
         cnt=0;
         if(g.rx.inmsg && ++g.busyFor<BUSY_MAX) continue;   /* keep sampling a message */
@@ -631,6 +641,7 @@ void app_main(const app_api_t *api){
     listen();
 
     biasOff(savedDac,savedDhr,savedRcc,savedModer);
+    api->led(false);           /* do not leave the green LED stuck mid-blink */
     api->set_af(APP_AF_MUTE);
     api->audio_path(false);
     cfg=(uint8_t)((g.spk?1u:0u)|(g.en?2u:0u));
