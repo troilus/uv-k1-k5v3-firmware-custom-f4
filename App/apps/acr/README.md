@@ -9,9 +9,31 @@ Thierry Leconte) — its DSP is the demodulator below, transcribed to fixed poin
 The APRS RX / LBJ RX / EPIRB 406 apps of this firmware provide the PA4 sampling
 and the overlay-app conventions.
 
-Status: **v0.1, demodulator validated on real ACARS audio** (acarsdec's
-`test.wav`, 4 channels, 12500 Hz: **7/7 messages, no CRC errors**, identical to
-the reference implementation). On-air confirmation pending a flash.
+Status: **v0.2, on-radio bring-up.** The demodulator is validated on real ACARS
+audio (acarsdec's `test.wav`, 4 channels, 12500 Hz: **7/7 messages, no CRC
+errors**, identical to the reference implementation). v0.1 never decoded on air
+(the screen stayed on `WAIT` while the burst was audible); v0.2 fixes the AF
+output mode and adds on-screen debug (see below). On-air confirmation pending a
+flash.
+
+## v0.2 bring-up changes
+
+- **AF mode fix (the v0.1 bug).** v0.1 selected `BK4819_AF_AM` (REG_47 = 0x6740)
+  for the output. This firmware's own AM path uses `BK4819_AF_FM`
+  (`RADIO_SetModulation`: *"AM no longer needs special AF setting"*, REG_47 =
+  0x6140), and so do the LBJ / APRS RX / EPIRB 406 apps and `BK4819_EnterRaw`.
+  `AF_AM` is used nowhere else in the firmware; with it the audio at PA4 is
+  wrong enough that the MSK demod never locks - the burst is audible but never
+  decoded. v0.2 uses `APP_AF_FM`.
+- **DC tracker rounding.** The carrier tracker now rounds to nearest instead of
+  flooring its arithmetic shift, the same bias EPIRB 406 hit at PA4 levels.
+- **Lowered bar (debug).** A frame that reaches `SYN SYN SOH ... ETX/ETB crc` is
+  now shown even when the CRC fails, with a `!` appended to the header line,
+  instead of being dropped.
+- **Debug screen.** While no frame has been seen (`WAIT`), three lines show the
+  pipeline: `SYN<n> HDR<n>` (header starts / full `SYN SYN SOH` headers seen),
+  `BY<n> CE<n>` (bytes behind a header / CRC failures), `LV<n>` (last
+  matched-filter magnitude - it moves when there is audio on PA4).
 
 ## 中文说明
 

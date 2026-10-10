@@ -137,6 +137,9 @@ static struct {
     char    flt[8], lbl[3], bid;
     uint8_t mlen, top, prevKey, redraw, ledPhase, busyFor;
     uint16_t count;
+    uint16_t nSyn, nHdr, nCrcErr, nBytes;   /* debug counters (WAIT screen) */
+    int32_t  level;                 /* last matched-filter magnitude          */
+    uint8_t  badcrc;                /* shown frame failed its CRC             */
     bool    running, spk, blAlways;
     int32_t rssi;
     uint32_t tPrev, tCyc, rssiMs;
@@ -204,9 +207,10 @@ static uint16_t crcu(uint16_t crc,uint8_t c){
     return crc;
 }
 
-/* ---- a validated frame: copy what the screen needs ---- */
-static void acr_emit(const dem_t *m){
+/* ---- a frame: copy what the screen needs (crcok=0: shown flagged) ---- */
+static void acr_emit(const dem_t *m,uint8_t crcok){
     g.count++;
+    g.badcrc=(uint8_t)(crcok?0u:1u);
     uint8_t n=m->tlen;
     if(n==0u) return;                       /* no text: keep what is shown */
     char *o=g.msg;
@@ -228,10 +232,11 @@ static void acr_emit(const dem_t *m){
 /* ---- frame state machine (acarsdec decodeAcars, without the inv attribute:
  * the polarity is folded into the demodulator through msks ^= 2) ---- */
 static void acr_byte(dem_t *m,uint8_t r){
+    if(m->st!=0u) g.nBytes++;               /* a real byte boundary, not a slide */
     switch(m->st){
     case 0u:                                /* WSYN, sliding */
-        if(r==0x16u){ m->st=1u; m->n=8u; }
-        else if(r==0xE9u){ m->msks^=2u; m->st=1u; m->n=8u; }
+        if(r==0x16u){ g.nSyn++; m->st=1u; m->n=8u; }
+        else if(r==0xE9u){ g.nSyn++; m->msks^=2u; m->st=1u; m->n=8u; }
         else m->n=1u;
         return;
     case 1u:                                /* SYN2 */
@@ -239,7 +244,7 @@ static void acr_byte(dem_t *m,uint8_t r){
         else { m->st=0u; m->n=1u; }
         return;
     case 2u:                                /* SOH1 */
-        if(r==0x01u){ m->st=3u; m->n=8u; m->crc=0u; m->len=0u; m->tlen=0u; }
+        if(r==0x01u){ m->st=3u; m->n=8u; m->crc=0u; m->len=0u; m->tlen=0u; g.nHdr++; }
         else { m->st=0u; m->n=1u; }
         return;
     case 3u:                                /* TXT */
@@ -256,7 +261,14 @@ static void acr_byte(dem_t *m,uint8_t r){
         return;
     default:                                /* CRC2 */
         m->crc=crcu(m->crc,r);
-        if(m->crc==0u && m->len>=13u) acr_emit(m);
+        if(m->len>=13u){
+            if(m->crc==0u) acr_emit(m,1u);
+            /* Lowered bar (debug): once SYN SYN SOH ... ETX got through, show
+             * the frame even with a failed CRC, flagged '!', instead of dropping
+             * it. Nothing reaches here without a full header, so false hits are
+             * still rare. */
+            else { g.nCrcErr++; if(m->tlen>0u) acr_emit(m,0u); }
+        }
         m->st=0u; m->n=1u;
         return;
     }
@@ -273,7 +285,10 @@ static void acr_putbit(dem_t *m,uint8_t b){
 static void dem_sample(dem_t *m,int32_t x){
     const int32_t step=(int32_t)ACR_STEP + m->corr;
     m->acc=(m->acc+step)&4095;
-    m->dc+=(x-m->dc)>>ACR_DCSH;
+    /* Round to nearest: a plain arithmetic >>8 floors, so every small negative
+     * deviation drags the carrier level down and it never comes back up (the
+     * exact bug EPIRB 406 hit at the PA4 levels). */
+    { const int32_t e=x-m->dc; m->dc+=(e+(1<<(ACR_DCSH-1)))>>ACR_DCSH; }
     const int32_t y=x-m->dc;
     const uint32_t i=((uint32_t)m->acc>>6)&63u;
     const int32_t r=(y*ACR_T[i])>>12;                 /*  cos(p) * x */
@@ -295,6 +310,8 @@ static void dem_sample(dem_t *m,int32_t x){
         vi+=hv*m->ring[2u*k+1u];
         if(++k>=ACR_FLEN) k=0u;
     }
+
+    g.level=(int32_t)(((vr<0?-vr:vr)+(vi<0?-vi:vi))>>16);   /* debug */
 
     /* MSK decision: alternating quadrature, sign only; the quadrature
      * component drives the carrier loop */
@@ -337,9 +354,21 @@ static void draw(void){
 
     if(g.count==0u){
         A->print_tiny(s+T_WAIT,0,ROWY(2),false,true);
+        /* Debug, waiting: where the pipeline stops. SYN = header start seen,
+         * HDR = SYN SYN SOH assembled, BY = bytes after a SYN, CE = CRC fails,
+         * LV = last matched-filter magnitude (audio present if it moves). */
+        char *o=str;
+        o=put(o,"SYN"); o=putu(o,g.nSyn); o=put(o," HDR"); o=putu(o,g.nHdr); *o='\0';
+        A->print_tiny(str,0,ROWY(3),false,true);
+        o=str; o=put(o,"BY"); o=putu(o,g.nBytes); o=put(o," CE"); o=putu(o,g.nCrcErr); *o='\0';
+        A->print_tiny(str,0,ROWY(4),false,true);
+        o=str; o=put(o,"LV"); o=putu(o,(uint32_t)(g.level<0?-g.level:g.level)); *o='\0';
+        A->print_tiny(str,0,ROWY(5),false,true);
     } else {
         char *o=str;
-        o=put(o,g.flt); *o++=' '; o=put(o,g.lbl); *o++=' '; *o++=g.bid; *o='\0';
+        o=put(o,g.flt); *o++=' '; o=put(o,g.lbl); *o++=' '; *o++=g.bid;
+        if(g.badcrc) *o++='!';        /* frame shown without a valid CRC */
+        *o='\0';
         A->print_bold(str,0,0,0);
         for(uint8_t row=0;row<TXTROWS;row++){
             uint16_t off=(uint16_t)g.top+(uint16_t)row*TXTCOLS;
@@ -472,11 +501,18 @@ void app_main(const app_api_t *api){
     g.spk=(cfg&1u)!=0u;
 
     /* RAW RX: HPF/LPF, de-emphasis and AFC off (EPIRB 406); AM for the ACARS
-     * subcarrier. The loader restores the registers on exit. */
+     * subcarrier. The loader restores the registers on exit.
+     *
+     * AF output mode MUST be AF_FM, exactly like the radio's own AM path
+     * (RADIO_SetModulation: "AM no longer needs special AF setting") and like
+     * the LBJ/APRS/EPIRB apps: REG_47 = 0x6140. AF_AM (7) writes 0x6740 - an
+     * output mode this firmware never uses anywhere else - and the audio at PA4
+     * is then wrong enough that the MSK demod never locks (heard as a beep,
+     * never decoded). */
     api->bk_write(REG_2B,(uint16_t)((api->bk_read(REG_2B)|0x0700u)&~0x0007u));
     api->bk_write(REG_73,(uint16_t)(api->bk_read(REG_73)|0x0010u));
     api->audio_path(g.spk);
-    api->set_af(APP_AF_AM);
+    api->set_af(APP_AF_FM);
     api->delay_ms(50);
 
     g.running=true;
