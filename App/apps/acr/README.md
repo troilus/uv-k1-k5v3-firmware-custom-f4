@@ -24,25 +24,33 @@ overlay-app conventions.
 3. 扬声器默认关闭，按 `1` 开（原始音频连续输出）；按 `*` 在小字体（32 字符/行）
    与大字体（18 字符/行）之间切换正文。
 
-## 屏幕说明
+## 屏幕说明 / Screen layout
 
-顶部 1 行状态栏 + 主区 7 行（7×8=56 px，小字体 3×5、每字符 4 px，一行 32 字符）。
+顶部 1 行状态栏 + 粗体标题 1 行 + 正文最多 5 行 + 底部 1 行（每行 8 px）。
 
 ```
 [ACARS RX2] 131.5250          ███   ← 状态栏：标题 · 接收频率 · 电池
-F-GTAE AF1234 H1 1*                 ← 第0行（粗体）：机号 [航班号] Label Block ID + 标记
-REQUEST ALTN RWY 26L                ← 第1~5行：报文正文（小字体，每行32字符）
-...                                    （按 ↑/↓ 选报文，6/9 翻正文页）
-1SPK: ON 4BL: OFF 3/8 -85           ← 底部：按键状态 · 当前/共几条 · 实时RSSI(dBm)
+F-GTAE AF1234 H1 1                  ← 标题（粗体）：机号 [航班号] Label Block ID
+REQUEST ALTN RWY 26L                ← 正文第 1~5 行（每行 32 或 18 字符）
+...                                    （↑/↓ 选报文，6/9 翻页，* 换字号）
+1SPK: ON 4BL: OFF 3/8 -85        *   ← 底部：按键状态 · 当前/共几条 · RSSI；最右=状态标记
 ```
 
-- 机号 = 航空器注册号（7 字符地址字段；6 位注册号的补位 `.` 已去掉）；`航班号`
-  仅在下行报文出现（Block ID 为数字），取自地址后的 6 字符航班号字段。
-- `Label` 与 `Block ID` 是 ACARS 的报文类型/分块标识。
-- 行尾标记：无 = BCS 正确；`*` = 坏 BCS 已纠错修复；`!` = 修不好（仍显示）。
+### 字段含义 / Field reference
+
+| 位置 Field | 例 Example | 含义 / Meaning |
+|---|---|---|
+| 机号 Registration | `F-GTAE` | 航空器注册号：ACARS 地址字段的 7 个字符；6 位注册号传输时用前导 `.` 补齐，显示时去掉。 / Aircraft registration: the 7-character address field; a leading `.` padding a six-character reg is hidden. |
+| 航班号 Flight id | `AF1234` | 航班号；**仅下行**出现（Block ID 为数字），取地址后的 6 字符字段。 / Flight id; present on **downlinks only** (block id is a digit), the 6 characters after the address. |
+| Label | `H1` | 报文类型标签（2 字符）：`Q0`=链路测试、`H1`=通用/终端报文、`SA`=媒体通告、`MA`=MIAM 等。 / Two-character message-type label: `Q0` = link test, `H1` = general/terminal message, `SA` = media advisory, `MA` = MIAM, … |
+| Block ID | `1` | 分块/方向标识（1 字符）：数字 `0`~`9`=**下行**（飞机→地面）；字母=**上行**（地面→飞机）。 / Block/direction id: a digit `0`–`9` = **downlink** (air→ground), a letter = **uplink** (ground→air). |
+| 正文 Message | `REQUEST ALTN RWY 26L` | 报文正文；下行前面的 4 位序号 + 6 位航班号已去掉，控制字符转空格，行尾空格裁掉。 / Payload; the 4-char sequence + 6-char flight id prefix of a downlink is stripped, control characters become spaces, trailing blanks trimmed. |
+| 右下角标记 Status | `*` / `!` / 空 empty | 空=BCS 正确；`*`=坏 BCS 已纠错修复；`!`=修不好（仍显示）。 / empty = valid BCS, `*` = repaired, `!` = unrepaired (still shown). |
+
+- `H1 1` 连读：**类型 H1、下行第 1 块**。 / `H1 1` reads as *type H1, downlink block 1*.
+- 粗体标题一行最多 18 字符（7 px/字符）；7 位机号带航班号时尾部会被裁掉，但**航班号始终保留**。
 - **最多保留 8 条**历史报文（新的在前）；↑/↓ 选报文，6/9 翻当前正文页。
-- 正文按上游解析：下行报文前面的 4 位序号 + 6 位航班号已去掉（不混进正文）；
-  控制字符（CR/LF 等）显示为空格，末尾空格已裁掉。
+- 标记显示在**屏幕右下角**（不在标题行）。
 
 **收到一条报文时的提示**：唤醒背光（`4` 设成常亮时解码后保持不灭；自动
 熄灭模式下按收音机 `BLTime` 熄灭），并让**绿色 LED 闪两下**——亮 100 / 灭 100 /
@@ -123,10 +131,10 @@ extraction. Everything below is what this app does differently.
    BCS does not become zero.
 
 **UI**
-10. Bold header line: `aircraft address | downlink flight id | label | block id |
-    status mark`; upstream shows only the address and flight, with a separate
-    DEC/RAW indicator.
-11. Per-message status mark: no mark = clean BCS, `*` = repaired, `!` = unrepaired.
+10. Bold header line: `aircraft address | downlink flight id | label | block id`;
+    upstream shows only the address and flight, with a separate DEC/RAW indicator.
+11. Per-message status mark in the bottom-right corner: nothing = clean BCS,
+    `*` = repaired, `!` = unrepaired.
 12. Plain-payload body in up to five rows of 32 characters; upstream reformats
     the body with decoded labels (DOWN/UP, SUB, MFI, application type) and needs
     an `F` decoded/raw toggle.

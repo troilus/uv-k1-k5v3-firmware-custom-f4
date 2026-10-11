@@ -39,10 +39,10 @@
  * Keys: 1 speaker; 3 clear history; 4 backlight always-on; UP/DOWN browse the
  * last eight messages; 6 / 9 page the text up / down; * toggles the body font
  * (32-character tiny <-> 18-character normal); EXIT quit. A decode blinks
- * the green LED and wakes the backlight. The header shows the aircraft address,
- * the downlink flight id (when present), the label and the block id, followed by
- * '*' for a repaired frame or '!' for an unrepaired one; a clean frame shows no
- * mark.
+ * the green LED and wakes the backlight. The bold header shows the aircraft
+ * address, the downlink flight id (when present), the label and the block id;
+ * the status mark sits in the screen's bottom-right corner: '*' for a repaired
+ * frame, '!' for an unrepaired one, nothing for a clean frame.
  */
 
 #include <stdint.h>
@@ -505,9 +505,11 @@ static void draw(void){
         o=put(o,rec->address);
         if(rec->down){ *o++=' '; o=put(o,rec->flight); }
         *o++=' '; o=put(o,rec->lbl); *o++=' '; *o++=rec->bid;
-        if(rec->status==1u) *o++='*';       /* CRC repaired */
-        else if(rec->status==2u) *o++='!';  /* uncorrectable */
         *o='\0';
+        /* The bold font advances 7 px: keep the header within 18 characters or
+         * it would write into the first body row. The flight id is kept; only
+         * the tail is clipped. */
+        if((uint32_t)(o-str)>18u) str[18]='\0';
         A->print_bold(str,0,0,0);
         const uint8_t cols=bodyCols();
         for(uint8_t row=0u;row<TXTROWS;row++){
@@ -531,6 +533,12 @@ static void draw(void){
     *f++=(char)('0'+sub(&fr,100u)); *f++=(char)('0'+sub(&fr,10u));
     *f='\0';
     A->print_tiny(str,46,0,true,true);
+
+    /* Status mark in the screen's bottom-right corner: '*' repaired, '!' bad. */
+    if(g.count){
+        const uint8_t st=g.hist[g.cur]->status;
+        if(st){ str[0]=(st==1u)?'*':'!'; str[1]='\0'; A->print_tiny(str,124,ROWY(6),false,true); }
+    }
 
     A->blit_status();
     A->blit_full();
