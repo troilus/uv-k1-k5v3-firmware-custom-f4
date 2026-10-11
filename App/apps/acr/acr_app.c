@@ -37,7 +37,8 @@
  * de-emphasis and AFC off) and to AM (AF_AM is the output that decodes).
  *
  * Keys: 1 speaker; 3 clear history; 4 backlight always-on; UP/DOWN browse the
- * last eight messages; 6 / 9 page the text up / down; EXIT quit. A decode blinks
+ * last eight messages; 6 / 9 page the text up / down; * toggles the body font
+ * (32-character tiny <-> 18-character normal); EXIT quit. A decode blinks
  * the green LED and wakes the backlight. The header shows the aircraft address,
  * the downlink flight id (when present), the label and the block id, followed by
  * '*' for a repaired frame or '!' for an unrepaired one; a clean frame shows no
@@ -106,8 +107,9 @@ static inline volatile uint32_t *hw(uint32_t a){
 #define HIST_TXT        200u
 #define ACR_MAXPERR     3u         /* acarsdec MAXPERR: most fixable parity errors */
 
-#define TXTCOLS         32u        /* 3x5 font, 4 px advance -> 128 px / 32 chars */
-#define TXTROWS         5u         /* display rows 1..5 */
+#define TXTCOLS_TINY    32u        /* 3x5 font, 4 px advance -> 128 px / 32 chars */
+#define TXTCOLS_NORMAL  18u        /* small font, 6 px + 1 space -> 128 px / 18 chars */
+#define TXTROWS         5u         /* display rows 1..5 (both font sizes) */
 
 enum { PREKEY, SOH1, TEXT, CRC1, CRC2, END };
 #define ROWY(i) ((uint8_t)((i)*8u))
@@ -155,7 +157,7 @@ static struct {
     const app_api_t *A;
     char   *text;                  /* formatting buffer (app_main's stack)     */
     hist_t **hist;                 /* -> the records on app_main's stack        */
-    uint8_t top, cur, prevKey, redraw, ledPhase, busyFor, rfHold;
+    uint8_t top, cur, prevKey, redraw, ledPhase, busyFor, rfHold, view;
     uint8_t state, bits, inv;
     int8_t  prekey;
     uint8_t len, crcBytes[2];
@@ -472,10 +474,17 @@ static void drawFooter(const char *s){
     g.A->print_tiny(str,0,ROWY(6),false,true);
 }
 
-/* Text scroll limit of the selected message (byte offset of the last page). */
+/* Current body width in characters: tiny (32) or normal (18) font. */
+static uint8_t bodyCols(void){ return g.view?TXTCOLS_NORMAL:TXTCOLS_TINY; }
+
+/* Text scroll limit of the selected message (byte offset of the last page).
+ * Count the pages with a loop: the width is a variable, so a division here
+ * would pull in the (large) software divide helper for two constants. */
 static uint16_t acr_maxTop(const hist_t *rec){
-    const uint16_t lines=(uint16_t)(((uint16_t)rec->len+TXTCOLS-1u)/TXTCOLS);
-    return (uint16_t)((lines>TXTROWS?(uint16_t)(lines-TXTROWS):0u)*TXTCOLS);
+    const uint16_t cols=bodyCols();
+    uint16_t lines=0u;
+    for(uint16_t p=0u;p<rec->len;p+=cols) lines++;
+    return (uint16_t)((lines>TXTROWS?(uint16_t)(lines-TXTROWS):0u)*cols);
 }
 
 __attribute__((noinline))
@@ -500,14 +509,16 @@ static void draw(void){
         else if(rec->status==2u) *o++='!';  /* uncorrectable */
         *o='\0';
         A->print_bold(str,0,0,0);
+        const uint8_t cols=bodyCols();
         for(uint8_t row=0u;row<TXTROWS;row++){
-            uint16_t off=(uint16_t)g.top+(uint16_t)row*TXTCOLS;
+            uint16_t off=(uint16_t)g.top+(uint16_t)row*cols;
             if(off>=rec->len) break;
             uint8_t n=(uint8_t)(rec->len-off);
-            if(n>TXTCOLS) n=(uint8_t)TXTCOLS;
+            if(n>cols) n=cols;
             for(uint8_t i=0u;i<n;i++) str[i]=rec->txt[off+i];
             str[n]='\0';
-            A->print_tiny(str,0,ROWY((uint8_t)(row+1u)),false,true);
+            if(g.view) A->print_normal(str,0,0,(uint8_t)(row+1u));
+            else A->print_tiny(str,0,ROWY((uint8_t)(row+1u)),false,true);
         }
     }
     drawFooter(s);
@@ -554,13 +565,17 @@ static void handleKeys(void){
         case APP_KEY_4:    g.blAlways=!g.blAlways;
                            A->backlight_on();   /* re-arm; house() holds it on when ON */
                            break;
+        case APP_KEY_STAR: /* toggle the body font: tiny (32 cols) <-> normal (18) */
+                           g.view^=1u; g.top=0u;
+                           break;
         case APP_KEY_6:                 /* page the text up */
         case APP_KEY_9: {               /* page the text down */
             if(g.count){
+                const uint16_t cols=bodyCols();
                 const uint16_t mt=acr_maxTop(g.hist[g.cur]);
                 uint16_t t=g.top;
-                if(key==APP_KEY_6) t=(t>=TXTCOLS)?(uint16_t)(t-TXTCOLS):0u;
-                else { t=(uint16_t)(t+TXTCOLS); if(t>mt) t=mt; }
+                if(key==APP_KEY_6) t=(t>=cols)?(uint16_t)(t-cols):0u;
+                else { t=(uint16_t)(t+cols); if(t>mt) t=mt; }
                 if((uint8_t)t!=g.top) g.top=(uint8_t)t;
             }
             break; }

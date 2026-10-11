@@ -21,7 +21,8 @@ overlay-app conventions.
 1. 把 VFO 手动调到 **131.525 MHz**、**AM**（ACARS 常用频率还有 129.525 /
    131.725 / 131.825 / 136.975 MHz；本 app 不会自己改频率，也不会切换调制）。
 2. 进入 **F4HWN APPS → ACARS RX2**。
-3. 扬声器默认关闭，按 `1` 开（原始音频连续输出）。
+3. 扬声器默认关闭，按 `1` 开（原始音频连续输出）；按 `*` 在小字体（32 字符/行）
+   与大字体（18 字符/行）之间切换正文。
 
 ## 屏幕说明
 
@@ -53,7 +54,8 @@ REQUEST ALTN RWY 26L                ← 第1~5行：报文正文（小字体，�
 | 键 | 作用 |
 |---|---|
 | UP / DOWN | **选历史报文**：更新的 / 更旧的（最新在前，最多 8 条）；UV-K1 用左右键（`nav_dir`），每次只走一步，按住不连发 |
-| `6` / `9` | **翻当前正文页**：6 上一页、9 下一页（每次 32 字符一行） |
+| `6` / `9` | **翻当前正文页**：6 上一页、9 下一页（每次一页：小字体 32 字符、大字体 18 字符） |
+| `*` | **切换正文字号**：小字体 32 字符/行 ↔ 大字体 18 字符/行 |
 | `1` | 扬声器开 / 关（默认关，退出保存） |
 | `3` | 清空历史，回到 `WAIT` |
 | `4` | 背光常亮 / 自动熄灭。ON 时每个屏刷新槽都重新武装 BLTime，所以解码唤醒后一直亮着不灭；OFF 时按收音机 `BLTime` 自动熄灭（等效收音机 F+8 的常亮功能；仅本次运行有效） |
@@ -90,6 +92,59 @@ address, `[8]` ack, `[9..10]` label, `[11]` block id, `[12]` STX; on a downlink
 (block id is a digit) `[13..16]` are the 4-character sequence number and
 `[17..22]` the 6-character flight id, text follows at `[23]`; on an uplink text
 starts at `[13]`.
+
+## Compared to upstream ACARS RX
+
+Upstream (Armel F4HWN's `App/apps/acarsrx`) and this app share the same receive
+path — complex 1800 Hz mixer, half-sine matched filter, second-order carrier PLL
+with wide acquisition, data-aided bit clock, then the same framing and field
+extraction. Everything below is what this app does differently.
+
+**Operations**
+1. The speaker is a plain continuous on/off (`1`): the PA4 audio path stays open
+   while enabled; upstream opens the speaker only after a complete ACARS header.
+2. Clear history is on `3` (upstream uses `2`).
+3. Backlight always-on toggle on `4`: re-arms the radio's `BLTime` on every
+   screen slot, so a decode wake-up stays lit; upstream has no such toggle.
+4. Text is paged with `6`/`9` (one page = 32 or 18 characters); upstream scrolls
+   the message with UP/DOWN.
+5. Direction keys go through `nav_dir`: UP/DOWN (UV-K5) or LEFT/RIGHT (UV-K1)
+   browse the history one step per press; upstream reads raw UP/DOWN.
+6. No AF-cycle key: AF is fixed to `AF_AM` (7), the output that decodes; upstream
+   lets `2` cycle AM/FM/RAW/USB.
+7. `*` toggles the body font between the 32-character tiny font and the
+   18-character normal font.
+
+**Decoding**
+8. Stronger error correction (acarsdec `fixprerr`/`fixdberr`): up to three
+   odd-parity bit errors or a same-byte double bit, each accepted only after the
+   whole 16-bit BCS is re-verified; upstream repairs at most two parity errors.
+9. Unrepaired frames are still shown, marked `!`; upstream drops any frame whose
+   BCS does not become zero.
+
+**UI**
+10. Bold header line: `aircraft address | downlink flight id | label | block id |
+    status mark`; upstream shows only the address and flight, with a separate
+    DEC/RAW indicator.
+11. Per-message status mark: no mark = clean BCS, `*` = repaired, `!` = unrepaired.
+12. Plain-payload body in up to five rows of 32 characters; upstream reformats
+    the body with decoded labels (DOWN/UP, SUB, MFI, application type) and needs
+    an `F` decoded/raw toggle.
+13. Live footer `1SPK:ON 4BL:OFF n/m -RSSI`; upstream shows RSSI plus RX/FIX
+    counters and, while idle, ADC/SYN/CRC/PAR diagnostics (this app shows `WAIT`).
+
+**History**
+14. Eight messages kept in RAM, newest first; upstream keeps three.
+
+**LED + screen wake**
+15. On a decode the green LED double-blinks (on/off/on/off, 100 ms steps, the
+    same "on 100 ms" width as the radio's own RX-end blink), driven from the
+    sample loop; upstream only wakes the backlight.
+
+**Keys**
+16. `1` speaker on/off · `3` clear history · `4` backlight always-on/auto ·
+    `6` previous page · `9` next page · `UP/DOWN` browse history · `*` font size ·
+    `EXIT` quit.
 
 ## Notes
 
