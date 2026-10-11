@@ -55,7 +55,7 @@ and keeps the last four messages.
 
 1. 把 VFO 手动调到 **131.525 MHz**、**AM**（ACARS 常用频率还有 129.525 /
    131.725 / 131.825 / 136.975 MHz；本 app 不会自己改频率，也不会切换调制）。
-2. 进入 **F4HWN APPS → ACARS RX**。
+2. 进入 **F4HWN APPS → ACARS RX2**。
 3. 扬声器默认关闭，按 `1` 开（想听原始音频时用）。
 
 ### 屏幕说明
@@ -63,7 +63,7 @@ and keeps the last four messages.
 顶部 1 行状态栏 + 主区 7 行（7×8=56 px，小字体 3×5、每字符 4 px，一行 32 字符）。
 
 ```
-[ACARS RX] 131.5250           ███   ← 状态栏：标题 · 接收频率 · 电池
+[ACARS RX2] 131.5250          ███   ← 状态栏：标题 · 接收频率 · 电池
 F-GTAE  H1 A*                       ← 第0行（粗体）：机号(7)+Label(2)+Block ID+标记
 D65CAF7728#DFB00000/V206,05,124,... ← 第1~5行：报文正文（小字体，每行32字符）
 ...                                    （按 ↑/↓ 选报文，6/9 翻正文页）
@@ -100,7 +100,7 @@ D65CAF7728#DFB00000/V206,05,124,... ← 第1~5行：报文正文（小字体，�
 1. Set the VFO **manually** to **131.525 MHz AM** (also 129.525 / 131.725 /
    131.825 / 136.975 MHz). The app never retunes and cannot read the modulation
    from the API, so pick AM yourself.
-2. Launch **ACARS RX** (APPS menu). The speaker is off by default (key `1`).
+2. Launch **ACARS RX2** (APPS menu). The speaker is off by default (key `1`).
 3. UP/DOWN picks the newer/older of the last four messages; `6`/`9` page the
    text; `4` keeps the backlight on; `5` switches message/debug; EXIT quits.
 4. Header marks: none = CRC ok, `*` = repaired, `!` = uncorrectable (still
@@ -176,7 +176,7 @@ single-symbol two-tone correlator candidates.
 - 4 KiB overlay: texts are read-only assets (`gen_assets.py`); the message
   buffer (240 B), the demodulator state and the scratch text live on the stack.
   Local GCC 10 `-Os` build: **2576 B** (CI's `-Oz` is smaller).
-- `APP_NAME = "ACARS RX"`, blob `ACARSRX.app`, built by `./compile-app.sh acr`
+- `APP_NAME = "ACARS RX2"`, blob `ACARSRX2.app`, built by `./compile-app.sh acr`
   (Docker) or discovered by `./compile-app.sh All`.
 - The frequency is shown on the status bar only; the app does not verify the VFO
   (the API exposes no modulation getter), so tuning to 131.525 MHz AM is manual.

@@ -3,15 +3,16 @@
 # the uvk1-uvk5v3 Docker image, run from this app's directory. Everything is
 # derived from the directory name; only APP_NAME - the human label baked into
 # the 64-byte blob header - is per-app. The .app file is named after it (spaces
-# stripped), so "ACARS RX" -> ACARSRX.app.
+# stripped), so "ACARS RX2" -> ACARSRX2.app (the "2" keeps it distinct from the
+# upstream ACARS RX app, which produces ACARSRX.app).
 set -euo pipefail
 
 APP="$(basename "$PWD")"            # breakout, foxhunt, beacon, fm, ...
-APP_NAME="ACARS RX"                 # <-- the only per-app line
+APP_NAME="ACARS RX2"                # <-- the only per-app line
 APP_VER="0.5"
 APP_API_MIN=2
 APP_VMA=${APP_VMA:-0x20000280}      # pinned overlay VMA (Core/py32f071xb.ld)
-OUT="${APP_NAME// /}"               # blob basename ("ACARS RX" -> ACARSRX)
+OUT="${APP_NAME// /}"               # blob basename ("ACARS RX2" -> ACARSRX2)
 
 CC=/opt/toolchain/bin/arm-none-eabi-gcc
 OBJCOPY=/opt/toolchain/bin/arm-none-eabi-objcopy

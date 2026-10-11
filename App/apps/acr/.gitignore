@@ -5,7 +5,7 @@ acr.elf
 acr.bin
 acr.map
 acr.o
-ACARSRX.app
+ACARSRX2.app
 __pycache__/
 
 # Reference recording (fetched, GPL: not redistributed here). See test/fx.py.
