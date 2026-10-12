@@ -75,6 +75,10 @@ void ais_init(ais_t *d)
     d->prev_bit = 0;
     d->ones    = 0;
     d->total   = 0;
+    d->nSlices = 0;
+    d->nFlags  = 0;
+    d->crcOk   = 1;
+    d->showBad = 0;           /* app sets 1 for on-air bring-up             */
 }
 
 void ais_rearm(ais_t *d)
@@ -102,6 +106,7 @@ static void ais_bit(ais_t *d, uint8_t b)
         if (d->ones == FLAG7E) {
             d->state = AIS_DATA;
             d->nbits = 0;
+            if (d->nFlags < 65535u) d->nFlags++;
         }
         d->ones = 0;
         return;
@@ -132,8 +137,16 @@ static void ais_bit(ais_t *d, uint8_t b)
         if (d->nbits >= MIN_FRAME &&
             (d->nbits & 7u) == 0u &&
             crc16(d->frame, (uint16_t)(d->nbits >> 3)) == 0xF0B8u) {
+            d->crcOk = 1;
             d->state = AIS_DONE;
             if (d->total < 255u) d->total++;
+        } else if (d->showBad && d->nbits >= MIN_FRAME && (d->nbits & 7u) == 0u) {
+            /* On-air bring-up: a byte-aligned frame of plausible length whose
+             * CRC failed is still surfaced (crcOk = 0) so the UI can show the
+             * extracted fields marked '!' instead of staying dark. Host tests
+             * leave showBad = 0, so their behaviour is unchanged. */
+            d->crcOk = 0;
+            d->state = AIS_DONE;
         } else {
             /* Bad frame: the flag that closed it also opens the next
              * frame, so stay in AIS_DATA with an empty buffer. */
@@ -185,6 +198,7 @@ bool ais_push(ais_t *d, uint16_t sample)
         d->acc = 0;
         uint8_t raw = (uint8_t)(bit == d->prev_bit);
         d->prev_bit = bit;
+        if (d->nSlices < 65535u) d->nSlices++;   /* bring-up: bits sliced   */
         ais_bit(d, raw);
     }
     return d->state == AIS_DONE;

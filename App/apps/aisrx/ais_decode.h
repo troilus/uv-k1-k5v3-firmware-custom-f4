@@ -52,6 +52,11 @@ typedef struct {
     uint8_t  prev_bit;     /* previous sliced bit, for NRZI (symbol rate)    */
     uint8_t  ones;         /* consecutive 1s in the raw HDLC stream          */
     uint8_t  total;        /* CRC-valid frames decoded (saturating, UI)      */
+    /* bring-up debug (app reads/clears; host tests ignore) */
+    uint16_t nSlices;      /* bits sliced since last clear (saturating)      */
+    uint16_t nFlags;       /* HDLC opening flags seen since last clear       */
+    uint8_t  crcOk;        /* last AIS_DONE frame: 1 = CRC passed, 0 = bad   */
+    uint8_t  showBad;      /* 1: surface plausible bad-CRC frames (crcOk=0)  */
     uint8_t  frame[AIS_FRAME_MAX];  /* deframed bits, MSB-first (pyais order) */
 } ais_t;
 

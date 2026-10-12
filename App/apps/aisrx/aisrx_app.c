@@ -82,14 +82,23 @@ static inline volatile uint32_t *hw(uint32_t a){
 #define TXTCOLS_TINY    32u    /* 3x5 font, 4 px advance -> 128 px / 32 chars */
 #define ROWY(i) ((uint8_t)((i)*8u))
 
+/* AF output modes key 2 cycles through, for on-air bring-up: FM (1, the
+ * radio's own path and every RX app), AM (7), BASEBAND1/RAW (4), BASEBAND2/USB
+ * (5). REG_47 selects which demodulated signal reaches PA4. */
+static const uint8_t AF_CYCLE[]={1u,7u,4u,5u};
+#define AF_CYCLE_N (sizeof AF_CYCLE / sizeof AF_CYCLE[0])
+static const char *const AF_NAME[AF_CYCLE_N]={"FM","AM","RAW","USB"};
+
 /* ---- app state ---- */
 static struct {
     const app_api_t *A;
     char   *text;                  /* formatting buffer (app_main's stack)   */
-    uint8_t prevKey, redraw, ledPhase, busyFor;
-    bool    running, have, blAlways;
+    uint8_t prevKey, redraw, ledPhase, busyFor, afIdx;
+    bool    running, have, blAlways, bad;
     uint8_t total;                 /* CRC-valid frames (saturating)          */
-    uint32_t tPrev, tCyc;
+    uint16_t aMin, aMax;           /* raw-ADC extremes since last latch      */
+    uint16_t aPkp, bSlices, fFlags;/* latched debug readouts                 */
+    uint32_t tPrev, tCyc, dbgMs;
     uint32_t savedSqr3, savedSmpr3;
     ais_t  *d;                     /* decoder state (app_main's stack)       */
     ais_info_t info;               /* last parsed message                    */
@@ -212,8 +221,16 @@ static void draw(void){
         A->print_tiny(str,0,ROWY(5),false,true);
     }
 done:
-    /* footer: total CRC-valid frames, bottom-left (body stops at row 5) */
-    o=str; o=putu(o,g.total); *o='\0';
+    /* bring-up debug line (row 6): AF mode, audio pk-pk, bits sliced, flags
+     * seen, CRC-valid frames. '!' marks a surfaced bad-CRC frame. */
+    o=str;
+    o=put(o,AF_NAME[g.afIdx]);
+    *o++=' '; *o++='A'; o=putu(o,g.aPkp);
+    *o++=' '; *o++='B'; o=putu(o,g.bSlices);
+    *o++=' '; *o++='F'; o=putu(o,g.fFlags);
+    *o++=' '; *o++='C'; o=putu(o,g.total);
+    if(g.bad) *o++='!';
+    *o='\0';
     A->print_tiny(str,0,ROWY(6),false,true);
 
     /* RX frequency on the status bar (the framebuffer is only 7 rows tall, so
@@ -240,7 +257,12 @@ static void handleKeys(void){
     g.redraw=1u;
     switch(key){
         case APP_KEY_EXIT: g.running=false; break;
-        case APP_KEY_3:    g.have=0u; g.total=0u; break;   /* clear the screen */
+        case APP_KEY_2:    /* bring-up: cycle the AF output mode reaching PA4 */
+                           g.afIdx=(uint8_t)((g.afIdx+1u)%AF_CYCLE_N);
+                           A->set_af(AF_CYCLE[g.afIdx]);
+                           ais_rearm(g.d);        /* drop any half-frame      */
+                           break;
+        case APP_KEY_3:    g.have=0u; g.total=0u; g.bad=false; break;  /* clear */
         case APP_KEY_4:    g.blAlways^=1u; A->backlight_on(); break;
         default: break;
     }
@@ -271,10 +293,14 @@ static void listen(void){
     while(g.running){
         while((int32_t)(clkCyc()-next)<0){}
         next+=CYC_PER_SAMPLE;
-        if(ais_push(g.d,adcRead())){
+        uint16_t smp=adcRead();
+        if(smp<g.aMin) g.aMin=smp;
+        if(smp>g.aMax) g.aMax=smp;
+        if(ais_push(g.d,smp)){
             ais_info_t in;
             if(ais_parse(g.d,&in)){ g.info=in; g.have=true; g.ledPhase=4u; }
-            if(g.total<255u) g.total++;
+            g.bad=(g.d->crcOk==0u);               /* surfaced bad-CRC frame   */
+            if(g.d->crcOk && g.total<255u) g.total++;
             g.redraw=1u;
             ais_rearm(g.d);
         }
@@ -286,6 +312,13 @@ static void listen(void){
          * BUSY_MAX so the keys stay alive. */
         if(g.d->state!=AIS_SEARCH && ++g.busyFor<BUSY_MAX) continue;
         g.busyFor=0;
+        /* Latch the bring-up readouts for this window, then reset them so the
+         * screen shows the last ~50 ms, not the whole run. */
+        g.aPkp  =(uint16_t)(g.aMax-g.aMin);
+        g.bSlices=g.d->nSlices;
+        g.fFlags =g.d->nFlags;
+        g.d->nSlices=0; g.d->nFlags=0;
+        g.aMin=0xFFF; g.aMax=0;
         house();
         next=clkCyc();
     }
@@ -303,6 +336,9 @@ void app_main(const app_api_t *api){
     g.text=text;
     g.d=&d;
     g.prevKey=APP_KEY_INVALID;
+    g.aMin=0xFFF; g.aMax=0;    /* raw-ADC pk-pk starts empty                  */
+    g.afIdx=0u;                /* AF_CYCLE[0] = FM, the radio's own path      */
+    d.showBad=1u;              /* surface plausible bad-CRC frames for bring-up */
     g.savedSqr3=ADC_SQR3; g.savedSmpr3=ADC_SMPR3;
     const uint32_t savedModer=GPIOA_MODER, savedDac=DAC_CR;
     const uint32_t savedRcc=RCC_APBENR1, savedDhr=DAC_DHR12R1;
@@ -312,11 +348,11 @@ void app_main(const app_api_t *api){
     /* RAW RX: HPF/LPF, de-emphasis and AFC off (EPIRB 406); FM so the
      * discriminator is the demod output. The loader restores the registers on
      * exit. This app never writes the PLL/tuning registers: it decodes whatever
-     * the VFO is left on. */
+     * the VFO is left on. Key 2 cycles the AF output mode (REG_47) on air. */
     api->bk_write(REG_2B,(uint16_t)((api->bk_read(REG_2B)|0x0700u)&~0x0007u));
     api->bk_write(REG_73,(uint16_t)(api->bk_read(REG_73)|0x0010u));
     api->audio_path(false);          /* no speaker: pure decode */
-    api->set_af(APP_AF_FM);
+    api->set_af(AF_CYCLE[g.afIdx]);
     api->delay_ms(50);
 
     g.running=true;
