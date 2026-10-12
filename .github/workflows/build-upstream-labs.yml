@@ -1,0 +1,42 @@
+name: Build Upstream Labs
+
+on:
+  push:
+    branches: [ upstream00 ]
+    paths:
+      - 'App/**'
+      - '!App/apps/**'
+      - 'Core/**'
+      - 'Drivers/**'
+      - 'Middlewares/**'
+      - 'cmake/**'
+      - 'CMakeLists.txt'
+      - 'CMakePresets.json'
+      - 'Dockerfile'
+      - 'compile-firmware.sh'
+      - '.github/workflows/build-upstream-labs.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: build-upstream-labs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Compile Labs firmware
+      run: |
+        chmod +x compile-firmware.sh
+        ./compile-firmware.sh Labs
+
+    - name: Upload Labs firmware artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: firmware-labs
+        path: build/Labs/f4hwn.labs.bin
+        if-no-files-found: error
