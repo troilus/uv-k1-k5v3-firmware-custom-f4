@@ -98,6 +98,9 @@ static struct {
 
 /* ---- tiny freestanding helpers ---- */
 void *memset(void *d, int c, size_t n){ uint8_t *p=d; while(n) p[--n]=(uint8_t)c; return d; }
+/* GCC lowers the ais_info_t struct copy in listen() to a memcpy call even
+ * under -ffreestanding -fno-builtin, and -nostdlib links no libc: provide it. */
+void *memcpy(void *d, const void *s, size_t n){ uint8_t *p=d; const uint8_t *q=s; while(n--) *p++=*q++; return d; }
 
 static char *put(char *o,const char *s){ while(*s)*o++=*s++; return o; }
 static unsigned sub(uint32_t *v,uint32_t d){ unsigned q=0; while(*v>=d){ *v-=d; q++; } return q; }
