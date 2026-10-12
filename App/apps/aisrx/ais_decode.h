@@ -36,8 +36,12 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#ifndef AIS_FS
 #define AIS_FS        38400u   /* sample rate expected by the decoder (Hz)    */
+#endif
+#ifndef AIS_SPS
 #define AIS_SPS       4u       /* samples per symbol at 9600 baud             */
+#endif
 #define AIS_FRAME_MAX 64u      /* deframed bytes (payload + 2 FCS), >= 55     */
 
 enum { AIS_SEARCH = 0, AIS_DATA = 1, AIS_DONE = 2 };

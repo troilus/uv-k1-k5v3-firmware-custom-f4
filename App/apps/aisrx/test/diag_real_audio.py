@@ -27,12 +27,12 @@ FS_DEC = 38400
 TARGET_PK = 1100.0          # +-swing around 2048, matches gen_ais render()
 
 
-def load_resample(path):
+def load_resample(path, fs_out=38400):
     audio, fs = sf.read(path, dtype="float32", always_2d=True)
     mono = audio.mean(axis=1)
-    # linear-interp resample fs -> 38400 (AIS baseband is low; fine for a probe)
-    n_out = int(round(len(mono) * FS_DEC / float(fs)))
-    t_out = np.arange(n_out) * (fs / float(FS_DEC))
+    # linear-interp resample fs -> fs_out (AIS baseband is low; fine for a probe)
+    n_out = int(round(len(mono) * fs_out / float(fs)))
+    t_out = np.arange(n_out) * (fs / float(fs_out))
     mono = np.interp(t_out, np.arange(len(mono)), mono)
     return mono
 
@@ -48,19 +48,20 @@ def normalize(mono):
 
 
 def main():
+    fs_out = int(sys.argv[1]) if len(sys.argv) > 1 else 38400
     src = os.path.join(HERE, "..", "AISSound.ogg")
     if not os.path.exists(src):
         print("missing", src)
         return 1
-    mono = load_resample(src)
+    mono = load_resample(src, fs_out)
     x = normalize(mono)
     x = np.clip(x, 0, 4095).astype(np.uint16)
     os.makedirs(OUT, exist_ok=True)
-    out = os.path.join(OUT, "realaudio.u16")
+    out = os.path.join(OUT, "realaudio_%d.u16" % fs_out)
     with open(out, "wb") as f:
         f.write(struct.pack("<%dH" % len(x), *x))
-    print("wrote %s  samples=%d  dur=%.1fs  pk=%d  (run host_ais on it)"
-          % (out, len(x), len(x) / FS_DEC, int(np.abs(x.astype(np.int32) - 2048).max())))
+    print("wrote %s  samples=%d  dur=%.1fs  (run host_ais/diag_frame on it)"
+          % (out, len(x), len(x) / fs_out))
     return 0
 
 
