@@ -215,6 +215,21 @@ done:
     /* footer: total CRC-valid frames, bottom-left (body stops at row 5) */
     o=str; o=putu(o,g.total); *o='\0';
     A->print_tiny(str,0,ROWY(6),false,true);
+
+    /* RX frequency on the status bar (the framebuffer is only 7 rows tall, so
+     * a y >= 56 would write past gFrameBuffer). The app never tunes, so this
+     * is the only way to confirm the VFO really sits on 162 MHz. */
+    o=str; uint32_t fr=A->rx_freq();
+    o=putu(o,sub(&fr,100000u)); *o++='.';
+    *o++=(char)('0'+sub(&fr,10000u)); *o++=(char)('0'+sub(&fr,1000u));
+    *o++=(char)('0'+sub(&fr,100u)); *o++=(char)('0'+sub(&fr,10u));
+    *o='\0';
+    A->print_tiny(str,46,0,true,true);
+
+    /* Push the framebuffer to the LCD: without these the screen keeps the
+     * previous image (the app menu) no matter what was drawn above. */
+    A->blit_status();
+    A->blit_full();
 }
 
 static void handleKeys(void){
