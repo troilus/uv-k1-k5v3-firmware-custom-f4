@@ -77,17 +77,26 @@ static inline volatile uint32_t *hw(uint32_t a){
 #define BUSY_MAX       60u     /* serve keys anyway after 3 s inside a frame */
 
 #define REG_2B  0x2Bu          /* RX HPF/LPF + de-emphasis + AFC (EPIRB 406 RAW) */
+#define REG_43  0x43u          /* RF/IF filter bandwidth (set by the VFO's
+                                * CHANNEL_BANDWIDTH at tune; forcing it here
+                                * makes 9600-baud AIS independent of the menu) */
 #define REG_73  0x73u
+/* BK4819_SetFilterBandwidth presets (see driver/bk4819.c): the second arg
+ * TRUE keeps the wide filter even for weak signals (we want that for AIS). */
+#define REG43_WIDE     0x3628u /* 25 kHz  channel */
+#define REG43_NARROW   0x3648u /* 12.5 kHz channel */
 
 #define TXTCOLS_TINY    32u    /* 3x5 font, 4 px advance -> 128 px / 32 chars */
 #define ROWY(i) ((uint8_t)((i)*8u))
 
 /* AF output modes key 2 cycles through, for on-air bring-up: FM (1, the
  * radio's own path and every RX app), AM (7), BASEBAND1/RAW (4), BASEBAND2/USB
- * (5). REG_47 selects which demodulated signal reaches PA4. */
-static const uint8_t AF_CYCLE[]={1u,7u,4u,5u};
+ * (5), plus the undocumented taps: BYP (9) and the "interesting" 13/14
+ * (bk4819.h) which may bypass a residual RX audio filter. REG_47 selects which
+ * demodulated signal reaches PA4. */
+static const uint8_t AF_CYCLE[]={1u,7u,4u,5u,9u,13u,14u};
 #define AF_CYCLE_N (sizeof AF_CYCLE / sizeof AF_CYCLE[0])
-static const char *const AF_NAME[AF_CYCLE_N]={"FM","AM","RAW","USB"};
+static const char *const AF_NAME[AF_CYCLE_N]={"FM","AM","RAW","USB","BYP","M13","M14"};
 
 /* ---- app state ---- */
 static struct {
@@ -98,6 +107,8 @@ static struct {
     uint8_t total;                 /* CRC-valid frames (saturating)          */
     uint16_t aMin, aMax;           /* raw-ADC extremes since last latch      */
     uint16_t aPkp, bSlices, fFlags;/* latched debug readouts                 */
+    uint16_t prevSmp, hfVal;       /* bandwidth probe: |Δsmp| / |amp| x100    */
+    uint32_t hfDiff, hfAmp;        /* probe accumulators over the window     */
     uint32_t tPrev, tCyc, dbgMs;
     uint32_t savedSqr3, savedSmpr3;
     ais_t  *d;                     /* decoder state (app_main's stack)       */
@@ -236,7 +247,12 @@ done:
     *o++=' '; *o++='B'; o=putu(o,g.bSlices);
     *o++=' '; *o++='F'; o=putu(o,g.fFlags);
     *o++=' '; *o++='C'; o=putu(o,g.total);
+    *o++=' '; *o++='H'; o=putu(o,g.hfVal);
     if(g.bad) *o++='!';
+    if((unsigned)(o-str)>31u) o=str+31;   /* tiny font: 32 cols fits the row,
+                                           * and print_tiny does not clip, so a
+                                           * longer line would run past
+                                           * gFrameBuffer[6] into other memory */
     *o='\0';
     A->print_tiny(str,0,ROWY(6),false,true);
 
@@ -304,6 +320,19 @@ static void listen(void){
         uint16_t smp=adcRead();
         if(smp<g.aMin) g.aMin=smp;
         if(smp>g.aMax) g.aMax=smp;
+        /* Bandwidth probe: mean |sample-to-sample step| over mean |amplitude|.
+         * Grows with the signal's high-frequency content, so it reveals the
+         * RX path bandwidth (a voice-limited ~3 kHz path gives a small value,
+         * a wideband path a larger one). */
+        {
+            int32_t dv=(int32_t)smp-(int32_t)g.prevSmp;
+            int32_t av=(int32_t)smp-2048;
+            if(dv<0) dv=-dv;
+            if(av<0) av=-av;
+            g.hfDiff+=(uint32_t)dv;
+            g.hfAmp +=(uint32_t)av;
+            g.prevSmp=smp;
+        }
         if(ais_push(g.d,smp)){
             ais_info_t in;
             if(ais_parse(g.d,&in)){ g.info=in; g.have=true; g.ledPhase=4u; }
@@ -325,8 +354,10 @@ static void listen(void){
         g.aPkp  =(uint16_t)(g.aMax-g.aMin);
         g.bSlices=g.d->nSlices;
         g.fFlags =g.d->nFlags;
+        g.hfVal  =g.hfAmp ? (uint16_t)((g.hfDiff*100u)/g.hfAmp) : 0u;
         g.d->nSlices=0; g.d->nFlags=0;
         g.aMin=0xFFF; g.aMax=0;
+        g.hfDiff=0; g.hfAmp=0;
         house();
         next=clkCyc();
     }
@@ -356,8 +387,14 @@ void app_main(const app_api_t *api){
     /* RAW RX: HPF/LPF, de-emphasis and AFC off (EPIRB 406); FM so the
      * discriminator is the demod output. The loader restores the registers on
      * exit. This app never writes the PLL/tuning registers: it decodes whatever
-     * the VFO is left on. Key 2 cycles the AF output mode (REG_47) on air. */
+     * the VFO is left on. Key 2 cycles the AF output mode (REG_47) on air.
+     *
+     * REG_43 is the RF/IF filter the radio normally sets from the VFO's
+     * CHANNEL_BANDWIDTH (default NARROW = 12.5 kHz, too narrow for 9600-baud
+     * AIS). Force the 25 kHz wide filter here, kept wide even for weak
+     * signals, so AIS no longer depends on the menu bandwidth. */
     api->bk_write(REG_2B,(uint16_t)((api->bk_read(REG_2B)|0x0700u)&~0x0007u));
+    api->bk_write(REG_43,REG43_WIDE);
     api->bk_write(REG_73,(uint16_t)(api->bk_read(REG_73)|0x0010u));
     api->audio_path(false);          /* no speaker: pure decode */
     api->set_af(AF_CYCLE[g.afIdx]);
