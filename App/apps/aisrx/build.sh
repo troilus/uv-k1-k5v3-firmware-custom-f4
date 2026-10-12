@@ -31,9 +31,9 @@ trap 'printf "\r  ❌ %-13s build failed            \n" "$APP_NAME"' ERR
 step 1 assets ; APP_VER="$APP_VER" python3 ./gen_assets.py "${APP}_assets.bin" "${APP}_assets.h"
 # A failed link (4 KiB overflow) leaves no ELF: keep an object and print its
 # largest symbols so the next iteration knows exactly what to cut.
-step 2 compile ; "$CC" $CFLAGS $LDFLAGS "${APP}_app.c" "../ais_decode.c" -lgcc -o "${APP}.elf" \
+step 2 compile ; "$CC" $CFLAGS $LDFLAGS "${APP}_app.c" "ais_decode.c" -lgcc -o "${APP}.elf" \
                    || { "$CC" $CFLAGS -c "${APP}_app.c" -o "${APP}.o"
-                        "$CC" $CFLAGS -c "../ais_decode.c" -o "ais_decode.o"
+                        "$CC" $CFLAGS -c "ais_decode.c" -o "ais_decode.o"
                         SIZE="${OBJCOPY%objcopy}size"; NM="${OBJCOPY%objcopy}nm"
                         echo; echo "--- ${APP}.o size ---"; "$SIZE" -A "${APP}.o" 2>/dev/null || true
                         echo "--- largest symbols ---"; "$NM" --print-size --size-sort --radix=d "${APP}.o" 2>/dev/null | tail -50 || true
