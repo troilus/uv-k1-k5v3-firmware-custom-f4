@@ -195,15 +195,19 @@ static void draw(void){
         o=put(o,s+T_WAIT); *o='\0';
         A->print_tiny(str,0,ROWY(2),false,true);
     } else if(g.info.type==5u){
-        o=put(o,s+T_MMSI); o=putu(o,g.info.mmsi);
+        /* put/putu/putdeg never write a terminator: every row must add one,
+         * else print_tiny reads through into the previous frame's string that
+         * is still sitting in `str` (the stale debug line showed up as a tail
+         * on every message row). */
+        o=put(o,s+T_MMSI); o=putu(o,g.info.mmsi); *o='\0';
         A->print_tiny(str,0,ROWY(2),false,true);
-        o=str; o=put(o,s+T_NAME); o=put(o,g.info.name);
+        o=str; o=put(o,s+T_NAME); o=put(o,g.info.name); *o='\0';
         A->print_tiny(str,0,ROWY(3),false,true);
-        o=str; o=put(o,s+T_DEST); o=put(o,g.info.dest);
+        o=str; o=put(o,s+T_DEST); o=put(o,g.info.dest); *o='\0';
         A->print_tiny(str,0,ROWY(4),false,true);
         goto done;
     } else {
-        o=put(o,s+T_MMSI); o=putu(o,g.info.mmsi);
+        o=put(o,s+T_MMSI); o=putu(o,g.info.mmsi); *o='\0';
         A->print_tiny(str,0,ROWY(2),false,true);
         /* SOG + COG on one row */
         o=str; o=put(o,s+T_SOG);
@@ -212,12 +216,15 @@ static void draw(void){
         *o++=' '; o=put(o,s+T_COG);
         if(g.info.cog>=AIS_NA_COG) o=put(o,s+T_NA);
         else { uint32_t v=g.info.cog; o=putu(o,sub(&v,10u)); }
+        *o='\0';
         A->print_tiny(str,0,ROWY(3),false,true);
         o=str; o=put(o,s+T_LAT);
         if(g.info.latS==AIS_NA_LAT) o=put(o,s+T_NA); else o=putdeg(o,g.info.latS);
+        *o='\0';
         A->print_tiny(str,0,ROWY(4),false,true);
         o=str; o=put(o,s+T_LON);
         if(g.info.lonS==AIS_NA_LON) o=put(o,s+T_NA); else o=putdeg(o,g.info.lonS);
+        *o='\0';
         A->print_tiny(str,0,ROWY(5),false,true);
     }
 done:
@@ -235,7 +242,8 @@ done:
 
     /* RX frequency on the status bar (the framebuffer is only 7 rows tall, so
      * a y >= 56 would write past gFrameBuffer). The app never tunes, so this
-     * is the only way to confirm the VFO really sits on 162 MHz. */
+     * is the only way to confirm the VFO really sits on the AIS channel
+     * (161.975 / 162.025). */
     o=str; uint32_t fr=A->rx_freq();
     o=putu(o,sub(&fr,100000u)); *o++='.';
     *o++=(char)('0'+sub(&fr,10000u)); *o++=(char)('0'+sub(&fr,1000u));

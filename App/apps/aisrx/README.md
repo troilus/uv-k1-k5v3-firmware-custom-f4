@@ -59,8 +59,30 @@ DEST ST PETERSBURG
 | `!` | 末尾 `!` 表示刚显示的帧 CRC 没过（放宽显示，字段可能不准） |
 
 **排查顺序**：`A≈0` → 查调制模式/静噪/频率（`2` 切 AF 模式直到 `A` 动）；
-`A` 大 `B=0` → DPLL；`B` 大 `F=0` → 不是 162 MHz 的 AIS；`F>0 C=0` → CRC/信噪；
+`A` 大 `B=0` → DPLL；`B` 大 `F=0` → 不是 161.975/162.025 的 AIS；`F>0 C=0` → CRC/信噪；
 `C>0` → 成功，进入准确性阶段。
+
+**已确认的结论（上机 bring-up 实测）**：
+
+- 正确的接收组合是 **FM 模式、161.975（或 162.025）、静噪 0、AF 模式 `FM`**（`A` 在 FM 下
+  最强，压倒 AM/RAW/USB）。
+- 主机诊断（`test/diag_chain.py`、`diag_real_audio.py`）证明：
+  - **解调算法本身没问题** —— 在真实 AIS 录音上解出了 CRC 有效的 type-8 帧
+    （`diag_frame.c` 显示 `crcOk=1`），空中失败不是解码器 bug。
+  - 解调链需要 **≥ ~6.5 kHz** 的基带带宽（再窄 ISI 必挂）；采样率是软件精确 pacing 的，
+    波特误差非瓶颈。
+- 因此 `F>0 C=0`（能抓 flag、抓到的帧 CRC 永远挂）指向 **RF 侧：天线处信号太弱 / 根本没有
+  真信号（`F` 是噪声假 flag）**。下一步是到**强 AIS 环境（港口/航道）**实测 `C`。
+
+### 诊断工具 / Diagnostics (host only, not in the app)
+
+`test/` 下三个独立脚本，不参与 `run_tests.sh`（主套件保持 8/8），也不进 CI 产物：
+
+| 工具 | 用途 |
+|---|---|
+| `diag_chain.py` | 扫**带宽悬崖**（AF 低通截止）和**波特/采样率误差**容限，定位解调链在哪个维度断裂 |
+| `diag_real_audio.py` + `diag_frame.c` | 把**真实 AIS 录音**喂给解调链，dump 每个 CRC 有效帧（长度/类型/parse 结果），验证算法对真实波形有效 |
+| `real_payloads.txt` | 真实 AISHub payload（`real` 主测试用） |
 
 ### 字段含义 / Field reference
 
