@@ -372,19 +372,12 @@ static void drawFooter(const char *s){
      * whole line still fits 32 tiny chars (128 px); otherwise it is dropped. */
     if(g.lastMsgMs){
         uint32_t secs=(uint32_t)g.A->uidivmod((uint32_t)(g.A->ticks_ms()-g.lastMsgMs),1000u);
+        if(secs>5999u) secs=5999u;                 /* cap at 99m59s */
         char t[8]; char *p=t;
-        if(secs<60u){ p=putu(p,secs); *p++='s'; }
-        else{
-            uint64_t q=g.A->uidivmod(secs,60u);
-            uint32_t m=(uint32_t)q, ss=(uint32_t)(q>>32);
-            if(m>99u) m=99u;
-            p=putu(p,m); *p++='m';
-            unsigned tt=sub(&ss,10u);
-            *p++=(char)('0'+tt); *p++=(char)('0'+ss); *p++='s';
-        }
-        *p='\0';
+        if(secs>=60u){ uint32_t m=(uint32_t)g.A->uidivmod(secs,60u); secs-=m*60u; p=putu(p,m); *p++='m'; }
+        p=putu(p,secs); *p++='s'; *p='\0';
         uint8_t used=(uint8_t)(o-str), tl=(uint8_t)(p-t);
-        if((unsigned)used+1u+tl<=32u){ *o++=' '; for(uint8_t i=0;i<tl;i++) *o++=t[i]; }
+        if((unsigned)used+1u+tl<=32u){ *o++=' '; o=put(o,t); }
     }
     *o='\0';
     g.A->print_tiny(str,0,ROWY(6),false,true);
@@ -410,12 +403,10 @@ static void drawSummary(char *s){
     char *o;
     if(!g.count){ drawFooter(s); return; }
     /* Record index (selected / total, 1 = newest) on the top-right of the first
-     * row, in the same black-background inverse as the title. */
-    {
-        char *p=str; p=putu(p,(uint32_t)g.cur+1u); *p++='/'; p=putu(p,g.count); *p='\0';
-        uint8_t n=(uint8_t)(p-str), end=126u;
-        A->print_inverse(str,(uint8_t)(end-n*4u),0,false,true,end);
-    }
+     * row, in the same black-background inverse as the title. HISTORY=8, so both
+     * fields are one digit. */
+    str[0]=(char)('1'+g.cur); str[1]='/'; str[2]=(char)('0'+g.count); str[3]='\0';
+    A->print_inverse(str,114,0,false,true,126);
     const rec_t *rec=g.hist[g.cur];
     const char *b=rec->bcd;
     const bool det=hasdet(rec->addr,rec->len);
@@ -441,8 +432,9 @@ static void drawSummary(char *s){
             int idx=type_index((uint16_t)digv(d+4u,3u));
             if(idx<0) o=put(o,"--");
             else {
-                if(g.en) A->asset_read((uint16_t)(TY_EN+(uint16_t)idx*TY_EN_STRIDE),nb,TY_EN_STRIDE);
-                else     A->asset_read((uint16_t)(TY_NAME+(uint16_t)idx*TY_NAME_STRIDE),nb,TY_NAME_STRIDE);
+                /* TY_EN follows TY_NAME with the same stride, so one base covers both */
+                uint16_t base=(uint16_t)((g.en?TY_EN:TY_NAME)+(uint16_t)idx*TY_EN_STRIDE);
+                A->asset_read(base,nb,TY_NAME_STRIDE);
                 o=put(o,nb);
             }
         }
