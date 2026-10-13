@@ -32,9 +32,10 @@
  * Keys: UP/DOWN pick the newer/older record (one step per press, no auto-repeat);
  * 1 speaker; 2 clear; 4 backlight always-on / timeout; 5 Chinese/English; EXIT
  * quit. SUM-only for now. The bottom status bar (tiny font) shows the key-state
- * hints (5 language, 4 backlight, 1 speaker) then x/y (selected record / total,
- * 1 = newest) and the live RSSI (-xx dBm), refreshed every 0.5 s and drawn from
- * launch (0/0). The PDU page and the M/S/W/F/B counter row are kept under #if 0
+ * hints (5 language, 4 backlight, 1 speaker), the live RSSI (-xx dBm) and, when
+ * it fits, the time since the last message (13s / 1m23s); the record index x/y
+ * sits top-right of the first row in the title's inverse style. Refreshed every
+ * 0.5 s. The PDU page and the M/S/W/F/B counter row are kept under #if 0
  * (they overflowed the 4 KiB overlay); restore them together.
  *
  * For the new-generation LB alert the SUM page decodes the detail block:
@@ -140,7 +141,7 @@ static struct {
     uint8_t  busyFor, ledPhase;   /* ledPhase: green-LED double-blink steps */
     char     sess[16];         /* last 1233999/1234000 short block (train/spd/km) */
     int32_t  rssi;
-    uint32_t tPrev, tCyc, rssiMs;
+    uint32_t tPrev, tCyc, rssiMs, lastMsgMs;   /* lastMsgMs: time of the last decoded message */
     uint32_t savedSqr3, savedSmpr3;
 } g;
 #define str g.text
@@ -312,6 +313,7 @@ void lbj_emit_msg(const lbj_rx_t *r, const char *bcd, uint16_t len){
     }
     if(g.count<HISTORY) g.count++;
     g.cur=0;
+    g.lastMsgMs=g.A->ticks_ms();   /* for the mm:ss "time since last message" */
     g.redraw=1u;
 }
 
@@ -352,9 +354,10 @@ static int type_index(uint16_t code){
 }
 
 /* Bottom status bar (tiny 3x5): key-state hints (5 language / 4 backlight /
- * 1 speaker), then x/y (selected / total, 1 = newest) and the live RSSI
- * (-xx dBm). Refreshed every 0.5 s in house(); drawn even before the first
- * message (0/0) so it is visible from launch. Worst case 32 chars = 128 px. */
+ * 1 speaker), then the live RSSI (-xx dBm) and, when the 32-char line still
+ * has room, the time since the last decoded message (13s / 1m23s). The record
+ * index x/y is drawn on the top-right of the first row (drawSummary). Refreshed
+ * every 0.5 s in house(); drawn even before the first message. */
 static void drawFooter(const char *s){
     static const uint8_t LAB[3]={T_L5,T_BL,T_SPK};   /* key-state hint labels */
     uint8_t val[3];
@@ -362,13 +365,27 @@ static void drawFooter(const char *s){
     char *o=str;
     for(uint8_t i=0;i<3u;i++){ if(i) *o++=' '; o=put(o,s+LAB[i]); o=put(o,s+val[i]); }
     *o++=' ';
-    o=putu(o, g.count ? (uint32_t)g.cur+1u : 0u);
-    *o++='/';
-    o=putu(o,g.count);
-    *o++=' ';
     int32_t r=g.rssi;
     if(r<0){ *o++='-'; r=-r; }
     o=putu(o,(uint32_t)r);
+    /* Time since the last decoded message, right after the level. Only when the
+     * whole line still fits 32 tiny chars (128 px); otherwise it is dropped. */
+    if(g.lastMsgMs){
+        uint32_t secs=(uint32_t)g.A->uidivmod((uint32_t)(g.A->ticks_ms()-g.lastMsgMs),1000u);
+        char t[8]; char *p=t;
+        if(secs<60u){ p=putu(p,secs); *p++='s'; }
+        else{
+            uint64_t q=g.A->uidivmod(secs,60u);
+            uint32_t m=(uint32_t)q, ss=(uint32_t)(q>>32);
+            if(m>99u) m=99u;
+            p=putu(p,m); *p++='m';
+            unsigned tt=sub(&ss,10u);
+            *p++=(char)('0'+tt); *p++=(char)('0'+ss); *p++='s';
+        }
+        *p='\0';
+        uint8_t used=(uint8_t)(o-str), tl=(uint8_t)(p-t);
+        if((unsigned)used+1u+tl<=32u){ *o++=' '; for(uint8_t i=0;i<tl;i++) *o++=t[i]; }
+    }
     *o='\0';
     g.A->print_tiny(str,0,ROWY(6),false,true);
 }
@@ -392,6 +409,13 @@ static void drawSummary(char *s){
     const app_api_t *A=g.A;
     char *o;
     if(!g.count){ drawFooter(s); return; }
+    /* Record index (selected / total, 1 = newest) on the top-right of the first
+     * row, in the same black-background inverse as the title. */
+    {
+        char *p=str; p=putu(p,(uint32_t)g.cur+1u); *p++='/'; p=putu(p,g.count); *p='\0';
+        uint8_t n=(uint8_t)(p-str), end=126u;
+        A->print_inverse(str,(uint8_t)(end-n*4u),0,false,true,end);
+    }
     const rec_t *rec=g.hist[g.cur];
     const char *b=rec->bcd;
     const bool det=hasdet(rec->addr,rec->len);
@@ -554,7 +578,7 @@ static void handleKeys(void){
                            /* reset the debug counters too (see lbj_dec.h):
                             * g.rx.syncs=g.rx.words=g.rx.ok=g.rx.fix=g.rx.bad=0;
                             * g.rx.msgs=g.rx.up=g.rx.dn=0; */
-                           g.sessValid=false; break;
+                           g.lastMsgMs=0; g.sessValid=false; break;
         /* case APP_KEY_3: g.page^=1u; g.top=0; g.cur=0; break;  PDU page off */
         case APP_KEY_4:    g.blAlways=!g.blAlways;
                            A->backlight_on();   /* re-arm now; house() holds it on when ON */
