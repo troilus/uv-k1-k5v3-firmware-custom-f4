@@ -30,14 +30,13 @@ POCSAG/LBJ decoder are validated in `test/model_rx.py` against synthetic frames
 
 ```
 [LBJ RX] 821.2375             ███
-412 DN                        1/1    ← 第1行：车次 + 方向（DN 下行 / UP 上行 / ?? 未知，粗体）；
-                                      右端黑底反白为记录号 x/y（选中/总数，1=最新）
+412 DN                              ← 第1行：车次 + 方向（DN 下行 / UP 上行 / ?? 未知，粗体）
 SPEED 87 km/h                       ← 第2行：速度
 KM 0344.7                           ← 第3行：公里标
 1234000                             ← 第4行：解出的地址值
-5ZH 4BL:OFF 1SPK:ON -95 1m23s       ← 底部状态栏：5=语言(EN/ZH)、4=背光常亮(ON/OFF)、
-                                      1=扬声器(ON/OFF)、RSSI(dBm)、距上条报文 mm:ss
-                                      （放不下则不显示）；每 0.5s 刷新
+5ZH 4BL:OFF 1SPK:ON 1/3 -95         ← 底部状态栏：5=语言(EN/ZH)、4=背光常亮(ON/OFF)、
+                                      1=扬声器(ON/OFF)、x/y、RSSI(dBm)；每 0.5s 刷新，
+                                      进入即显示 0/0
 ```
 
 > PDU 页（报文 + 地址/功能/LBJ/BCH + 原始 BCD）与 `M/S/W/F/B` 计数行、
@@ -55,14 +54,13 @@ KM 0344.7                           ← 第3行：公里标
 
 ```
 [LBJ RX] 821.2375             ███
-412 DN                        1/1    ← 第1行：车次 + 方向（合并报文取自身短前缀；独立详情取最近一条 1234000）；
-                                      右端黑底反白为记录号 x/y
+412 DN                              ← 第1行：车次 + 方向（合并报文取自身短前缀；独立详情取最近一条 1234000）
 HXD1C 23900050                      ← 第2行：车型(中文) + 8位机车登记号（3位车型码 + 5位车号）
 京沪线                               ← 第3行：GB2312 线路名（中文模式，不带"线路"标签）
 SPD 87 KM 00344.7                   ← 第4行：速度 + 公里标
 104-16.1280E 30-35.0780N            ← 第5行：经纬度（小字体、DMS 原样显示，与上游安卓一致）
 1234002                             ← 第6行：解出的地址值
-5ZH 4BL:OFF 1SPK:ON -95 1m23s       ← 底部状态栏（同前）
+5ZH 4BL:OFF 1SPK:ON 1/3 -95         ← 底部状态栏（同前）
 ```
 
 详情块内偏移：`0-3` 为 2 个 ASCII 车次前缀字符，`4-6` 为 3 位车型代码，
@@ -189,7 +187,7 @@ only LBJ-family messages reach it nowadays.
 
 | Page | Content |
 |---|---|
-| **SUM** | Newest/selected record. Short report (1233999/1234000): train + direction, `SPEED xx km/h`, `KM xxxx.x`, the decoded address value. New-gen alert (1234001/1234002, standalone or merged; 1233999/1234000 merged): train + direction, model (Chinese; ASCII abbreviation with key `5`) + 8-digit registration number, GB2312 route, `SPD xx KM xxxx.x`, `104-16.1280E 30-35.0780N` DMS coordinates, shown as the upstream Android receiver shows them, with its validity check (tiny font, merged blocks only; the row is hidden when the pair is rejected or the block is short), the decoded address value; a merged report uses its own short prefix, a standalone one the last short report. The record index `x/y` (selected/count, 1 = newest) is drawn top-right of the first row in the title's inverse style; the bottom bar shows the key hints (`5` language, `4` backlight, `1` speaker), the live `-xx` dBm RSSI (every 0.5 s) and, when it fits, the time since the last message (`13s`/`1m23s`) |
+| **SUM** | Newest/selected record. Short report (1233999/1234000): train + direction, `SPEED xx km/h`, `KM xxxx.x`, the decoded address value. New-gen alert (1234001/1234002, standalone or merged; 1233999/1234000 merged): train + direction, model (Chinese; ASCII abbreviation with key `5`) + 8-digit registration number, GB2312 route, `SPD xx KM xxxx.x`, `104-16.1280E 30-35.0780N` DMS coordinates, shown as the upstream Android receiver shows them, with its validity check (tiny font, merged blocks only; the row is hidden when the pair is rejected or the block is short), the decoded address value; a merged report uses its own short prefix, a standalone one the last short report. The bottom bar shows the key hints (`5` language, `4` backlight, `1` speaker) then `x/y` (selected/count, 1 = newest) and the live `-xx` dBm RSSI (every 0.5 s; shown from launch as `0/0`) |
 
 Keys: UP/DOWN pick the newer/older record (`nav_dir`: UV-K1 LEFT/RIGHT; one step
 per press — holding does not auto-repeat) · `1` speaker · `2` clear history +
