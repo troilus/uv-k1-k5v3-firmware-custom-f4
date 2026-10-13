@@ -123,13 +123,6 @@ static_assert(ARRAY_SIZE(ProcessKeysFunctions) == DISPLAY_N_ELEM);
 
 static void CheckForIncoming(void)
 {
-#ifdef ENABLE_FEAT_F4HWN_LBJ
-    /* LBJ mode carries POCSAG data, not voice: its audio is decoded by the LBJ
-     * sampler, so never let the squelch pull the radio into the normal voice
-     * receive path while the selected RX VFO is in LBJ mode. */
-    if (LBJ_RxVfoIsLbj())
-        return;
-#endif
     if (!g_SquelchLost)
         return;          // squelch is closed
 

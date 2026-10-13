@@ -2,16 +2,17 @@
  *
  * A channel whose modulation is set to LBJ (menu, like FM/AM/RAW) is its own
  * receive "mode": the squelch behaves like FM (a normal carrier opens/closes
- * it) but the receive chain is the LBJ/POCSAG one - the BK4819 is switched to
- * RAW and the RX audio is sampled on PA4 (ADC channel 4) at 19.2 kHz, exactly
- * as the LBJ RX overlay app does. Set the channel modulation to LBJ and tune it
- * to 821.2375 MHz.
+ * it, holds dual-watch, opens the audio path) while the LBJ/POCSAG decode runs
+ * in the background - the BK4819 uses the RAW receive profile and the RX audio
+ * is sampled on PA4 (ADC channel 4) at 19.2 kHz, exactly as the LBJ RX overlay
+ * app does. Set the channel modulation to LBJ and tune it to 821.2375 MHz.
  *
  * The sampling runs in a 19.2 kHz timer interrupt (TIM3), so the main loop is
  * never blocked: idle dual-watch and the UI stay smooth. The sampler is enabled
  * only while the selected RX VFO is in LBJ mode and its squelch is open (a
- * report is on air); when the squelch closes it stops. Decoded reports pop up a
- * small window that stays until EXIT or PTT.
+ * report is on air); when the squelch closes it stops. The sampler never
+ * touches the audio path, so the channel can still be monitored by ear (MONI).
+ * Decoded reports pop up a small window that stays until EXIT or PTT.
  */
 
 #include <stdbool.h>
@@ -45,7 +46,7 @@
 #define LBJ_FREQ_TOL      500u     /* +- 5 kHz match window                     */
 
 /* ---- sampler timing ---- */
-#define LBJ_MAX_TICKS     300u     /* safety cap: 3 s of continuous sampling    */
+#define LBJ_MAX_TICKS    6000u     /* watchdog: 60 s of continuous sampling    */
 #define LBJ_LOST_DEBOUNCE  20u     /* squelch closed for 200 ms -> stop         */
 
 /* ---- receiver ---- */
@@ -331,8 +332,6 @@ static void samplerStart(void){
     g.saved2B = BK4819_ReadRegister((BK4819_REGISTER_t)REG_2B);
     g.saved73 = BK4819_ReadRegister((BK4819_REGISTER_t)REG_73);
 
-    AUDIO_AudioPathOff();                       /* LBJ dwell is muted */
-
     biasOn(g.savedModer, g.savedRcc);
     BK4819_WriteRegister((BK4819_REGISTER_t)REG_2B, (uint16_t)((g.saved2B | REG_RAW2B_OR) & ~REG_RAW2B_AND));
     BK4819_WriteRegister((BK4819_REGISTER_t)REG_73, (uint16_t)(g.saved73 | REG_RAW73_OR));
@@ -371,9 +370,6 @@ static void samplerStop(void){
     BK4819_WriteRegister((BK4819_REGISTER_t)REG_2B, g.saved2B);
     BK4819_WriteRegister((BK4819_REGISTER_t)REG_73, g.saved73);
     biasOff(g.savedDac, g.savedDhr, g.savedRcc, g.savedModer);
-
-    if (gEnableSpeaker)
-        AUDIO_AudioPathOn();
 }
 
 void LBJ_StopSampler(void){ samplerStop(); }
@@ -394,16 +390,16 @@ void LBJ_Tick(void){
         return;
     }
     if (g.on){
-        if (++g.ticks >= LBJ_MAX_TICKS){          /* safety cap */
+        if (++g.ticks >= LBJ_MAX_TICKS){          /* watchdog only */
             samplerStop();
-        } else if (g_SquelchLost){                /* carrier gone -> stop */
+        } else if (!g_SquelchLost){               /* carrier gone -> stop */
             if (++g.lostTicks >= LBJ_LOST_DEBOUNCE)
                 samplerStop();
         } else {
             g.lostTicks = 0;
         }
     } else {
-        if (LBJ_RxVfoIsLbj() && !g_SquelchLost)   /* FM-like squelch triggers LBJ mode */
+        if (LBJ_RxVfoIsLbj() && g_SquelchLost)    /* squelch open = report on air */
             samplerStart();
     }
 
