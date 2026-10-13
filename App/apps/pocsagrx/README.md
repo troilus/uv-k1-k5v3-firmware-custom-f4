@@ -11,54 +11,56 @@ LBJ RX app it is not tied to one rate, one address range or one payload layout:
 * **numeric (4-bit BCD) and alphanumeric (7-bit ASCII)** decoded, switchable;
 * a **RAW page** with the message codewords in hex and the shared counters.
 
-## 中文说明
+## Using the app
 
-### 使用步骤
+1. Set the VFO to the paging frequency, **FM** (the BK4829 covers 18–580 MHz and
+   760–1160 MHz).
+2. Enter **F4HWN APPS → POCSAG RX**.
+3. Key `3` toggles MSG / RAW; key `5` toggles NUM / ALP.
 
-1. 把 VFO 调到寻呼/传呼频率、**FM**（BK4829 覆盖 18–580 MHz 与 760–1160 MHz）。
-2. 进入 **F4HWN APPS → POCSAG RX**。
-3. `3` 在 **MSG / RAW** 页间切换；`5` 在 **NUM / ALP** 之间切换。
+The speaker is off by default (key `1`).
 
-### 屏幕说明
+## Screen
 
-顶部 1 行状态栏 + 主区 7 行。
+One status bar row + seven body rows.
 
-状态栏：`POCSAG RX`（标题）· 接收频率 · 电池。
+Status bar: `POCSAG RX` (title) · receive frequency · battery.
 
-**MSG 页（解码内容）**
-
-```
-[POCSAG RX] 821.2375          ███
-A1234000 F1                         ← 第1行：地址(RIC) + 功能位 0-3
-1200 NUM +                          ← 第2行：速率 + NUM/ALP + BCH 正常(+)/不可纠(!)
-412   087 01234                     ← 第3行起：解出的正文（numeric 或 alphanumeric，
-                                      每行 32 字符，最多 4 行）
-3=MSG 5=NUM 1=OFF 1/2 -95           ← 底部状态栏：3=当前页、5=num/alpha、
-                                      1=扬声器、x/y、RSSI(dBm)
-```
-
-**RAW 页（原始数据）**
+**MSG page (decoded content)**
 
 ```
 [POCSAG RX] 821.2375          ███
-A1234000 F1 1200                    ← 第1行：地址 + 功能 + 速率
-3BB0BA5F 3FF0BA5F ...               ← 第2行起：报文码字十六进制，
-                                      每行 4 个 32-bit 码字（共 16 个）
-M3 S6 W96 F2 B0                     ← 计数：报文/同步字/码字/单比特纠错/不可纠
+A1234000 F1                         ← row 1: address (RIC) + function 0-3
+1200 NUM +                          ← row 2: rate + NUM/ALP + BCH ok(+)/bad(!)
+412   087 01234                     ← rows 3+: the decoded text (numeric or
+                                      alphanumeric), 32 chars per row, up to 4
+3=MSG 5=NUM 1=OFF 1/2 -95           ← bottom bar: 3=page, 5=num/alpha,
+                                      1=speaker, x/y, RSSI (dBm)
+```
+
+**RAW page (raw data)**
+
+```
+[POCSAG RX] 821.2375          ███
+A1234000 F1 1200                    ← row 1: address + function + rate
+3BB0BA5F 3FF0BA5F ...               ← rows 2+: message codewords in hex,
+                                      4 x 32-bit codewords per row (16 total)
+M3 S6 W96 F2 B0                     ← counters: msgs / syncs / words /
+                                      single-bit fixes / uncorrectable
 3=RAW 5=ALP 1=OFF 1/2 -95
 ```
 
-### 按键操作
+## Keys
 
-| 键 | 作用 |
+| Key | Action |
 |---|---|
-| UP / DOWN | 选择更新/更旧的记录（一次一步，按住不连发；UV-K1 用左右） |
-| `1` | 扬声器开/关（默认关，退出保存） |
-| `2` | 清空报文历史与计数 |
-| `3` | MSG（解码内容）/ RAW（码字十六进制 + 计数）页切换 |
-| `4` | 背光常亮 / 自动熄灭（仅本次运行） |
-| `5` | numeric / alphanumeric 显示切换（退出保存） |
-| EXIT | 退出（回 Apps 菜单） |
+| UP / DOWN | pick the newer / older record (one step per press, no auto-repeat; UV-K1 uses LEFT/RIGHT) |
+| `1` | speaker on/off (off by default, saved on exit) |
+| `2` | clear the message history and the counters |
+| `3` | MSG (decoded content) / RAW (codeword hex + counters) page |
+| `4` | backlight always-on / auto-off (session only) |
+| `5` | numeric / alphanumeric display (saved on exit) |
+| EXIT | quit (back to the Apps menu) |
 
 ## Receive path
 
@@ -72,14 +74,15 @@ The loader restores the registers on exit.
 an integer number of samples per bit: 512 → 75, 1200 → 32, 2400 → 16. At the old
 19.2 kHz, 512 baud would need 37.5 samples/bit.
 
-## Demodulator (test/model_rx.py, class `DemodInt`; the C is a transcription)
+## Demodulator (`test/model_rx.py`, class `DemodInt`; the C is a transcription)
 
 Per ADC sample, for each of the three rate branches:
 
 1. Slow baseline tracker (1-pole; the LBJ baseband is AC-coupled).
 2. Low-pass biquad, one corner per rate (512 → 1500 Hz, 1200 → 2000 Hz,
-   2400 → 3000 Hz).
-3. **One-bit matched filter**: a running sum of `samples/bit` samples.
+   2400 → 3000 Hz), Q14 fixed point.
+3. **One-bit matched filter**: a running sum of `samples/bit` samples; its null
+   at the bit rate rejects the data harmonics.
 4. Symmetric peak trackers with a **hysteresis** slice (`±(hi-lo)/64`).
 5. **DPLL**: 65536 per bit; a level transition pulls the phase toward the bit
    boundary; the bit is sampled at the 0.5 crossing.
@@ -88,21 +91,21 @@ The DC and peak-tracker time constants are per rate (they must scale with
 samples per bit): 512 → shift 10/10, 1200 → 9/8, 2400 → 9/8. These, and the LPF
 corners, were chosen with `test/model_rx.py` (see the sweep below).
 
-## Decoder (pocsag_dec.c)
+## Decoder (`pocsag_dec.c`)
 
 Rate-independent: sync `0x7CD215D8` / its inverse (popcount ≤ 3, polarity auto),
 16 codewords per batch, idle word, address/message words, **BCH(31,21)**
-single-bit correction (feedback 873), message assembly that continues across
+single-bit correction (feedback 873), and message assembly that continues across
 batch boundaries (a sync inside a message does not flush it). Each completed
-message keeps up to 16 raw codewords. All addresses are reported.
+message keeps up to 16 raw codewords. Every address is reported.
 
-Payload decode (same translation unit, app side):
+Payload decode (app side, same translation unit):
 
 * **numeric**: 5 BCD nibbles per codeword (each bit-reversed), standard POCSAG
   alphabet `0123456789*U -)(`;
 * **alphanumeric**: the 20-bit fields of the message codewords concatenate into a
-  7-bit ASCII stream (chars packed MSB-first left-to-right, each char LSB sent
-  first), reverse each 7-bit group; non-printable bytes show as `.`.
+  7-bit ASCII stream (characters packed MSB-first left-to-right, each character's
+  LSB sent first); each 7-bit group is reversed. Non-printable bytes show as `.`.
 
 ## Tests (`test/`)
 
@@ -128,7 +131,7 @@ integer demodulator the C runs).
 | ±1 % clock | 3/3 3/3 | 3/3 3/3 | 3/3 3/3 |
 
 Feeding one rate's signal to the three-way parallel bank, only the matching rate
-reports the message (no cross-talk, no false positives on the others).
+reports the message (no cross-talk, no false positives on the other two).
 
 ## Notes
 
