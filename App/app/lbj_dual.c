@@ -26,7 +26,6 @@
 
 #include "lbj_dec.h"
 #include "lbj_dual.h"
-#include "lbj_types.h"
 
 #include "audio.h"
 #include "driver/backlight.h"
@@ -154,8 +153,6 @@ static char *putkm(char *o, const char *p){       /* 5 BCD chars -> DDDD.D */
     char c = p[4]; *o++ = (c >= '0' && c <= '9') ? c : '0';
     return o;
 }
-static const char HEXD[] = "0123456789ABCDEF";
-static char *puthex2(char *o, uint8_t v){ *o++ = HEXD[(v >> 4) & 0xFu]; *o++ = HEXD[v & 0xFu]; return o; }
 static char *putdash(char *o, uint8_t n){ while (n--) *o++ = '-'; return o; }
 
 static char *puttrain(char *o, const char *sb, uint8_t func, bool have){
@@ -165,21 +162,9 @@ static char *puttrain(char *o, const char *sb, uint8_t func, bool have){
     return put(o, (func == 1u) ? "DN" : ((func == 3u) ? "UP" : "??"));
 }
 
-/* Locomotive model code -> ASCII name (generated table, sorted by code). */
-static const char *type_name(uint16_t code){
-    int lo = 0, hi = (int)LBJ_TYPE_COUNT - 1;
-    while (lo <= hi){
-        int mid = (lo + hi) >> 1;
-        uint16_t c = LBJ_TYPES[mid].code;
-        if (c == code) return LBJ_TYPES[mid].name;
-        if (c < code) lo = mid + 1; else hi = mid - 1;
-    }
-    return NULL;
-}
-
-/* One unified 5-row layout for every LBJ address (like 1234002):
- *   row0 train + direction, row1 SPD, row2 KM, row3 model + registration,
- *   row4 route. Missing fields are dashes. */
+/* One unified 5-row layout for every LBJ address:
+ *   row0 train + direction, row1 SPD, row2 KM, row3 model code + loco number,
+ *   row4 the decoded address code. Missing fields are dashes. */
 static void format(uint32_t addr, uint8_t func, const char *b, uint16_t len){
     char *o;
     const bool merged     = (len >= 65u);
@@ -195,31 +180,31 @@ static void format(uint32_t addr, uint8_t func, const char *b, uint16_t len){
     const char *d = merged ? (b + (uint16_t)(len - 50u)) : b;
     const uint8_t dlen = merged ? 50u : (uint8_t)(len < 50u ? len : 50u);
 
+    /* row0: train + direction */
     o = g.l0; o = puttrain(o, sb, func, have_short); *o = '\0';
 
+    /* row1: speed */
     o = g.l1; o = put(o, "SPD ");
     if (have_short) o = putu(o, digv(sb + 6u, 3u)); else o = putdash(o, 7u);
     *o = '\0';
 
+    /* row2: position km */
     o = g.l2; o = put(o, "KM ");
     if (have_short) o = putkm(o, sb + 10u); else o = putdash(o, 7u);
     *o = '\0';
 
+    /* row3: model code (3) + loco number (5) = the 8-digit registration */
     o = g.l3;
     if (has_detail){
-        const char *nm = type_name((uint16_t)digv(d + 4u, 3u));
-        if (nm) o = put(o, nm); else o = put(o, "--");
-        *o++ = ' ';
         for (uint8_t i = 4u; i < 12u && i < dlen; i++) *o++ = d[i];
+        if (o == g.l3) o = putdash(o, 7u);
     } else {
         o = putdash(o, 7u);
     }
     *o = '\0';
 
-    o = g.l4;
-    if (has_detail && dlen >= 30u){ for (uint8_t i = 14u; i < 30u; i++) o = puthex2(o, (uint8_t)d[i]); }
-    else o = putdash(o, 7u);
-    *o = '\0';
+    /* row4: the decoded address code (1233999..1234002) */
+    o = g.l4; o = putu(o, addr); *o = '\0';
 }
 
 /* ---- decoder callback (timer ISR context: only queue the raw report; all
@@ -233,6 +218,11 @@ void lbj_emit_msg(const lbj_rx_t *r, const char *bcd, uint16_t len){
     g.pendLen  = n;
     for (uint16_t i = 0; i < n; i++) g.pendBcd[i] = bcd[i];
     g.pending = true;
+}
+
+/* Replace any non-printable byte so the font routine never sees one. */
+static void sanitize(char *s){
+    for (; *s; s++){ uint8_t c = (uint8_t)*s; if (c < 0x20u || c > 0x7Eu) *s = '.'; }
 }
 
 /* Format the queued report and (unless dismissed) show the popup. Main loop. */
@@ -254,6 +244,7 @@ static void processPending(void){
         g.sessValid = true;
     }
     format(addr, func, bcd, len);
+    sanitize(g.l0); sanitize(g.l1); sanitize(g.l2); sanitize(g.l3); sanitize(g.l4);
     if (!g.dismissed){
         g.popup = true;
         g.dirty = true;
