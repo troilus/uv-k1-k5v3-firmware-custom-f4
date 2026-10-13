@@ -116,7 +116,14 @@ static struct {
     bool     sessValid;
     bool     popup;
     bool     dirty;
+    bool     dismissed;           /* popup dismissed until the carrier drops  */
     char     l0[20], l1[20], l2[20], l3[20], l4[20];
+
+    volatile bool pending;        /* decoded report handed to the main loop   */
+    uint32_t pendAddr;
+    uint8_t  pendFunc;
+    uint16_t pendLen;
+    char     pendBcd[LBJ_CWMAX * 5u];
 
     bool     on;                 /* sampler running                           */
     uint16_t ticks, lostTicks;
@@ -149,19 +156,13 @@ static char *putkm(char *o, const char *p){       /* 5 BCD chars -> DDDD.D */
 }
 static const char HEXD[] = "0123456789ABCDEF";
 static char *puthex2(char *o, uint8_t v){ *o++ = HEXD[(v >> 4) & 0xFu]; *o++ = HEXD[v & 0xFu]; return o; }
+static char *putdash(char *o, uint8_t n){ while (n--) *o++ = '-'; return o; }
 
 static char *puttrain(char *o, const char *sb, uint8_t func, bool have){
     if (!have){ *o++ = '-'; *o++ = '-'; }
     else for (uint8_t i = 0; i < 6u; i++) if (sb[i] != ' ') *o++ = sb[i];
     *o++ = ' ';
     return put(o, (func == 1u) ? "DN" : ((func == 3u) ? "UP" : "??"));
-}
-
-static bool is_lbj(uint32_t a){ return (uint32_t)(a - 1233999u) <= 3u; }
-static bool hasdet(uint32_t a, uint8_t len){
-    if (!is_lbj(a)) return false;
-    if (a >= 1234001u) return len >= 30u;   /* standalone or merged */
-    return len >= 65u;                      /* merged only */
 }
 
 /* Locomotive model code -> ASCII name (generated table, sorted by code). */
@@ -176,63 +177,95 @@ static const char *type_name(uint16_t code){
     return NULL;
 }
 
-/* Build the popup lines (no Chinese: model shown as its ASCII name, route field
- * printed as raw bytes). Layout for 1234001/1234002:
+/* One unified 5-row layout for every LBJ address (like 1234002):
  *   row0 train + direction, row1 SPD, row2 KM, row3 model + registration,
- *   row4 route. */
+ *   row4 route. Missing fields are dashes. */
 static void format(uint32_t addr, uint8_t func, const char *b, uint16_t len){
     char *o;
-    if (hasdet(addr, (uint8_t)len)){
-        const bool merged = (len >= 65u);
-        const uint8_t start = merged ? (uint8_t)(len - 50u) : 0u;
-        const char *d = b + start;
-        const uint8_t dlen = (uint8_t)(len - start);
-        const char *sb = merged ? b : g.sess;
-        const bool have = merged || g.sessValid;
+    const bool merged     = (len >= 65u);
+    const bool det_addr   = (addr >= 1234001u);
+    const bool has_detail = merged || (det_addr && len >= 30u);
 
-        o = g.l0; o = puttrain(o, sb, func, have); *o = '\0';
-        o = g.l1; o = put(o, "SPD ");
-        if (have){ o = putu(o, digv(sb + 6u, 3u)); o = put(o, " km/h"); }
-        else o = put(o, "--");
-        *o = '\0';
-        o = g.l2; o = put(o, "KM ");
-        if (have) o = putkm(o, sb + 10u); else o = put(o, "--");
-        *o = '\0';
-        o = g.l3; {
-            const char *nm = type_name((uint16_t)digv(d + 4u, 3u));
-            if (nm) o = put(o, nm); else o = put(o, "--");
-            *o++ = ' ';
-            for (uint8_t i = 4u; i < 12u && i < dlen; i++) *o++ = d[i];
-        }
-        *o = '\0';
-        o = g.l4;
-        if (dlen >= 30u){ for (uint8_t i = 14u; i < 30u; i++) o = puthex2(o, (uint8_t)d[i]); }
-        *o = '\0';
+    const char *sb;
+    bool have_short;
+    if (merged)                       { sb = b;      have_short = true; }
+    else if (!det_addr && len >= 15u) { sb = b;      have_short = true; }
+    else                              { sb = g.sess; have_short = g.sessValid; }
+
+    const char *d = merged ? (b + (uint16_t)(len - 50u)) : b;
+    const uint8_t dlen = merged ? 50u : (uint8_t)(len < 50u ? len : 50u);
+
+    o = g.l0; o = puttrain(o, sb, func, have_short); *o = '\0';
+
+    o = g.l1; o = put(o, "SPD ");
+    if (have_short) o = putu(o, digv(sb + 6u, 3u)); else o = putdash(o, 7u);
+    *o = '\0';
+
+    o = g.l2; o = put(o, "KM ");
+    if (have_short) o = putkm(o, sb + 10u); else o = putdash(o, 7u);
+    *o = '\0';
+
+    o = g.l3;
+    if (has_detail){
+        const char *nm = type_name((uint16_t)digv(d + 4u, 3u));
+        if (nm) o = put(o, nm); else o = put(o, "--");
+        *o++ = ' ';
+        for (uint8_t i = 4u; i < 12u && i < dlen; i++) *o++ = d[i];
     } else {
-        o = g.l0; o = puttrain(o, b, func, len >= 6u); *o = '\0';
-        o = g.l1; o = put(o, "SPD "); o = putu(o, digv(b + 6u, 3u)); o = put(o, " km/h"); *o = '\0';
-        o = g.l2; o = put(o, "KM "); if (len >= 15u) o = putkm(o, b + 10u); else o = put(o, "--"); *o = '\0';
-        o = g.l3; o = putu(o, addr); *o = '\0';
-        g.l4[0] = '\0';
+        o = putdash(o, 7u);
     }
+    *o = '\0';
+
+    o = g.l4;
+    if (has_detail && dlen >= 30u){ for (uint8_t i = 14u; i < 30u; i++) o = puthex2(o, (uint8_t)d[i]); }
+    else o = putdash(o, 7u);
+    *o = '\0';
 }
 
-/* ---- decoder callback (timer ISR context: only set flags) ---- */
+/* ---- decoder callback (timer ISR context: only queue the raw report; all
+ * formatting/popup work is done by the main loop so the ISR stays light.) ---- */
 void lbj_emit_msg(const lbj_rx_t *r, const char *bcd, uint16_t len){
     if ((uint32_t)(r->addr - 1233980u) > 40u)
         return;                                   /* keep the LBJ family only */
-    if ((r->addr == 1233999u || r->addr == 1234000u) && len >= 15u){
+    uint16_t n = (len > sizeof g.pendBcd) ? (uint16_t)sizeof g.pendBcd : len;
+    g.pendAddr = r->addr;
+    g.pendFunc = r->func;
+    g.pendLen  = n;
+    for (uint16_t i = 0; i < n; i++) g.pendBcd[i] = bcd[i];
+    g.pending = true;
+}
+
+/* Format the queued report and (unless dismissed) show the popup. Main loop. */
+static void processPending(void){
+    if (!g.pending)
+        return;
+    char bcd[sizeof g.pendBcd];
+    uint32_t addr;
+    uint8_t  func;
+    uint16_t len;
+    NVIC_DisableIRQ(TIM3_IRQn);
+    addr = g.pendAddr; func = g.pendFunc; len = g.pendLen;
+    for (uint16_t i = 0; i < len; i++) bcd[i] = g.pendBcd[i];
+    g.pending = false;
+    NVIC_EnableIRQ(TIM3_IRQn);
+
+    if ((addr == 1233999u || addr == 1234000u) && len >= 15u){
         for (uint8_t i = 0; i < 15u; i++) g.sess[i] = bcd[i];
         g.sessValid = true;
     }
-    format(r->addr, r->func, bcd, len);
-    g.popup = true;
-    g.dirty = true;
+    format(addr, func, bcd, len);
+    if (!g.dismissed){
+        g.popup = true;
+        g.dirty = true;
+    }
 }
 
 /* ---- popup ---- */
 bool LBJ_PopupActive(void){ return g.popup; }
-void LBJ_ClosePopup(void){ if (g.popup){ g.popup = false; gUpdateDisplay = true; } }
+void LBJ_ClosePopup(void){
+    if (g.popup){ g.popup = false; gUpdateDisplay = true; }
+    g.dismissed = true;              /* stay dismissed until the carrier drops */
+}
 
 bool LBJ_HandleKey(uint8_t key){
     if (key == KEY_PTT){                 /* PTT closes the popup and stops the sampler, still transmits */
@@ -297,7 +330,9 @@ static void adcSelPA4(uint32_t smpr3, uint32_t sqr3){
 }
 static uint16_t adcRead(void){
     ADC_CR2 |= LBJ_ADC_CR2_START;
-    for (uint16_t n = 0; !(ADC_SR & LBJ_ADC_SR_EOC) && n < 2000u; n++){}
+    /* Bounded wait: if the ADC never signals EOC, drop this sample instead of
+     * spinning (a long spin inside the 19.2 kHz ISR would starve the main loop). */
+    for (uint16_t n = 0; !(ADC_SR & LBJ_ADC_SR_EOC) && n < 300u; n++){}
     return (uint16_t)(ADC_DR & 0x0FFFu);
 }
 static void biasOn(uint32_t moder, uint32_t rcc){
@@ -410,8 +445,16 @@ void LBJ_AdcEnd(void){
 
 /* ---- 10 ms tick ---- */
 void LBJ_Tick(void){
-    /* Never sample while keyed up: the TX path reconfigures the radio. */
+    /* Format a decoded report queued by the ISR (main-loop context). */
+    processPending();
+
+    /* Never sample while keyed up or in power save: the radio is reconfigured. */
     if (gCurrentFunction == FUNCTION_TRANSMIT || gPttIsPressed){
+        LBJ_ClosePopup();
+        samplerStop();
+        return;
+    }
+    if (gCurrentFunction == FUNCTION_POWER_SAVE){
         samplerStop();
         return;
     }
@@ -433,6 +476,10 @@ void LBJ_Tick(void){
         if (LBJ_RxVfoIsLbj() && g_SquelchLost)    /* squelch open = report on air */
             samplerStart();
     }
+
+    /* Re-arm the popup once the LBJ carrier is gone. */
+    if (g.dismissed && !g_SquelchLost)
+        g.dismissed = false;
 
     if (g.dirty){                                 /* refresh the popup from the main loop */
         g.dirty = false;
