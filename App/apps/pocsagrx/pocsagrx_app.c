@@ -164,6 +164,8 @@ static char *puthex8(char *o,uint32_t v){
     for(uint8_t i=0;i<8u;i++) *o++=HEXD[(v>>(28u-i*4u))&0xFu];
     return o;
 }
+/* Counter value capped at 4 digits so the M/S/W/F/B row never exceeds 32 chars. */
+static char *putu4(char *o,uint32_t v){ return putu(o, v>9999u?9999u:v); }
 
 /* ---- payload decode (see test/pocsag.py) ---- */
 /* Standard POCSAG numeric alphabet: 4-bit value -> character (nibble bit-reversed). */
@@ -384,9 +386,9 @@ static void drawRaw(const char *s){
         m+=r->msgs; sc+=r->syncs; w+=r->words; f+=r->fix; b+=r->bad;
     }
     o=str;
-    *o++='M'; o=putu(o,m); *o++=' '; *o++='S'; o=putu(o,sc);
-    *o++=' '; *o++='W'; o=putu(o,w); *o++=' '; *o++='F'; o=putu(o,f);
-    *o++=' '; *o++='B'; o=putu(o,b); *o='\0';
+    *o++='M'; o=putu4(o,m); *o++=' '; *o++='S'; o=putu4(o,sc);
+    *o++=' '; *o++='W'; o=putu4(o,w); *o++=' '; *o++='F'; o=putu4(o,f);
+    *o++=' '; *o++='B'; o=putu4(o,b); *o='\0';
     A->print_tiny(str,0,ROWY(5),false,true);
     drawFooter(s);
 }
