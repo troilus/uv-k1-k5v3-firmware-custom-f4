@@ -226,6 +226,9 @@ enable_feature(ENABLE_FEAT_F4HWN_LBJ
 if(ENABLE_FEAT_F4HWN_LBJ AND NOT ENABLE_FEAT_F4HWN)
     message(FATAL_ERROR "ENABLE_FEAT_F4HWN_LBJ requires ENABLE_FEAT_F4HWN.")
 endif()
+if(ENABLE_FEAT_F4HWN_LBJ AND NOT ENABLE_BYP_RAW_DEMODULATORS)
+    message(FATAL_ERROR "ENABLE_FEAT_F4HWN_LBJ requires ENABLE_BYP_RAW_DEMODULATORS (MODULATION_LBJ reuses the RAW receive profile).")
+endif()
 
 # ---- OVERLAY APPS ----
 # Modal code blobs loaded from the external SPI flash into a fixed 4 KiB RAM

@@ -41,6 +41,9 @@
 #include "helper/battery.h"
 #include "misc.h"
 #include "settings.h"
+#ifdef ENABLE_FEAT_F4HWN_LBJ
+    #include "app/lbj_dual.h"
+#endif
 #if defined(ENABLE_OVERLAY)
     #include "sram-overlay.h"
 #endif
@@ -165,6 +168,11 @@ void BOARD_ADC_Init(void)
 
 void BOARD_ADC_GetBatteryInfo(uint16_t *pVoltage, uint16_t *pCurrent)
 {
+#ifdef ENABLE_FEAT_F4HWN_LBJ
+    /* The LBJ sampler owns ADC PA4; give the battery channel back for the
+     * conversion and hand PA4 over again afterwards. */
+    LBJ_AdcBegin();
+#endif
     LL_ADC_REG_StartConversionSWStart(ADC1);
     while (!LL_ADC_IsActiveFlag_EOS(ADC1))
         ;
@@ -172,6 +180,9 @@ void BOARD_ADC_GetBatteryInfo(uint16_t *pVoltage, uint16_t *pCurrent)
 
     *pVoltage = LL_ADC_REG_ReadConversionData12(ADC1);
     *pCurrent = 0;
+#ifdef ENABLE_FEAT_F4HWN_LBJ
+    LBJ_AdcEnd();
+#endif
 }
 
 void BOARD_Init(void)

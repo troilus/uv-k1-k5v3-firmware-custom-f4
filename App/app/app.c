@@ -124,10 +124,10 @@ static_assert(ARRAY_SIZE(ProcessKeysFunctions) == DISPLAY_N_ELEM);
 static void CheckForIncoming(void)
 {
 #ifdef ENABLE_FEAT_F4HWN_LBJ
-    /* The LBJ dual-watch VFO carries POCSAG data, not voice: its audio is
-     * decoded by LBJ_Dwell(), so never let the squelch pull the radio into the
-     * normal voice receive path while it is the selected RX VFO. */
-    if (gEeprom.DUAL_WATCH != DUAL_WATCH_OFF && LBJ_RxVfoIsLbj())
+    /* LBJ mode carries POCSAG data, not voice: its audio is decoded by the LBJ
+     * sampler, so never let the squelch pull the radio into the normal voice
+     * receive path while the selected RX VFO is in LBJ mode. */
+    if (LBJ_RxVfoIsLbj())
         return;
 #endif
     if (!g_SquelchLost)
@@ -662,13 +662,6 @@ static void DualwatchAlternate(void)
 
     RADIO_SetupRegisters(false);
 
-#ifdef ENABLE_FEAT_F4HWN_LBJ
-    /* LBJ channel: run a bounded receive dwell (PA4 sampling + POCSAG/LBJ
-     * decode) instead of just parking on the FSK channel. */
-    if (LBJ_RxVfoIsLbj())
-        LBJ_Dwell();
-#endif
-
     #ifdef ENABLE_NOAA
         gDualWatchCountdown_10ms = gIsNoaaMode ? dual_watch_count_noaa_10ms : dual_watch_count_toggle_10ms;
     #else
@@ -1099,6 +1092,9 @@ void APP_Update(void)
         && gScanStateDir == SCAN_OFF
         && !gPttIsPressed
         && gCurrentFunction != FUNCTION_POWER_SAVE
+#ifdef ENABLE_FEAT_F4HWN_LBJ
+        && !LBJ_Active()            /* hold the LBJ mode while decoding */
+#endif
 #ifdef ENABLE_FEAT_F4HWN_BEAM
         && !gBeamActive
 #endif
@@ -1517,6 +1513,11 @@ void APP_TimeSlice10ms(void)
 
     if (gCurrentFunction != FUNCTION_POWER_SAVE || !gRxIdleMode)
         CheckRadioInterrupts();
+
+#ifdef ENABLE_FEAT_F4HWN_LBJ
+    /* LBJ mode: start/stop the PA4 sampler from the FM squelch state. */
+    LBJ_Tick();
+#endif
 
 #ifdef ENABLE_FEAT_F4HWN
     HandleRxEndBlink();

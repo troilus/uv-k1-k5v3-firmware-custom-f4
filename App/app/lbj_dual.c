@@ -1,21 +1,27 @@
 /* LBJ dual-watch (resident firmware feature) - see lbj_dual.h.
  *
- * Sampling/demodulation is a transcription of the LBJ RX overlay app
- * (App/apps/lbj/lbj_app.c): PA4 (ADC channel 4) biased by the MCU DAC at
- * mid-scale, sampled at 19.2 kHz from SysTick, through the integer demodulator
- * validated in App/apps/lbj/test/model_rx.py, then the POCSAG/LBJ decoder in
- * lbj_dec.c.
+ * A channel whose modulation is set to LBJ (menu, like FM/AM/RAW) is its own
+ * receive "mode": the squelch behaves like FM (a normal carrier opens/closes
+ * it) but the receive chain is the LBJ/POCSAG one - the BK4819 is switched to
+ * RAW and the RX audio is sampled on PA4 (ADC channel 4) at 19.2 kHz, exactly
+ * as the LBJ RX overlay app does. Set the channel modulation to LBJ and tune it
+ * to 821.2375 MHz.
  *
- * Unlike the overlay app this runs as a bounded, blocking dwell from inside the
- * dual-watch toggle, so channel A (the other VFO) is only interrupted while the
- * LBJ channel is being polled. The decoded report is shown in a small popup that
- * persists until EXIT.
+ * The sampling runs in a 19.2 kHz timer interrupt (TIM3), so the main loop is
+ * never blocked: idle dual-watch and the UI stay smooth. The sampler is enabled
+ * only while the selected RX VFO is in LBJ mode and its squelch is open (a
+ * report is on air); when the squelch closes it stops. Decoded reports pop up a
+ * small window that stays until EXIT or PTT.
  */
 
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
+
+#include "py32f071_ll_bus.h"
+#include "py32f071_ll_tim.h"
+#include "py32f0xx.h"
 
 #include "lbj_dec.h"
 #include "lbj_dual.h"
@@ -38,14 +44,12 @@
 #define LBJ_FREQ_HZ10   82123750u
 #define LBJ_FREQ_TOL      500u     /* +- 5 kHz match window                     */
 
-/* ---- dwell timing ---- */
-#define LBJ_DWELL_MS      500u     /* max look per dual-watch LBJ slot          */
-#define LBJ_HOLD_MS       500u     /* extra while a report is still coming in   */
-#define LBJ_HOUSE_SAMPLES 960u     /* 50 ms between key/screen service          */
+/* ---- sampler timing ---- */
+#define LBJ_MAX_TICKS     300u     /* safety cap: 3 s of continuous sampling    */
+#define LBJ_LOST_DEBOUNCE  20u     /* squelch closed for 200 ms -> stop         */
 
 /* ---- receiver ---- */
 #define FS             19200u
-#define CYC_PER_SAMPLE (48000000u / FS)     /* 2500 cycles at 48 MHz */
 #define ADC_CH_PA4     4u
 #define SMP8_POS       24u
 #define SMP4_POS       12u
@@ -69,8 +73,6 @@ static inline volatile uint32_t *hw(uint32_t a){
     __asm__("" : "+l"(p));
     return p;
 }
-#define SYST_LOAD   (*(volatile uint32_t *)0xE000E014u)
-#define SYST_VAL    (*(volatile uint32_t *)0xE000E018u)
 #define ADC_SR      (hw(0x40012400u)[0x00/4])
 #define ADC_CR2     (hw(0x40012400u)[0x08/4])
 #define ADC_SMPR3   (hw(0x40012400u)[0x14/4])
@@ -92,7 +94,20 @@ static inline volatile uint32_t *hw(uint32_t a){
 #define REG_RAW2B_AND 0x0007u
 #define REG_RAW73_OR  0x0010u
 
-/* ---- decoder state ---- */
+/* ---- demodulator (test/model_rx.py, class DemodInt) ---- */
+typedef struct {
+    int32_t dc;
+    int32_t x1, x2, y1, y2;
+    int32_t hi, lo;
+    int32_t ph, iint;
+    int32_t bsum;
+    int16_t box[BOX];
+    uint8_t last, bi;
+} dem_t;
+
+static dem_t g_dm;
+
+/* ---- state ---- */
 static struct {
     lbj_rx_t rx;
     char     sess[16];            /* last 1233999/1234000 short block (15 ch) */
@@ -100,7 +115,11 @@ static struct {
     bool     popup;
     bool     dirty;
     char     l0[20], l1[20], l2[20], l3[20], l4[20];
-    uint32_t tPrev, tCyc;
+
+    bool     on;                 /* sampler running                           */
+    uint16_t ticks, lostTicks;
+    uint32_t savedModer, savedDac, savedRcc, savedDhr, savedSqr3, savedSmpr3;
+    uint16_t saved2B, saved73;
 } g;
 
 /* ---- formatting ---- */
@@ -126,10 +145,9 @@ static char *putkm(char *o, const char *p){       /* 5 BCD chars -> DDDD.D */
     char c = p[4]; *o++ = (c >= '0' && c <= '9') ? c : '0';
     return o;
 }
-static const char HEX[] = "0123456789ABCDEF";
-static char *puthex2(char *o, uint8_t v){ *o++ = HEX[(v >> 4) & 0xFu]; *o++ = HEX[v & 0xFu]; return o; }
+static const char HEXD[] = "0123456789ABCDEF";
+static char *puthex2(char *o, uint8_t v){ *o++ = HEXD[(v >> 4) & 0xFu]; *o++ = HEXD[v & 0xFu]; return o; }
 
-/* "<train> <dir>" from a 6-char short block. */
 static char *puttrain(char *o, const char *sb, uint8_t func, bool have){
     if (!have){ *o++ = '-'; *o++ = '-'; }
     else for (uint8_t i = 0; i < 6u; i++) if (sb[i] != ' ') *o++ = sb[i];
@@ -137,7 +155,6 @@ static char *puttrain(char *o, const char *sb, uint8_t func, bool have){
     return put(o, (func == 1u) ? "DN" : ((func == 3u) ? "UP" : "??"));
 }
 
-/* Decode the LBJ family; only 1233999..1234002 are laid out. */
 static bool is_lbj(uint32_t a){ return (uint32_t)(a - 1233999u) <= 3u; }
 static bool hasdet(uint32_t a, uint8_t len){
     if (!is_lbj(a)) return false;
@@ -145,8 +162,7 @@ static bool hasdet(uint32_t a, uint8_t len){
     return len >= 65u;                      /* merged only */
 }
 
-/* Build the popup lines from a decoded report (no Chinese: the model is the
- * raw code and the route field is printed as its raw bytes in hex). */
+/* Build the popup lines (no Chinese: raw model code, route field in hex). */
 static void format(uint32_t addr, uint8_t func, const char *b, uint16_t len){
     char *o;
     if (hasdet(addr, (uint8_t)len)){
@@ -158,11 +174,8 @@ static void format(uint32_t addr, uint8_t func, const char *b, uint16_t len){
         const bool have = merged || g.sessValid;
 
         o = g.l0; o = puttrain(o, sb, func, have); *o = '\0';
-        /* model code [4:7] + loco number [7:12], raw ASCII, no Chinese name */
         o = g.l1; for (uint8_t i = 4u; i < 12u && i < dlen; i++) *o++ = d[i]; *o = '\0';
-        /* route field [14:30] shown as raw bytes */
         o = g.l2; if (dlen >= 30u){ for (uint8_t i = 14u; i < 30u; i++) o = puthex2(o, (uint8_t)d[i]); } *o = '\0';
-        /* speed + km from the short prefix / last short report */
         o = g.l3; o = put(o, "SPD");
         if (have){ o = putu(o, digv(sb + 6u, 3u)); o = put(o, " KM"); o = putkm(o, sb + 10u); }
         else o = put(o, " --");
@@ -177,7 +190,7 @@ static void format(uint32_t addr, uint8_t func, const char *b, uint16_t len){
     }
 }
 
-/* ---- decoder callback ---- */
+/* ---- decoder callback (timer ISR context: only set flags) ---- */
 void lbj_emit_msg(const lbj_rx_t *r, const char *bcd, uint16_t len){
     if ((uint32_t)(r->addr - 1233980u) > 40u)
         return;                                   /* keep the LBJ family only */
@@ -188,14 +201,18 @@ void lbj_emit_msg(const lbj_rx_t *r, const char *bcd, uint16_t len){
     format(r->addr, r->func, bcd, len);
     g.popup = true;
     g.dirty = true;
-    BACKLIGHT_TurnOn();
 }
 
 /* ---- popup ---- */
 bool LBJ_PopupActive(void){ return g.popup; }
-void LBJ_ClosePopup(void){ g.popup = false; gUpdateDisplay = true; }
+void LBJ_ClosePopup(void){ if (g.popup){ g.popup = false; gUpdateDisplay = true; } }
 
 bool LBJ_HandleKey(uint8_t key){
+    if (key == KEY_PTT){                 /* PTT closes the popup and stops the sampler, still transmits */
+        LBJ_ClosePopup();
+        LBJ_StopSampler();
+        return false;
+    }
     if (!g.popup)
         return false;
     if (key == KEY_EXIT){
@@ -210,8 +227,7 @@ void LBJ_DrawPopup(void){
     UI_DisplayClear();
     UI_StatusClear();
 
-    GUI_DisplaySmallest("LBJ RX", 2, 0, true, true);
-    /* frequency on the status bar (10 Hz units -> MHz) */
+    GUI_DisplaySmallest("LBJ", 2, 0, true, true);
     {
         uint32_t fr = LBJ_FREQ_HZ10;
         char *o = f;
@@ -235,26 +251,38 @@ void LBJ_DrawPopup(void){
     ST7565_BlitFullScreen();
 }
 
-/* ---- frequency test ---- */
+/* ---- frequency test ("LBJ mode" is selected by the channel modulation, but
+ * the frequency helper is kept for reference / future auto-detection) ---- */
 bool LBJ_IsLbjFreq(uint32_t f){
     return (f > LBJ_FREQ_HZ10) ? ((f - LBJ_FREQ_HZ10) <= LBJ_FREQ_TOL)
                               : ((LBJ_FREQ_HZ10 - f) <= LBJ_FREQ_TOL);
 }
-
+/* "LBJ mode": the selected RX VFO's modulation is LBJ. */
 bool LBJ_RxVfoIsLbj(void){
-    return gRxVfo && gRxVfo->pRX && LBJ_IsLbjFreq(gRxVfo->pRX->Frequency);
+    return gRxVfo && gRxVfo->Modulation == MODULATION_LBJ;
 }
+bool LBJ_Active(void){ return g.on; }
 
-/* ---- demodulator (test/model_rx.py, class DemodInt) ---- */
-typedef struct {
-    int32_t dc;
-    int32_t x1, x2, y1, y2;
-    int32_t hi, lo;
-    int32_t ph, iint;
-    int32_t bsum;
-    int16_t box[BOX];
-    uint8_t last, bi;
-} dem_t;
+/* ---- PA4 ADC / DAC bias ---- */
+static void adcSelPA4(uint32_t smpr3, uint32_t sqr3){
+    ADC_SMPR3 = (smpr3 & ~(7u << SMP4_POS)) | (((smpr3 >> SMP8_POS) & 7u) << SMP4_POS);
+    ADC_SQR3 = (sqr3 & ~0x1Fu) | ADC_CH_PA4;
+}
+static uint16_t adcRead(void){
+    ADC_CR2 |= LBJ_ADC_CR2_START;
+    for (uint16_t n = 0; !(ADC_SR & LBJ_ADC_SR_EOC) && n < 2000u; n++){}
+    return (uint16_t)(ADC_DR & 0x0FFFu);
+}
+static void biasOn(uint32_t moder, uint32_t rcc){
+    GPIOA_MODER = moder | (3u << 8);
+    RCC_APBENR1 = rcc | RCC_DACEN;
+    DAC_CR = DAC_CR_BIAS;
+    DAC_DHR12R1 = BIAS_CODE;
+    DAC_SWTRIGR = 1u;
+}
+static void biasOff(uint32_t dac, uint32_t dhr, uint32_t rcc, uint32_t moder){
+    DAC_CR = dac; DAC_DHR12R1 = dhr; RCC_APBENR1 = rcc; GPIOA_MODER = moder;
+}
 
 static void dem_sample(dem_t *m, int32_t x){
     m->dc += (x - m->dc) >> DC_SHIFT;
@@ -288,87 +316,100 @@ static void dem_sample(dem_t *m, int32_t x){
     if (m->ph >= 65536) m->ph -= 65536;
 }
 
-/* ---- PA4 ADC / DAC bias / SysTick timing ---- */
-static void adcSelPA4(uint32_t smpr3, uint32_t sqr3){
-    ADC_SMPR3 = (smpr3 & ~(7u << SMP4_POS)) | (((smpr3 >> SMP8_POS) & 7u) << SMP4_POS);
-    ADC_SQR3 = (sqr3 & ~0x1Fu) | ADC_CH_PA4;
-}
-static uint16_t adcRead(void){
-    ADC_CR2 |= LBJ_ADC_CR2_START;
-    for (uint16_t n = 0; !(ADC_SR & LBJ_ADC_SR_EOC) && n < 2000u; n++){}
-    return (uint16_t)(ADC_DR & 0x0FFFu);
-}
-static void biasOn(uint32_t moder, uint32_t rcc){
-    GPIOA_MODER = moder | (3u << 8);
-    RCC_APBENR1 = rcc | RCC_DACEN;
-    DAC_CR = DAC_CR_BIAS;
-    DAC_DHR12R1 = BIAS_CODE;
-    DAC_SWTRIGR = 1u;
-}
-static void biasOff(uint32_t dac, uint32_t dhr, uint32_t rcc, uint32_t moder){
-    DAC_CR = dac; DAC_DHR12R1 = dhr; RCC_APBENR1 = rcc; GPIOA_MODER = moder;
-}
-static void clkStart(void){ g.tPrev = SYST_VAL; g.tCyc = 0; }
-static uint32_t clkCyc(void){
-    uint32_t v = SYST_VAL;
-    g.tCyc += (v <= g.tPrev) ? (g.tPrev - v) : (g.tPrev + (SYST_LOAD + 1u - v));
-    g.tPrev = v;
-    return g.tCyc;
+/* ---- 19.2 kHz sampler (TIM3 update interrupt) ---- */
+void TIM3_IRQHandler(void){
+    if (LL_TIM_IsActiveFlag_UPDATE(TIM3)){
+        LL_TIM_ClearFlag_UPDATE(TIM3);
+        dem_sample(&g_dm, adcRead());
+    }
 }
 
-/* ---- one bounded LBJ receive dwell (blocking) ---- */
-void LBJ_Dwell(void){
-    const uint32_t savedModer = GPIOA_MODER, savedDac = DAC_CR;
-    const uint32_t savedRcc = RCC_APBENR1, savedDhr = DAC_DHR12R1;
-    const uint32_t savedSqr3 = ADC_SQR3, savedSmpr3 = ADC_SMPR3;
-    const uint16_t saved2B = BK4819_ReadRegister((BK4819_REGISTER_t)REG_2B);
-    const uint16_t saved73 = BK4819_ReadRegister((BK4819_REGISTER_t)REG_73);
+static void samplerStart(void){
+    g.savedModer = GPIOA_MODER; g.savedDac = DAC_CR;
+    g.savedRcc = RCC_APBENR1;   g.savedDhr = DAC_DHR12R1;
+    g.savedSqr3 = ADC_SQR3;     g.savedSmpr3 = ADC_SMPR3;
+    g.saved2B = BK4819_ReadRegister((BK4819_REGISTER_t)REG_2B);
+    g.saved73 = BK4819_ReadRegister((BK4819_REGISTER_t)REG_73);
 
-    /* Mute the LBJ dwell (channel A keeps its own audio path). */
-    AUDIO_AudioPathOff();
+    AUDIO_AudioPathOff();                       /* LBJ dwell is muted */
 
-    biasOn(savedModer, savedRcc);
-    BK4819_WriteRegister((BK4819_REGISTER_t)REG_2B, (uint16_t)((saved2B | REG_RAW2B_OR) & ~REG_RAW2B_AND));
-    BK4819_WriteRegister((BK4819_REGISTER_t)REG_73, (uint16_t)(saved73 | REG_RAW73_OR));
+    biasOn(g.savedModer, g.savedRcc);
+    BK4819_WriteRegister((BK4819_REGISTER_t)REG_2B, (uint16_t)((g.saved2B | REG_RAW2B_OR) & ~REG_RAW2B_AND));
+    BK4819_WriteRegister((BK4819_REGISTER_t)REG_73, (uint16_t)(g.saved73 | REG_RAW73_OR));
     BK4819_SetAF(BK4819_AF_FM);
 
     memset(&g.rx, 0, sizeof g.rx);
+    memset(&g_dm, 0, sizeof g_dm);
+    g_dm.dc = BIAS_CODE; g_dm.hi = 200; g_dm.lo = -200;
 
-    dem_t dm;
-    memset(&dm, 0, sizeof dm);
-    dm.dc = BIAS_CODE; dm.hi = 200; dm.lo = -200;
+    adcSelPA4(g.savedSmpr3, g.savedSqr3);
 
-    adcSelPA4(savedSmpr3, savedSqr3);
-    clkStart();
-    uint32_t next = 0;
-    uint16_t cnt = 0;
-    const uint32_t maxS  = (FS / 1000u) * LBJ_DWELL_MS;
-    const uint32_t holdS = maxS + (FS / 1000u) * LBJ_HOLD_MS;
+    LL_APB1_GRP1_EnableClock(LL_APB1_GRP1_PERIPH_TIM3);
+    LL_TIM_SetPrescaler(TIM3, 0);
+    LL_TIM_SetAutoReload(TIM3, (SystemCoreClock / FS) - 1u);
+    LL_TIM_SetCounter(TIM3, 0);
+    LL_TIM_ClearFlag_UPDATE(TIM3);
+    LL_TIM_EnableIT_UPDATE(TIM3);
+    NVIC_SetPriority(TIM3_IRQn, 2);
+    NVIC_EnableIRQ(TIM3_IRQn);
+    LL_TIM_EnableCounter(TIM3);
 
-    for (uint32_t n = 0; (n < maxS) || (g.rx.inmsg && n < holdS); n++){
-        while ((int32_t)(clkCyc() - next) < 0){}
-        next += CYC_PER_SAMPLE;
-        dem_sample(&dm, adcRead());
+    g.ticks = 0; g.lostTicks = 0;
+    g.on = true;
+}
 
-        if (++cnt >= LBJ_HOUSE_SAMPLES){
-            cnt = 0;
-            if (g.dirty){ g.dirty = false; LBJ_DrawPopup(); }
-            KEY_Code_t k = KEYBOARD_GetKey();
-            if (k != KEY_INVALID)
-                LBJ_HandleKey((uint8_t)k);
-            if (GPIO_IsPttPressed())
-                break;                  /* let the main loop key up on channel A */
-            BACKLIGHT_Update();
-        }
-    }
+static void samplerStop(void){
+    if (!g.on)
+        return;
+    LL_TIM_DisableCounter(TIM3);
+    LL_TIM_DisableIT_UPDATE(TIM3);
+    NVIC_DisableIRQ(TIM3_IRQn);
+    g.on = false;
 
-    /* Restore the analog front end for channel A. */
-    ADC_SQR3   = savedSqr3;
-    ADC_SMPR3  = savedSmpr3;
-    BK4819_WriteRegister((BK4819_REGISTER_t)REG_2B, saved2B);
-    BK4819_WriteRegister((BK4819_REGISTER_t)REG_73, saved73);
-    biasOff(savedDac, savedDhr, savedRcc, savedModer);
+    ADC_SQR3   = g.savedSqr3;
+    ADC_SMPR3  = g.savedSmpr3;
+    BK4819_WriteRegister((BK4819_REGISTER_t)REG_2B, g.saved2B);
+    BK4819_WriteRegister((BK4819_REGISTER_t)REG_73, g.saved73);
+    biasOff(g.savedDac, g.savedDhr, g.savedRcc, g.savedModer);
 
     if (gEnableSpeaker)
         AUDIO_AudioPathOn();
+}
+
+void LBJ_StopSampler(void){ samplerStop(); }
+
+/* ADC sharing with the battery reader (channel 8). */
+void LBJ_AdcBegin(void){
+    if (g.on){ NVIC_DisableIRQ(TIM3_IRQn); ADC_SQR3 = g.savedSqr3; }
+}
+void LBJ_AdcEnd(void){
+    if (g.on){ ADC_SQR3 = (g.savedSqr3 & ~0x1Fu) | ADC_CH_PA4; NVIC_EnableIRQ(TIM3_IRQn); }
+}
+
+/* ---- 10 ms tick ---- */
+void LBJ_Tick(void){
+    /* Never sample while keyed up: the TX path reconfigures the radio. */
+    if (gCurrentFunction == FUNCTION_TRANSMIT || gPttIsPressed){
+        samplerStop();
+        return;
+    }
+    if (g.on){
+        if (++g.ticks >= LBJ_MAX_TICKS){          /* safety cap */
+            samplerStop();
+        } else if (g_SquelchLost){                /* carrier gone -> stop */
+            if (++g.lostTicks >= LBJ_LOST_DEBOUNCE)
+                samplerStop();
+        } else {
+            g.lostTicks = 0;
+        }
+    } else {
+        if (LBJ_RxVfoIsLbj() && !g_SquelchLost)   /* FM-like squelch triggers LBJ mode */
+            samplerStart();
+    }
+
+    if (g.dirty){                                 /* refresh the popup from the main loop */
+        g.dirty = false;
+        BACKLIGHT_TurnOn();
+        gUpdateDisplay = true;
+    }
 }

@@ -25,6 +25,9 @@
 #include "helper/battery.h"
 #include "misc.h"
 #include "settings.h"
+#ifdef ENABLE_FEAT_F4HWN_LBJ
+    #include "app/lbj_dual.h"
+#endif
 
 #include "driver/backlight.h"
 #include "driver/gpio.h"
@@ -89,7 +92,11 @@ void SysTick_Handler(void)
         DECREMENT_AND_TRIGGER(gPowerSave_10ms, gPowerSaveCountdownExpired);
 
     if (gScanStateDir == SCAN_OFF && !gCssBackgroundScan && gEeprom.DUAL_WATCH != DUAL_WATCH_OFF)
-        if (gCurrentFunction != FUNCTION_MONITOR && gCurrentFunction != FUNCTION_TRANSMIT && gCurrentFunction != FUNCTION_RECEIVE)
+        if (gCurrentFunction != FUNCTION_MONITOR && gCurrentFunction != FUNCTION_TRANSMIT && gCurrentFunction != FUNCTION_RECEIVE
+        #ifdef ENABLE_FEAT_F4HWN_LBJ
+            && !LBJ_Active()   /* hold the LBJ mode while decoding */
+        #endif
+        )
             DECREMENT_AND_TRIGGER(gDualWatchCountdown_10ms, gScheduleDualWatch);
 
 #ifdef ENABLE_NOAA
