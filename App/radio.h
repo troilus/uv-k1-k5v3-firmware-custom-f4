@@ -66,6 +66,10 @@ typedef enum {
     MODULATION_RAW,
 #endif
 
+#ifdef ENABLE_FEAT_F4HWN_LBJ
+    MODULATION_LBJ,          /* receive-only: LBJ / POCSAG decode (PA4 sampler) */
+#endif
+
     MODULATION_UKNOWN
 } ModulationMode_t;
 

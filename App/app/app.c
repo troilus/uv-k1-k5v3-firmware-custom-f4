@@ -30,6 +30,9 @@
 #include "app/app.h"
 #include "app/chFrScanner.h"
 #include "app/dtmf.h"
+#ifdef ENABLE_FEAT_F4HWN_LBJ
+    #include "app/lbj_dual.h"
+#endif
 #ifdef ENABLE_FLASHLIGHT
     #include "app/flashlight.h"
 #endif
@@ -1082,6 +1085,9 @@ void APP_Update(void)
         && gScanStateDir == SCAN_OFF
         && !gPttIsPressed
         && gCurrentFunction != FUNCTION_POWER_SAVE
+#ifdef ENABLE_FEAT_F4HWN_LBJ
+        && !LBJ_Active()            /* hold the LBJ mode while decoding */
+#endif
 #ifdef ENABLE_FEAT_F4HWN_BEAM
         && !gBeamActive
 #endif
@@ -1493,6 +1499,11 @@ void APP_TimeSlice10ms(void)
 
     if (gCurrentFunction != FUNCTION_POWER_SAVE || !gRxIdleMode)
         CheckRadioInterrupts();
+
+#ifdef ENABLE_FEAT_F4HWN_LBJ
+    /* LBJ mode: start/stop the PA4 sampler from the FM squelch state. */
+    LBJ_Tick();
+#endif
 
 #ifdef ENABLE_FEAT_F4HWN
     HandleRxEndBlink();
@@ -1995,6 +2006,15 @@ static void ProcessKey(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
         }
     }
     #endif
+
+#ifdef ENABLE_FEAT_F4HWN_LBJ
+    /* The LBJ decode popup is display-only: EXIT closes it and is consumed. */
+    if (bKeyPressed && LBJ_HandleKey((uint8_t)Key))
+    {
+        gBeepToPlay = BEEP_NONE;
+        return;
+    }
+#endif
 
     if (Key == KEY_EXIT && !BACKLIGHT_IsOn() && !gFmRadioMode && gEeprom.BACKLIGHT_TIME > 0)
     {   // just turn the light on for now so the user can see what's what

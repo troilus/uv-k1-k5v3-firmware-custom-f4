@@ -49,7 +49,10 @@ const char gModulationStr[MODULATION_UKNOWN][4] = {
 
 #ifdef ENABLE_BYP_RAW_DEMODULATORS
     [MODULATION_BYP]="BYP",
-    [MODULATION_RAW]="RAW"
+    [MODULATION_RAW]="RAW",
+#endif
+#ifdef ENABLE_FEAT_F4HWN_LBJ
+    [MODULATION_LBJ]="LBJ",
 #endif
 };
 
@@ -1051,7 +1054,11 @@ void RADIO_SetTxParameters(void)
 void RADIO_SetModulation(ModulationMode_t modulation)
 {
     #ifdef ENABLE_BYP_RAW_DEMODULATORS
-    if (modulation == MODULATION_BYP || modulation == MODULATION_RAW) {
+    if (modulation == MODULATION_BYP || modulation == MODULATION_RAW
+    #ifdef ENABLE_FEAT_F4HWN_LBJ
+        || modulation == MODULATION_LBJ
+    #endif
+    ) {
         uint16_t reg_3d_val = 0x0000;
 
         if (modulation == MODULATION_BYP) {
@@ -1242,8 +1249,12 @@ void RADIO_PrepareTX(void)
         State = VFO_STATE_VOLTAGE_HIGH;
     }
 #ifdef ENABLE_BYP_RAW_DEMODULATORS
-    else if (gCurrentVfo->Modulation == MODULATION_BYP || gCurrentVfo->Modulation == MODULATION_RAW) {
-        // BYP/RAW are receive-only modes.
+    else if (gCurrentVfo->Modulation == MODULATION_BYP || gCurrentVfo->Modulation == MODULATION_RAW
+    #ifdef ENABLE_FEAT_F4HWN_LBJ
+        || gCurrentVfo->Modulation == MODULATION_LBJ
+    #endif
+    ) {
+        // BYP/RAW/LBJ are receive-only modes.
         State = VFO_STATE_TX_DISABLE;
     }
 #endif

@@ -23,6 +23,9 @@
 #ifdef ENABLE_FEAT_F4HWN_BEAM
     #include "app/beam.h"
 #endif
+#ifdef ENABLE_FEAT_F4HWN_LBJ
+    #include "app/lbj_dual.h"
+#endif
 
 #ifdef ENABLE_AM_FIX
     #include "am_fix.h"
@@ -1089,6 +1092,10 @@ void UI_MAIN_TimeSlice500ms(void)
 #endif
 
         if(FUNCTION_IsRx()) {
+#ifdef ENABLE_FEAT_F4HWN_LBJ
+            /* Don't draw the S-meter over the LBJ decode window. */
+            if (!LBJ_PopupActive())
+#endif
             DisplayRSSIBar(true);
         }
     }
@@ -1103,6 +1110,16 @@ static void UI_FormatFrequency(uint32_t freq, char *buffer) {
 void UI_DisplayMain(void)
 {
     char               String[22];
+
+#ifdef ENABLE_FEAT_F4HWN_LBJ
+    /* A decoded LBJ report owns the screen until EXIT. */
+    if (LBJ_PopupActive())
+    {
+        center_line = CENTER_LINE_NONE;
+        LBJ_DrawPopup();
+        return;
+    }
+#endif
 
     center_line = CENTER_LINE_NONE;
 
