@@ -44,6 +44,18 @@
 #ifndef PLL_K
 #define PLL_K     3    /* zero-crossing correction gain, 1/8                */
 #endif
+/* Front-end pre-filter + adaptive slicer, mirroring the proven apps (lbj uses a
+ * slow DC tracker + low-pass biquad + peak tracker; aprsrx a band-pass + AGC).
+ * Pre-filter: RBJ low-pass biquad, Q=0.7071 (Butterworth), fc @ 38.4 kHz, Q14
+ * (b2 = b0). Default fc ~8 kHz: passes the AIS main lobe, rejects out-of-band
+ * noise. Overridable with -D for sweeps. */
+#ifndef LPF_B0
+#define LPF_B0   8893
+#define LPF_B1  17786
+#define LPF_B2   8893
+#define LPF_A1  14160
+#define LPF_A2   5027
+#endif
 #define MIN_FRAME 24u  /* smallest sane frame, bits (3 bytes)               */
 #define FLAG7E    6u   /* consecutive 1s that end a frame (01111110)        */
 
@@ -69,6 +81,7 @@ void ais_init(ais_t *d)
     d->meanQ8  = -1;          /* seed on first sample                       */
     d->acc     = 0;
     d->ph      = 0;
+    d->bx1 = d->bx2 = d->by1 = d->by2 = 0;   /* biquad state               */
     d->nbits   = 0;
     d->state   = AIS_SEARCH;
     d->prev_lvl = 0;
@@ -179,7 +192,23 @@ bool ais_push(ais_t *d, uint16_t sample)
     d->meanQ8 += (e + (1 << (MEAN_SHR - 1))) >> MEAN_SHR;
     int32_t v = e >> 4;
 
-    /* Zero-crossing DPLL: pull the slot phase toward each sign change. */
+    /* Pre-filter (low-pass biquad, Q14): strip out-of-band noise. */
+#ifdef AIS_NO_LPF
+    int32_t y = v;
+#else
+    int32_t y = (LPF_B0 * v + LPF_B1 * d->bx1 + LPF_B2 * d->bx2
+                 - LPF_A1 * d->by1 - LPF_A2 * d->by2) >> 14;
+    d->bx2 = d->bx1; d->bx1 = v;
+    d->by2 = d->by1; d->by1 = y;
+#endif
+
+    /* Slice on the filtered signal (timing above stays on the raw v). */
+    int32_t yc = y;
+
+    /* Zero-crossing DPLL: pull the slot phase toward each sign change.
+     * Use the UNfiltered v for timing (the pre-filter's group delay would
+     * otherwise shift the crossings and break the loop); the filtered yc only
+     * feeds the integrator below. */
     uint8_t s = (uint8_t)(v > 0);
     if (s != d->prev_lvl) {
         int32_t err = d->ph;
@@ -190,7 +219,7 @@ bool ais_push(ais_t *d, uint16_t sample)
     }
 
     /* Integrate over the symbol, slice on slot end, NRZI decode. */
-    d->acc += v;
+    d->acc += yc;
     d->ph  += 256;
     if (d->ph >= SLOT) {
         d->ph -= SLOT;

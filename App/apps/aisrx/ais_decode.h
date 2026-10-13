@@ -50,6 +50,11 @@ typedef struct {
     int32_t  meanQ8;       /* input DC estimate, x256                        */
     int32_t  acc;          /* symbol integrator (one symbol, DC-removed)     */
     int32_t  ph;           /* position in the symbol slot, Q8 (slot=1024)    */
+    /* front-end pre-filter (low-pass biquad), mirroring the proven apps
+     * (lbj's biquad, aprsrx's band-pass): reject out-of-band noise. Timing is
+     * still taken from the raw signal so the filter's delay cannot break the
+     * zero-crossing DPLL. */
+    int32_t  bx1, bx2, by1, by2;   /* biquad state (Q14)                     */
     uint16_t nbits;        /* bits collected in the current frame            */
     uint8_t  state;        /* AIS_SEARCH / AIS_DATA / AIS_DONE               */
     uint8_t  prev_lvl;     /* previous DC-removed sign (sample rate)         */
