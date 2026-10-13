@@ -25,6 +25,9 @@ int main(int argc, char **argv)
         unsigned type = d.nbits >= 6 ? ((d.frame[0] >> 2) & 0x3Fu) : 0xFFu;
         printf("frame nbits=%u type=%u parse=%s crcOk=%u",
                d.nbits, type, ok ? "OK" : "REJECT", d.crcOk);
+        printf(" hex=");
+        for (unsigned i = 0; i < (d.nbits >> 3) && i < 64u; i++)
+            printf("%02X", d.frame[i]);
         if (ok) {
             if (in.type == 1u || in.type == 3u)
                 printf(" mmsi=%lu sog=%u cog=%u lat=%ld lon=%ld",

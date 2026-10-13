@@ -86,12 +86,16 @@ DEST ST PETERSBURG
 
 ### 诊断工具 / Diagnostics (host only, not in the app)
 
-`test/` 下三个独立脚本，不参与 `run_tests.sh`（主套件保持 8/8），也不进 CI 产物：
+`test/` 下的独立诊断脚本，不参与 `run_tests.sh`（主套件保持 8/8），也不进 CI 产物：
 
 | 工具 | 用途 |
 |---|---|
 | `diag_chain.py` | 扫**带宽悬崖**（AF 低通截止）和**波特/采样率误差**容限，定位解调链在哪个维度断裂 |
-| `diag_real_audio.py` + `diag_frame.c` | 把**真实 AIS 录音**喂给解调链，dump 每个 CRC 有效帧（长度/类型/parse 结果），验证算法对真实波形有效 |
+| `diag_real_audio.py` + `diag_frame.c` | 把**真实 AIS 录音**喂给解调链，dump 每个 CRC 有效帧（长度/类型/hex/parse 结果），验证算法对真实波形有效 |
+| `diag_sdr_iq.py` | 把**真实 SDR IQ**（WAV）解调成基带 `.u16` 供 `host_ais`/`diag_frame` 跑 |
+| `ref_decoder.py` | **独立参考解码器**（Python，不同定时恢复：突发+相位搜索+积分），可在同一真实 IQ 上与我 C 解码器对照、并输出合法 MMSI |
+| `mk96.py` / `run_spssweep.sh` | 把 ship162 已知 IQ `ais_96k.bin`（Cu8/96k 双信道）解调成 `.u16`，按 4/8/16 sps 跑 C 解码器 |
+| `chk_crc.py` | 独立复算 CRC 残差（与 `ais_decode.c` 的 crc16 一致，MSB-first），核对帧真伪 |
 | `real_payloads.txt` | 真实 AISHub payload（`real` 主测试用） |
 
 ### 字段含义 / Field reference
