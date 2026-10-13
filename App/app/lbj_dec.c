@@ -50,10 +50,11 @@ static bool bch_dec(uint32_t cw, uint32_t *out)
     return false;
 }
 
-/* One message finished: extract the BCD string and hand it to the app. */
+/* One message finished: extract the BCD string and hand it to the app.  The
+ * buffer is static (BSS) so the 19.2 kHz ISR does not grow its stack. */
 static void lbj_flush(lbj_rx_t *r)
 {
-    char bcd[LBJ_CWMAX * 5u];
+    static char bcd[LBJ_CWMAX * 5u];
     uint16_t k = 0;
     r->inmsg = 0;
     if (!r->n)
