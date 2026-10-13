@@ -26,6 +26,7 @@
 
 #include "lbj_dec.h"
 #include "lbj_dual.h"
+#include "lbj_types.h"
 
 #include "audio.h"
 #include "driver/backlight.h"
@@ -163,7 +164,22 @@ static bool hasdet(uint32_t a, uint8_t len){
     return len >= 65u;                      /* merged only */
 }
 
-/* Build the popup lines (no Chinese: raw model code, route field in hex). */
+/* Locomotive model code -> ASCII name (generated table, sorted by code). */
+static const char *type_name(uint16_t code){
+    int lo = 0, hi = (int)LBJ_TYPE_COUNT - 1;
+    while (lo <= hi){
+        int mid = (lo + hi) >> 1;
+        uint16_t c = LBJ_TYPES[mid].code;
+        if (c == code) return LBJ_TYPES[mid].name;
+        if (c < code) lo = mid + 1; else hi = mid - 1;
+    }
+    return NULL;
+}
+
+/* Build the popup lines (no Chinese: model shown as its ASCII name, route field
+ * printed as raw bytes). Layout for 1234001/1234002:
+ *   row0 train + direction, row1 SPD, row2 KM, row3 model + registration,
+ *   row4 route. */
 static void format(uint32_t addr, uint8_t func, const char *b, uint16_t len){
     char *o;
     if (hasdet(addr, (uint8_t)len)){
@@ -175,13 +191,23 @@ static void format(uint32_t addr, uint8_t func, const char *b, uint16_t len){
         const bool have = merged || g.sessValid;
 
         o = g.l0; o = puttrain(o, sb, func, have); *o = '\0';
-        o = g.l1; for (uint8_t i = 4u; i < 12u && i < dlen; i++) *o++ = d[i]; *o = '\0';
-        o = g.l2; if (dlen >= 30u){ for (uint8_t i = 14u; i < 30u; i++) o = puthex2(o, (uint8_t)d[i]); } *o = '\0';
-        o = g.l3; o = put(o, "SPD");
-        if (have){ o = putu(o, digv(sb + 6u, 3u)); o = put(o, " KM"); o = putkm(o, sb + 10u); }
-        else o = put(o, " --");
+        o = g.l1; o = put(o, "SPD ");
+        if (have){ o = putu(o, digv(sb + 6u, 3u)); o = put(o, " km/h"); }
+        else o = put(o, "--");
         *o = '\0';
-        o = g.l4; o = putu(o, addr); *o = '\0';
+        o = g.l2; o = put(o, "KM ");
+        if (have) o = putkm(o, sb + 10u); else o = put(o, "--");
+        *o = '\0';
+        o = g.l3; {
+            const char *nm = type_name((uint16_t)digv(d + 4u, 3u));
+            if (nm) o = put(o, nm); else o = put(o, "--");
+            *o++ = ' ';
+            for (uint8_t i = 4u; i < 12u && i < dlen; i++) *o++ = d[i];
+        }
+        *o = '\0';
+        o = g.l4;
+        if (dlen >= 30u){ for (uint8_t i = 14u; i < 30u; i++) o = puthex2(o, (uint8_t)d[i]); }
+        *o = '\0';
     } else {
         o = g.l0; o = puttrain(o, b, func, len >= 6u); *o = '\0';
         o = g.l1; o = put(o, "SPD "); o = putu(o, digv(b + 6u, 3u)); o = put(o, " km/h"); *o = '\0';
@@ -389,6 +415,11 @@ void LBJ_Tick(void){
         samplerStop();
         return;
     }
+
+    /* Another channel got a signal: dismiss the LBJ decode window. */
+    if (!LBJ_RxVfoIsLbj() && g_SquelchLost)
+        LBJ_ClosePopup();
+
     if (g.on){
         if (++g.ticks >= LBJ_MAX_TICKS){          /* watchdog only */
             samplerStop();

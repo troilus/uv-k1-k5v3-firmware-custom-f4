@@ -724,9 +724,7 @@ static void MAIN_Key_EXIT(bool bKeyPressed, bool bKeyHeld)
 {
     if (!bKeyHeld && bKeyPressed) { // exit key pressed
         gBeepToPlay = BEEP_1KHZ_60MS_OPTIONAL;  // beep when key is pressed
-        if (gInputBoxIndex == 0) {
-            ACTION_RxMode();                    // toggle RX MODE (single/dual channel)
-        }
+        // EXIT no longer toggles single/dual channel
         return;                                 // don't use the key till it's released
     }
 
@@ -923,11 +921,7 @@ static void MAIN_Key_STAR(bool bKeyPressed, bool bKeyHeld)
     
     if (!gWasFKeyPressed) // pressed without the F-key
     {   
-        if (!bKeyHeld && !bKeyPressed) // short press release
-        {
-            // Toggle VFO A/B (like long press 2)
-            processFKeyFunction(KEY_2, true);
-        }
+        /* '*' no longer toggles VFO A/B */
     }
     else
     {   // with the F-key

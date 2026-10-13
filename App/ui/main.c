@@ -1092,6 +1092,10 @@ void UI_MAIN_TimeSlice500ms(void)
 #endif
 
         if(FUNCTION_IsRx()) {
+#ifdef ENABLE_FEAT_F4HWN_LBJ
+            /* Don't draw the S-meter over the LBJ decode window. */
+            if (!LBJ_PopupActive())
+#endif
             DisplayRSSIBar(true);
         }
     }
@@ -1111,6 +1115,7 @@ void UI_DisplayMain(void)
     /* A decoded LBJ report owns the screen until EXIT. */
     if (LBJ_PopupActive())
     {
+        center_line = CENTER_LINE_NONE;
         LBJ_DrawPopup();
         return;
     }
