@@ -217,6 +217,16 @@ endif()
 enable_feature(ENABLE_FEAT_F4HWN_QRCODE)
 enable_feature(ENABLE_FEAT_F4HWN_LOGO)
 
+# LBJ dual-watch: resident LBJ/POCSAG receive on the dual-watch LBJ VFO
+# (821.2375 MHz), with a decode popup. See App/app/lbj_dual.c.
+enable_feature(ENABLE_FEAT_F4HWN_LBJ
+    app/lbj_dec.c
+    app/lbj_dual.c
+)
+if(ENABLE_FEAT_F4HWN_LBJ AND NOT ENABLE_FEAT_F4HWN)
+    message(FATAL_ERROR "ENABLE_FEAT_F4HWN_LBJ requires ENABLE_FEAT_F4HWN.")
+endif()
+
 # ---- OVERLAY APPS ----
 # Modal code blobs loaded from the external SPI flash into a fixed 4 KiB RAM
 # workspace. Deliberately independent of multiboot here (no firmware slots or

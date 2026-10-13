@@ -23,6 +23,9 @@
 #ifdef ENABLE_FEAT_F4HWN_BEAM
     #include "app/beam.h"
 #endif
+#ifdef ENABLE_FEAT_F4HWN_LBJ
+    #include "app/lbj_dual.h"
+#endif
 
 #ifdef ENABLE_AM_FIX
     #include "am_fix.h"
@@ -1103,6 +1106,15 @@ static void UI_FormatFrequency(uint32_t freq, char *buffer) {
 void UI_DisplayMain(void)
 {
     char               String[22];
+
+#ifdef ENABLE_FEAT_F4HWN_LBJ
+    /* A decoded LBJ report owns the screen until EXIT. */
+    if (LBJ_PopupActive())
+    {
+        LBJ_DrawPopup();
+        return;
+    }
+#endif
 
     center_line = CENTER_LINE_NONE;
 

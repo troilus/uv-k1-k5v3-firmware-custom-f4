@@ -211,6 +211,18 @@
                 "EDITION_STRING": "Fusion",
                 "TARGET": "f4hwn.fusion"
             }
+        },
+        {
+            "name": "LBJRadio",
+            "inherits": "Fusion",
+            "cacheVariables": {
+                "ENABLE_SPECTRUM": false,
+                "ENABLE_FEAT_F4HWN_SPECTRUM": false,
+                "ENABLE_FEAT_F4HWN_LBJ": true,
+                "ENABLE_SWD": false,
+                "EDITION_STRING": "LBJRadio",
+                "TARGET": "lbjradio"
+            }
         }
     ],
     "buildPresets": [
@@ -241,6 +253,10 @@
         {
             "name": "Fusion",
             "configurePreset": "Fusion"
+        },
+        {
+            "name": "LBJRadio",
+            "configurePreset": "LBJRadio"
         }
     ]
 }

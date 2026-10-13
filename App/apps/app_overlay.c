@@ -550,9 +550,10 @@ static uint32_t app_tx_freq(void)        { return gTxVfo->pTX->Frequency; }
  * message the upstream app reads, so the callsign is hardcoded and overridable
  * with -DAPP_APRS_CALLSIGN="...". It must be A-Z/0-9 only and <= 6 characters
  * (AX.25 address limit); the APRS TX app refuses to transmit on a longer or
- * slash-bearing callsign. The SSID is set inside the app (key 3). */
+ * slash-bearing callsign. The SSID is set inside the app (key 3).
+ * Default left empty: no personal callsign is shipped in the firmware. */
 #ifndef APP_APRS_CALLSIGN
-#define APP_APRS_CALLSIGN "BD8CKF"
+#define APP_APRS_CALLSIGN ""
 #endif
 
 static void app_boot_callsign(char *buf, uint8_t len)

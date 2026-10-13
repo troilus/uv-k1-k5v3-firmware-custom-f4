@@ -30,6 +30,9 @@
 #include "app/app.h"
 #include "app/chFrScanner.h"
 #include "app/dtmf.h"
+#ifdef ENABLE_FEAT_F4HWN_LBJ
+    #include "app/lbj_dual.h"
+#endif
 #ifdef ENABLE_FLASHLIGHT
     #include "app/flashlight.h"
 #endif
@@ -120,6 +123,13 @@ static_assert(ARRAY_SIZE(ProcessKeysFunctions) == DISPLAY_N_ELEM);
 
 static void CheckForIncoming(void)
 {
+#ifdef ENABLE_FEAT_F4HWN_LBJ
+    /* The LBJ dual-watch VFO carries POCSAG data, not voice: its audio is
+     * decoded by LBJ_Dwell(), so never let the squelch pull the radio into the
+     * normal voice receive path while it is the selected RX VFO. */
+    if (gEeprom.DUAL_WATCH != DUAL_WATCH_OFF && LBJ_RxVfoIsLbj())
+        return;
+#endif
     if (!g_SquelchLost)
         return;          // squelch is closed
 
@@ -652,6 +662,13 @@ static void DualwatchAlternate(void)
 
     RADIO_SetupRegisters(false);
 
+#ifdef ENABLE_FEAT_F4HWN_LBJ
+    /* LBJ channel: run a bounded receive dwell (PA4 sampling + POCSAG/LBJ
+     * decode) instead of just parking on the FSK channel. */
+    if (LBJ_RxVfoIsLbj())
+        LBJ_Dwell();
+#endif
+
     #ifdef ENABLE_NOAA
         gDualWatchCountdown_10ms = gIsNoaaMode ? dual_watch_count_noaa_10ms : dual_watch_count_toggle_10ms;
     #else
@@ -1121,6 +1138,12 @@ void APP_Update(void)
 #endif
 
     if (gSchedulePowerSave) {
+#ifdef ENABLE_FEAT_F4HWN_LBJ
+        /* Dedicated LBJ firmware: never drop into power save, so the receiver
+         * (and the LBJ dual-watch dwell) stays live. */
+        gSchedulePowerSave = false;
+        gBatterySaveCountdown_10ms = battery_save_count_10ms;
+#else
         if (gPttIsPressed
             || gKeyBeingHeld
             || gEeprom.BATTERY_SAVE == 0
@@ -1143,6 +1166,7 @@ void APP_Update(void)
         }
 
         gSchedulePowerSave = false;
+#endif
     }
 
     if (gPowerSaveCountdownExpired && gCurrentFunction == FUNCTION_POWER_SAVE
@@ -1995,6 +2019,15 @@ static void ProcessKey(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
         }
     }
     #endif
+
+#ifdef ENABLE_FEAT_F4HWN_LBJ
+    /* The LBJ decode popup is display-only: EXIT closes it and is consumed. */
+    if (bKeyPressed && LBJ_HandleKey((uint8_t)Key))
+    {
+        gBeepToPlay = BEEP_NONE;
+        return;
+    }
+#endif
 
     if (Key == KEY_EXIT && !BACKLIGHT_IsOn() && !gFmRadioMode && gEeprom.BACKLIGHT_TIME > 0)
     {   // just turn the light on for now so the user can see what's what
