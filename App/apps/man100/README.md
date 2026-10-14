@@ -1,6 +1,6 @@
 # Man100 — 是男人就下100层
 
-Author: **bd8ckf** · Version: **0.1**
+Version: **0.1**
 
 A compact port of the classic Wenquxing "是男人就下100层" ("It takes a man to
 descend 100 floors") for the 128x64 monochrome LCD, built on the overlay-app
@@ -11,7 +11,7 @@ under gravity — steer him left and right to drop from one floor to the next.
 
 Descend **100 floors** to win. It is one life: touch the spiked ceiling, land
 on a spiked floor, or fall out the bottom of the screen and the run ends
-immediately. Your best depth is saved to flash and shown on the HUD.
+immediately.
 
 The floor generator always leaves a way down — each safe floor plans the next
 one a bounded distance away, and spiked floors are kept out of the fall
@@ -21,12 +21,12 @@ corridor between them, so a skilled run is always survivable.
 
 | Key | Action |
 |---|---|
-| `4` / `6` or `←` / `→` | Move left / right |
+| `←` / `→` (or `4` / `0`) | Move left / right |
 | `F` | Pause / resume |
 | `MENU` | Start / restart after GAME OVER or YOU WIN |
 | `EXIT` | Quit |
 
-The status bar shows `F <floor>` on the left and your saved best on the right.
+The status bar shows `F <floor>` on the left.
 
 ## Build
 

@@ -1,6 +1,4 @@
-/* Copyright 2026 bd8ckf
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
+/* Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
@@ -18,11 +16,10 @@
  *
  * The generator always leaves a way down: each safe floor plans the next one
  * at most MAX_SHIFT pixels away, and the spiked floors are kept out of the
- * fall corridor between the two. Survive 100 floors and you win; your best
- * depth is saved to flash (cfg_save).
+ * fall corridor between the two. Survive 100 floors and you win.
  *
- * Controls: 4/6 or LEFT/RIGHT to move, F pauses, MENU restarts after the end,
- * EXIT quits.
+ * Controls: LEFT/RIGHT (or 4 and 0) to move, F pauses, MENU restarts after
+ * the end, EXIT quits.
  */
 
 #include <stdint.h>
@@ -46,7 +43,6 @@
 #define MAN_H          8
 #define BOOM          12u     /* explosion length in ticks                   */
 #define WIN_FLOOR    100u     /* descend this many floors to win             */
-#define CFG_MAGIC   0x4D31u   /* 'M1'                                        */
 #define NONE        0xFFu
 
 enum { ST_PLAY, ST_OVER, ST_WIN, ST_TITLE };
@@ -71,9 +67,8 @@ struct globals {
     uint8_t rows;
     uint8_t cd[CD_COUNT];
     /* end of NEW_GAME */
-    bool bestDirty;
     uint8_t vy, on, lastRowY;
-    uint16_t floor, best;
+    uint16_t floor;
     int32_t bx, by, boomX, boomY;       /* man and explosion, top-left       */
     const app_api_t *api;
     plat_t plats[N_PLAT];
@@ -84,12 +79,6 @@ static struct globals g;
 _Static_assert(offsetof(struct globals, cd) + CD_COUNT - offsetof(struct globals, mode)
                == NEW_GAME_LEN, "new-game fields do not match NEW_GAME");
 _Static_assert(offsetof(struct globals, lastRowY) < 32u, "byte fields out of ldrb range");
-
-typedef struct {
-    uint16_t magic;
-    uint16_t version;
-    uint16_t best;
-} config_t;
 
 void *memset(void *dst, int value, size_t size)
 {
@@ -195,17 +184,11 @@ static void spawn_row(int y)
 
 static void new_game(void);
 
-static void update_best(void)
-{
-    if (g.floor > g.best) { g.best = g.floor; g.bestDirty = true; }
-}
-
 static void die(void)
 {
     g.mode = ST_OVER;
     g.cd[CD_WAIT] = 40u;
     g.cd[CD_BOOM] = BOOM; g.boomX = g.bx; g.boomY = g.by;
-    update_best();
     A->play_tone(200u, 60u);
 }
 
@@ -213,7 +196,6 @@ static void win(void)
 {
     g.mode = ST_WIN;
     g.cd[CD_WAIT] = 40u;
-    update_best();
     A->play_tone(900u, 90u);
 }
 
@@ -297,12 +279,11 @@ static void draw(void)
     if (g.mode == ST_PLAY) blit(g.bx, g.by, SPR_MAN, MAN_W);
     if (g.cd[CD_BOOM]) blit(g.boomX, g.boomY, SPR_BOOM, MAN_W);
 
-    /* HUD on the status line: F <floor> ........ <best> */
+    /* HUD on the status line: F <floor> */
     char buf[TEXT_MAX];
     A->asset_read(T_FLOOR, buf, TEXT_MAX);
     A->print_tiny(buf, 1, 1, true, true);
     hud_number(g.floor > 999u ? 999u : g.floor, 3, 9);
-    hud_number(g.best > 999u ? 999u : g.best, 3, 108);
 
     if (g.mode == ST_OVER) say(T_GAME_OVER, 3);
     else if (g.mode == ST_WIN) say(T_WIN, 3);
@@ -354,9 +335,9 @@ static void poll_key(void)
     if (press && key == APP_KEY_F) { g.paused = !g.paused; return; }
     if (g.paused) return;
 
-    int dx = 2 * A->nav_dir(key);   /* 0 for any key but LEFT/RIGHT (or UP/DOWN) */
+    int dx = 2 * A->nav_dir(key);   /* LEFT/RIGHT arrows (K1) or UP/DOWN (K5) */
     if (key == APP_KEY_4) dx = -2;
-    if (key == APP_KEY_6) dx = 2;
+    if (key == APP_KEY_0) dx = 2;
     g.bx += dx;
     if (g.bx < 1) g.bx = 1;
     if (g.bx > W - MAN_W - 1) g.bx = W - MAN_W - 1;
@@ -365,15 +346,10 @@ static void poll_key(void)
 __attribute__((section(".text.entry"), used))
 void app_main(const app_api_t *api)
 {
-    config_t cfg;
     A = api;
-    A->cfg_load((uint8_t *)&cfg, sizeof(cfg));
-    g.best = cfg.magic == CFG_MAGIC && cfg.version == 1u ? cfg.best : 0u;
-
     g.prevKey = A->get_key();
     g.running = true;   /* the rest of g starts zeroed (.bss) */
     A->led(false); A->backlight_on();
-    new_game();
     g.mode = ST_TITLE;   /* MENU starts a descent, like after the end */
 
     while (g.running) {
@@ -386,14 +362,6 @@ void app_main(const app_api_t *api)
         }
         A->backlight_update();
         A->delay_ms(TICK_MS);
-    }
-
-    update_best();
-    if (g.bestDirty) {
-        cfg.magic = CFG_MAGIC;
-        cfg.version = 1u;
-        cfg.best = g.best;
-        A->cfg_save((const uint8_t *)&cfg, sizeof(cfg));
     }
     A->led(false);
 }
