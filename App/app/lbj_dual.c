@@ -501,6 +501,17 @@ static void processPending(void){
     }
     format(addr, func, bcd, len);
     sanitize(g.l0); sanitize(g.l1); sanitize(g.l2); sanitize(g.l3);
+
+#ifdef ENABLE_LBJ_HIDE9
+    /* Optional build: a train number starting with 9 is never displayed.
+     * g.l0 is "<prefix><digits> <dir>" exactly as puttrain() wrote it, so its
+     * first character is the first character of the shown train number. The
+     * session tracking above has already run: reception and decoding are
+     * untouched, only the report is dropped. */
+    if (g.l0[0] == '9')
+        return;
+#endif
+
     history_push(addr);
     if (!g.dismissed){
         g.popup = true;

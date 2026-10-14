@@ -17,12 +17,24 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Two artifacts: the plain name hides the reports whose train number
+        # starts with 9, the "9" suffixed one shows everything. The overlay
+        # budget is tight, so a hide-variant overflow still lets the other
+        # artifact build (fail-fast is off).
+        include:
+          - { hide9: '1', suffix: ''  }
+          - { hide9: '',  suffix: '9' }
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Compile overlay apps
+    - name: Compile overlay apps${{ matrix.suffix }}
+      env:
+        LBJ_HIDE9: ${{ matrix.hide9 }}
       run: |
         chmod +x compile-app.sh
         ./compile-app.sh All
@@ -30,6 +42,6 @@ jobs:
     - name: Upload overlay apps artifact
       uses: actions/upload-artifact@v4
       with:
-        name: overlay-apps
+        name: overlay-apps${{ matrix.suffix }}
         path: build/Apps/*.app
         if-no-files-found: error

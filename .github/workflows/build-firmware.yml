@@ -24,18 +24,26 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Two artifacts: the plain name hides the reports whose train number
+        # starts with 9, the "9" suffixed one shows everything.
+        include:
+          - { hide9: 'ON',  suffix: ''  }
+          - { hide9: 'OFF', suffix: '9' }
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Compile firmware
+    - name: Compile Fusion${{ matrix.suffix }}
       run: |
         chmod +x compile-with-docker.sh
-        ./compile-with-docker.sh Fusion
+        ./compile-with-docker.sh Fusion -DENABLE_LBJ_HIDE9=${{ matrix.hide9 }}
 
     - name: Upload firmware artifact
       uses: actions/upload-artifact@v4
       with:
-        name: firmware-artifact
+        name: firmware-artifact${{ matrix.suffix }}
         path: build/Fusion/f4hwn.fusion.bin

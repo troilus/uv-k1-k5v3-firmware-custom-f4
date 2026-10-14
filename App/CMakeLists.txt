@@ -223,6 +223,11 @@ enable_feature(ENABLE_FEAT_F4HWN_LBJ
     app/lbj_dec.c
     app/lbj_dual.c
 )
+# Optional LBJ build variant: never display a report whose train number starts
+# with 9 (see processPending() in lbj_dual.c). Off by default, so a plain local
+# build is unchanged; the CI passes -DENABLE_LBJ_HIDE9=ON for one of the two
+# firmware artifacts of each preset.
+enable_feature(ENABLE_LBJ_HIDE9)
 if(ENABLE_FEAT_F4HWN_LBJ AND NOT ENABLE_FEAT_F4HWN)
     message(FATAL_ERROR "ENABLE_FEAT_F4HWN_LBJ requires ENABLE_FEAT_F4HWN.")
 endif()
