@@ -78,6 +78,7 @@ for app in "${TARGETS[@]}"; do
     if docker run --rm ${TTY_ARG:+"$TTY_ARG"} -u "$(id -u):$(id -g)" \
             -v "$PWD":/work -w "/work/$APPS_DIR/$app" \
             -e PATH="/opt/toolchain/bin:/usr/bin:/bin" -e APP_VMA="$APP_VMA" \
+            -e LBJ_HIDE9="${LBJ_HIDE9:-}" \
             "$IMAGE" bash -c "set -eo pipefail; rm -f -- \"\$1\"; sed 's/\r$//' ./build.sh | bash" \
             bash "$app.map"; then
         appfile=$(ls -1 "$APPS_DIR/$app"/*.app 2>/dev/null | head -1)

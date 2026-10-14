@@ -27,19 +27,25 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        preset: [ Fusion, LBJRadio ]
+        # Two artifacts per preset: the plain name hides the reports whose
+        # train number starts with 9, the "9" suffixed one shows everything.
+        include:
+          - { preset: Fusion,   hide9: 'ON',  suffix: ''  }
+          - { preset: Fusion,   hide9: 'OFF', suffix: '9' }
+          - { preset: LBJRadio, hide9: 'ON',  suffix: ''  }
+          - { preset: LBJRadio, hide9: 'OFF', suffix: '9' }
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Compile ${{ matrix.preset }}
+    - name: Compile ${{ matrix.preset }}${{ matrix.suffix }}
       run: |
         chmod +x compile-with-docker.sh
-        ./compile-with-docker.sh ${{ matrix.preset }}
+        ./compile-with-docker.sh ${{ matrix.preset }} -DENABLE_LBJ_HIDE9=${{ matrix.hide9 }}
 
     - name: Upload firmware artifact
       uses: actions/upload-artifact@v4
       with:
-        name: firmware-${{ matrix.preset }}
+        name: firmware-${{ matrix.preset }}${{ matrix.suffix }}
         path: build/${{ matrix.preset }}/*.bin

@@ -175,6 +175,11 @@ static char *putu(char *o,uint32_t v){
     for(uint8_t i=0;i<n;i++){ char c=p[i]; if(c>='0'&&c<='9') v=v*10u+(uint32_t)(c-'0'); }
     return v;
 }
+/* 3 BCD chars -> decimal, or a dash when the field was not decoded at all. */
+static char *putspd(char *o,const char *p){
+    if((uint8_t)(p[0]-'0')>9u){ *o++='-'; return o; }
+    return putu(o,digv(p,3u));
+}
 /* 5 BCD chars -> DDDD.D (blank / non-digit -> 0) */
 static char *putkm(char *o,const char *p){
     for(uint8_t i=0;i<4u;i++){ char c=p[i]; *o++=(c>='0'&&c<='9')?c:'0'; }
@@ -304,6 +309,18 @@ static bool hasdet(uint32_t a,uint8_t len){
 
 void lbj_emit_msg(const lbj_rx_t *r, const char *bcd, uint16_t len){
     if(!in_lbj(r->addr)) return;      /* keep the LBJ family only */
+#ifdef LBJ_HIDE9
+    /* Optional build: never keep a report whose train number starts with 9.
+     * Mirrors puttrain(): the sticky prefix char comes first and only when
+     * there is none does the short block's first non-blank digit show. A
+     * standalone detail (30..64 chars) borrows the last short block. */
+    {
+        const char *p=(len>=30u&&len<65u)?g.sess:bcd;
+        char c=g.pref[0]?g.pref[0]:g.pref[1];
+        if(!c) for(uint8_t i=0;i<6u;i++) if(p[i]!=' '){ c=p[i]; break; }
+        if(c=='9') return;
+    }
+#endif
     g.A->backlight_on();              /* wake the screen on RX activity */
     g.ledPhase=4u;                    /* green LED: on/off/on/off, 100 ms a step */
     rec_t *rec=g.hist[HISTORY-1u];
@@ -461,9 +478,13 @@ static void drawSummary(char *s){
             A->print_bold(str,0,0,2);
         }
 
-        /* row3: speed and position km (from the short prefix / last report). */
+        /* row3: speed and position km (from the short prefix / last report).
+         * A speed that was not decoded is a dash, never a fake 0. */
         o=str; o=put(o,s+T_SPD2);
-        if(have){ o=putu(o,digv(sb+6u,3u)); o=put(o,s+T_KM); o=putkm(o,sb+10u); }
+        if(have){
+            o=putspd(o,sb+6u);
+            o=put(o,s+T_KM); o=putkm(o,sb+10u);
+        }
         else o=put(o,"--");
         *o='\0';
         A->print_bold(str,0,0,3);
@@ -486,8 +507,8 @@ static void drawSummary(char *s){
         /* row0: train + direction. */
         o=str; o=puttrain(o,b,s,rec->func,rec->len>=6u); *o='\0';
         A->print_bold(str,0,0,0);
-        /* row1: SPEED xx km/h. */
-        o=str; o=put(o,s+T_SPD); o=putu(o,digv(b+6u,3u)); o=put(o,s+T_KMH); *o='\0';
+        /* row1: SPEED xx km/h; an undecoded speed is a dash, not a 0. */
+        o=str; o=put(o,s+T_SPD); o=putspd(o,b+6u); o=put(o,s+T_KMH); *o='\0';
         A->print_bold(str,0,0,1);
         /* row2: KM xxxx.x. */
         o=str; o=put(o,s+T_KM);

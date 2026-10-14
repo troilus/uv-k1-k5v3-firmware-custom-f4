@@ -20,6 +20,12 @@ command -v arm-none-eabi-gcc >/dev/null 2>&1 && { CC=arm-none-eabi-gcc; OBJCOPY=
 # GCC 13 supports -Oz: prioritize overlay size over instruction count.
 CFLAGS="-mcpu=cortex-m0plus -mthumb -Oz -fno-jump-tables -std=gnu11 -ffreestanding -fno-builtin -fno-common \
   -fomit-frame-pointer -ffunction-sections -fdata-sections -fno-inline-functions-called-once -Wall -Wextra"
+# Optional build variant, passed through compile-app.sh: hide the reports whose
+# train number starts with 9 (LBJ_HIDE9 non-empty). The overlay budget is tight,
+# so only the hide variant pays for it.
+if [ -n "${LBJ_HIDE9:-}" ]; then
+  CFLAGS="$CFLAGS -DLBJ_HIDE9"
+fi
 LDFLAGS="-nostdlib -nostartfiles -T app.ld -Wl,--defsym,APP_VMA=${APP_VMA} \
   -Wl,--gc-sections -Wl,-Map=${APP}.map -Wl,--build-id=none -Wl,--no-warn-rwx-segments"
 
