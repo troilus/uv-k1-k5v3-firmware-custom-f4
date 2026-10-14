@@ -28,26 +28,25 @@ static uint16_t bch_syn(uint32_t d31)
     return r;
 }
 
-/* BCH(31,21) decode. Returns 0 when the word was already clean, 1 when a
- * single bit was corrected, 2 when it is uncorrectable. The 31 single-bit
- * syndromes are recomputed on demand (no 62-byte table). */
-static uint8_t bch_dec(uint32_t cw, uint32_t *out)
+/* Correct a single-bit error; returns false when the word is uncorrectable.
+ * The 31 single-bit syndromes are recomputed on demand (no 62-byte table). */
+static bool bch_dec(uint32_t cw, uint32_t *out)
 {
     uint32_t d31 = (cw >> 1) & 0x7FFFFFFFu;
     uint16_t s = bch_syn(d31);
     if (!s) {
         *out = cw;
-        return 0u;
+        return true;
     }
     for (uint8_t p = 0; p < 31u; p++) {
         if (bch_syn(1u << p) == s) {
             d31 ^= (1u << p);
             *out = (d31 << 1) | (cw & 1u);
-            return 1u;
+            return true;
         }
     }
     *out = cw;
-    return 2u;
+    return false;
 }
 
 /* One message finished: extract the BCD string and hand it to the app. */
@@ -98,7 +97,7 @@ void lbj_rx_bit(lbj_rx_t *r, uint8_t bit)
 
     uint32_t raw = r->pol ? r->sr : ~r->sr;
     uint32_t cor;
-    uint8_t st = bch_dec(raw, &cor);
+    bool ok = bch_dec(raw, &cor);
 
     /* debug counters (see lbj_dec.h):
      * r->words++; if (ok) { r->ok++; if (cor != raw) r->fix++; } else r->bad++; */
@@ -117,15 +116,12 @@ void lbj_rx_bit(lbj_rx_t *r, uint8_t bit)
         r->addr = ((cor >> 13) & 0x3FFFFu) * 8u + (uint32_t)((r->fp - 1u) >> 1);
         r->n = 0u;
         r->inmsg = 1u;
-        r->err = (st == 2u) ? 1u : 0u;      /* new report: the flags start here */
-        r->cor = (st == 1u) ? 1u : 0u;
+        r->err = ok ? 0u : 1u;
     } else if (r->inmsg) {
         if (r->n < LBJ_CWMAX)
             r->cws[r->n++] = cor;
-        if (st == 2u)
+        if (!ok)
             r->err = 1u;
-        else if (st == 1u)
-            r->cor = 1u;
     }
 
     if (r->wc >= 16u)
