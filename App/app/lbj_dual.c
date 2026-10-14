@@ -513,7 +513,8 @@ bool LBJ_HandleKey(uint8_t key){
 /* The decode report owns the whole screen while it is up: the main area is
  * cleared and redrawn. The status bar is left exactly as UI_DisplayStatus()
  * drew it - no caption, no frequency. */
-#define POP_PAGEX  20u                  /* page number, middle-left            */
+#define POP_FOOTER (FRAME_LINES - 1)    /* the very bottom row of the screen  */
+#define POP_PAGEX   0u                  /* page number, hard left             */
 #define POP_TIMEX  52u                  /* age, middle                        */
 #define POP_EXITX 100u                  /* EXIT, hard right (100..127)        */
 
@@ -541,21 +542,22 @@ void LBJ_DrawPopup(void){
         UI_PrintStringSmallNormal(s, 0, 0, 4);
     }
 
-    /* footer: page and age in normal size, EXIT bold and hard right */
+    /* footer on the bottom row: page and age in normal size, EXIT bold and
+     * hard right */
     {
         char *o = s;
         o = putu(o, (uint32_t)g.cur + 1u);
         *o++ = '/';
         o = putu(o, g.count);
         *o = '\0';
-        UI_PrintStringSmallNormal(s, POP_PAGEX, 0, 5);
+        UI_PrintStringSmallNormal(s, POP_PAGEX, 0, POP_FOOTER);
     }
     {
         char *o = putage(s, (uint16_t)(g.sec - r->sec));
         *o = '\0';
-        UI_PrintStringSmallNormal(s, POP_TIMEX, 0, 5);
+        UI_PrintStringSmallNormal(s, POP_TIMEX, 0, POP_FOOTER);
     }
-    UI_PrintStringSmallBold("EXIT", POP_EXITX, 0, 5);
+    UI_PrintStringSmallBold("EXIT", POP_EXITX, 0, POP_FOOTER);
 
     ST7565_BlitStatusLine();
     ST7565_BlitFullScreen();
