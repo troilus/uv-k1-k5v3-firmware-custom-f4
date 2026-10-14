@@ -1092,6 +1092,10 @@ void UI_MAIN_TimeSlice500ms(void)
 #endif
 
         if(FUNCTION_IsRx()) {
+#ifdef ENABLE_FEAT_F4HWN_LBJ
+            /* The LBJ decode window owns the screen: no S-meter over it. */
+            if (!LBJ_PopupActive())
+#endif
             DisplayRSSIBar(true);
         }
     }
@@ -1108,9 +1112,13 @@ void UI_DisplayMain(void)
     char               String[22];
 
 #ifdef ENABLE_FEAT_F4HWN_LBJ
-    /* The LBJ decode window is a popup drawn on top of the normal screen at
-     * the end of this function, so the S-meter and the rest stay behind it. */
-    const bool lbjPopup = LBJ_PopupActive();
+    /* A decoded LBJ report owns the screen until EXIT. */
+    if (LBJ_PopupActive())
+    {
+        center_line = CENTER_LINE_NONE;
+        LBJ_DrawPopup();
+        return;
+    }
 #endif
 
     center_line = CENTER_LINE_NONE;
@@ -2287,11 +2295,6 @@ void UI_DisplayMain(void)
     //#ifdef ENABLE_FEAT_F4HWN_RESCUE_OPS
     //}
     //#endif
-#endif
-
-#ifdef ENABLE_FEAT_F4HWN_LBJ
-    if (lbjPopup)
-        LBJ_DrawPopup();
 #endif
 
     ST7565_BlitFullScreen();
