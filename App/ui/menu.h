@@ -163,7 +163,12 @@ enum
     MENU_F2SHRT,
     MENU_F2LONG,
     MENU_MLONG,
-    MENU_BATTYP
+    MENU_BATTYP,
+#ifdef ENABLE_FEAT_F4HWN_LBJ
+    /* Not a setting: selecting it drops out of the menu and opens the decode
+     * window on the main screen. Appended last so no existing id moves. */
+    MENU_LBJ
+#endif
 };
 
 extern const uint8_t FIRST_HIDDEN_MENU_ITEM;

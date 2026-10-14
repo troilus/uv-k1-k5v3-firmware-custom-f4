@@ -570,6 +570,19 @@ void LBJ_ClosePopup(void){
     g.dismissed = true;              /* stay dismissed until the carrier drops */
 }
 
+/* Manually open the decode window (the LBJ menu item): unlike a received report
+ * nothing re-arms it, so it simply stays until EXIT or PTT, and the newest
+ * report is shown. Refuses when the history is still empty. */
+bool LBJ_OpenPopup(void){
+    if (!g.count)
+        return false;
+    g.cur       = 0;
+    g.popup     = true;
+    g.dismissed = false;             /* an explicit open overrides an earlier EXIT */
+    g.dirty     = true;
+    return true;
+}
+
 /* The decode window owns the keypad while it is up: nothing else may reach
  * the radio. Only the fresh press of a key does anything - UP/DOWN step
  * through the history once and EXIT closes the window - while a hold, a

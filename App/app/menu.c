@@ -41,6 +41,9 @@
 #include "ui/inputbox.h"
 #include "ui/menu.h"
 #include "ui/ui.h"
+#ifdef ENABLE_FEAT_F4HWN_LBJ
+    #include "app/lbj_dual.h"
+#endif
 
 
 uint8_t gUnlockAllTxConfCnt;
@@ -1840,6 +1843,17 @@ static void MENU_Key_MENU(const bool bKeyPressed, const bool bKeyHeld)
     if (!gIsInSubMenu)
     {
         const int m = UI_MENU_GetCurrentMenuId();
+
+#ifdef ENABLE_FEAT_F4HWN_LBJ
+        if (m == MENU_LBJ)
+        {   /* A pure action rather than a setting: drop out of the menu and
+             * open the decode window on the main screen. With nothing decoded
+             * yet there is nothing to show, so the menu stays where it is. */
+            if (LBJ_OpenPopup())
+                gRequestDisplayScreen = DISPLAY_MAIN;
+            return;
+        }
+#endif
 
         #ifdef ENABLE_VOICE
             if (m != MENU_SCR)
