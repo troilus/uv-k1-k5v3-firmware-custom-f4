@@ -32,7 +32,7 @@ UI = [
     ("T_DN",     "DN"),
     ("T_UP",     "UP"),
     ("T_UNK",    "??"),
-    ("T_LINE",   "LINE "),   # route initials label, English mode
+    ("T_ROUTE",  "线路 "),
     # footer flags (bottom status bar): "5EN 4BL:ON 1SPK:ON x/y -rr"
     ("T_L5",     "5"),
     ("T_EN",     "EN"),
