@@ -527,9 +527,11 @@ void LBJ_ClosePopup(void){
 }
 
 /* The decode window owns the keypad while it is up: nothing else may reach
- * the radio. The two paging keys step through the message history, EXIT
- * closes the window and PTT closes it and transmits. */
-bool LBJ_HandleKey(uint8_t key){
+ * the radio. Only the fresh press of a key does anything - UP/DOWN step
+ * through the history once and EXIT closes the window - while a hold, a
+ * release and every other key are swallowed silently. PTT closes the window
+ * and transmits. */
+bool LBJ_HandleKey(uint8_t key, bool pressed, bool held){
     if (key == KEY_PTT){                 /* PTT closes the popup and stops the sampler, still transmits */
         LBJ_ClosePopup();
         LBJ_StopSampler();
@@ -537,6 +539,8 @@ bool LBJ_HandleKey(uint8_t key){
     }
     if (!g.popup)
         return false;
+    if (!pressed || held)                 /* held or released: eat it, but do not step again */
+        return true;
     if (key == KEY_EXIT){
         LBJ_ClosePopup();
         return true;
@@ -755,6 +759,19 @@ void LBJ_Tick(void){
         samplerStop();
         return;
     }
+
+    /* While the decode window is up, hold the battery save off. Otherwise the
+     * radio falls asleep 10 s after the last key, and then LBJ_Tick() returns
+     * before it can consume g.dirty, so the window freezes for good: the keys
+     * it swallows never reach the wake-up in the normal key path either. The
+     * window may also open while already asleep (processPending runs above),
+     * so wake up in that case too. */
+    if (g.popup){
+        gBatterySaveCountdown_10ms = battery_save_count_10ms;
+        if (gCurrentFunction == FUNCTION_POWER_SAVE)
+            FUNCTION_Select(FUNCTION_FOREGROUND);
+    }
+
     if (gCurrentFunction == FUNCTION_POWER_SAVE){
         samplerStop();
         return;

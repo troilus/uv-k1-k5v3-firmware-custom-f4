@@ -2019,7 +2019,7 @@ static void ProcessKey(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
      * release) is swallowed so nothing reaches the radio, but the backlight is
      * still woken so the key press is visible. PTT returns false and
      * transmits. */
-    if (LBJ_HandleKey((uint8_t)Key))
+    if (LBJ_HandleKey((uint8_t)Key, bKeyPressed, bKeyHeld))
     {
         BACKLIGHT_TurnOn();
         gBeepToPlay = BEEP_NONE;

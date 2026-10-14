@@ -36,9 +36,12 @@ bool LBJ_PopupActive(void);
 void LBJ_ClosePopup(void);
 void LBJ_DrawPopup(void);
 
-/* Key hook: consumes EXIT while the popup is up; PTT closes the popup but is
- * left to the normal transmit path. Returns true when the key was consumed. */
-bool LBJ_HandleKey(uint8_t key);
+/* Key hook: while the popup is up every key event is swallowed, so nothing
+ * reaches the radio. Only a fresh press acts - UP/DOWN step through the
+ * history once and EXIT closes the window - so holding a key does not
+ * auto-repeat and releasing it does not step again. PTT closes the popup but
+ * is left to the normal transmit path. Returns true when the key was consumed. */
+bool LBJ_HandleKey(uint8_t key, bool pressed, bool held);
 
 /* ADC sharing with the battery reader (channel 8): suspend the sampler around
  * a battery conversion so neither corrupts the other. */
