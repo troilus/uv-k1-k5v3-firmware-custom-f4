@@ -51,6 +51,14 @@
  * separate history entries. The route and the model name use the radio's
  * built-in 8x8 Chinese font; key 5 switches to an ASCII fallback (English
  * abbreviations like DF4C/SS7E, route hidden) for radios without it.
+ *
+ * The train number is prefixed with the 2 ASCII train-class chars at [0:4]
+ * (K/T/D/C...), each packed as 2 BCD nibbles like the route: they are sticky in
+ * g.pref (as LBJ_Console's lbjClass), so a short report with no detail block
+ * still carries the last prefix seen. The top status bar is left exactly as the
+ * firmware's UI_DisplayStatus() draws it - the app draws no title (an app title
+ * there was wiped by UI_DisplayStatus()'s own UI_StatusClear() before blit) and
+ * no frequency, which also freed the overlay bytes this prefix needed.
  */
 
 #include <stdint.h>
@@ -139,6 +147,7 @@ static struct {
     bool     running, spk, blAlways, en, sessValid;
     uint8_t  busyFor, ledPhase;   /* ledPhase: green-LED double-blink steps */
     char     sess[16];         /* last 1233999/1234000 short block (train/spd/km) */
+    char     pref[3];          /* sticky 2-char train prefix from the last detail */
     int32_t  rssi;
     uint32_t tPrev, tCyc, rssiMs;
     uint32_t savedSqr3, savedSmpr3;
@@ -338,6 +347,18 @@ static uint8_t nib(char c){
         default:  return 0u;
     }
 }
+/* The detail block's [0:4] holds 2 ASCII train-prefix chars (e.g. "K "), each
+ * as 2 BCD nibbles - exactly how the route field is packed. Decode them into
+ * the sticky g.pref, printable bytes only, non-printables (and the usual blank
+ * pad) dropped, so "K " becomes "K". Sticky like LBJ_Console's lbjClass: a
+ * short report has no detail block, yet still shows the last prefix seen. */
+static void decode_pref(const char *d){
+    for(uint8_t i=0;i<2u;i++){
+        uint8_t v=(uint8_t)((nib(d[i*2u])<<4)|nib(d[i*2u+1u]));
+        g.pref[i]=(v>0x20u&&v<0x7Fu)?(char)v:0;   /* drop NUL/space and controls */
+    }
+    g.pref[2]='\0';
+}
 /* Binary search the sorted u16 model-code asset; returns the index or -1. */
 static int type_index(uint16_t code){
     int lo=0, hi=(int)TY_COUNT-1;
@@ -374,8 +395,11 @@ static void drawFooter(const char *s){
 }
 
 /* Append "<train> <dir>" from the short block sb (6 chars); used by both the
- * short and the 1234002 layouts. */
+ * short and the 1234002 layouts. The sticky train prefix (K/T/D/C...) decoded
+ * from the last detail block goes in front, as LBJ_Console's fullTrainNumber. */
 static char *puttrain(char *o,const char *sb,const char *s,uint8_t func,bool have){
+    if(g.pref[0]) *o++=g.pref[0];
+    if(g.pref[1]) *o++=g.pref[1];
     if(!have){ *o++='-'; *o++='-'; }
     else for(uint8_t i=0;i<6u;i++) if(sb[i]!=' ') *o++=sb[i];
     *o++=' ';
@@ -403,6 +427,8 @@ static void drawSummary(char *s){
         const uint8_t dlen=(uint8_t)(rec->len-start);
         const char *sb=merged?b:g.sess;        /* merged carries its own short block */
         const bool have=merged||g.sessValid;
+
+        decode_pref(d);                        /* sticky train prefix, [0:4] */
 
         /* row0: train + direction. */
         o=str; o=puttrain(o,sb,s,rec->func,have); *o='\0';
@@ -507,21 +533,13 @@ static void draw(void){
     char s[UI_SIZE] __attribute__((aligned(4)));
     A->asset_read(0,s,UI_SIZE);
     A->display_clear();
-    A->status_clear();
-    A->print_inverse(s+T_TITLE,2,0,true,true,(uint8_t)(2u+T_TITLE_CHARS*4u));
+    /* The status bar is left exactly as UI_DisplayStatus() draws it: its first
+     * action is UI_StatusClear(), so an app-drawn title there would be wiped
+     * before blit (it was). draw_battery() is that call; no frequency either. */
     A->draw_battery();
     /* Page indicator and the PDU page are disabled (SUM-only); see the #if 0
      * blocks for the removed code. */
     drawSummary(s);
-
-    /* Frequency on the status bar: the framebuffer is only FRAME_LINES (7) rows
-     * tall, so a y >= 56 would write past gFrameBuffer. */
-    char *f=str; uint32_t fr=A->rx_freq();
-    f=putu(f,sub(&fr,100000u)); *f++='.';
-    *f++=(char)('0'+sub(&fr,10000u)); *f++=(char)('0'+sub(&fr,1000u));
-    *f++=(char)('0'+sub(&fr,100u)); *f++=(char)('0'+sub(&fr,10u));
-    *f='\0';
-    A->print_tiny(str,46,0,true,true);
 
     A->blit_status();
     A->blit_full();

@@ -13,6 +13,13 @@
  * report is on air); when the squelch closes it stops. The sampler never
  * touches the audio path, so the channel can still be monitored by ear (MONI).
  * Decoded reports pop up a small window that stays until EXIT or PTT.
+ *
+ * The popup's row0 prefixes the train number with the 2 ASCII train-class chars
+ * (K/T/D/C...) decoded from the detail block's [0:4] - each packed as 2 BCD
+ * nibbles like a GB2312 route char. They are sticky in g.pref (as
+ * LBJ_Console's lbjClass), so a short report with no detail block still shows
+ * the last prefix seen. LBJ_Console reaches the same value via its lbjClass;
+ * no train-type/regex table is used here.
  */
 
 #include <stdbool.h>
@@ -125,6 +132,7 @@ static struct {
     bool     popup;
     bool     dirty;
     bool     dismissed;           /* popup dismissed until the carrier drops  */
+    char     pref[3];             /* sticky 2-char train prefix from the last detail */
     char     l0[14], l1[18], l2[14], l3[20];
 
     lbj_rec_t rec[LBJ_HISTORY];   /* history, newest first                    */
@@ -168,7 +176,32 @@ static char *putkm(char *o, const char *p){       /* 5 BCD chars -> DDDD.D */
 }
 static char *putdash(char *o, uint8_t n){ while (n--) *o++ = '-'; return o; }
 
+/* bcd char -> raw 4-bit value (inverse of the decoder's BCD alphabet). */
+static uint8_t nib(char c){
+    if (c >= '0' && c <= '9') return (uint8_t)(c - '0');
+    switch (c){
+        case '*': return 10u; case 'U': return 11u; case ' ': return 12u;
+        case '-': return 13u; case ')': return 14u; case '(': return 15u;
+        default:  return 0u;
+    }
+}
+
+/* The detail block's [0:4] holds 2 ASCII train-prefix chars (e.g. "K "), each
+ * as 2 BCD nibbles - exactly how the route field is packed. Decode them into
+ * the sticky g.pref, printable bytes only, the usual blank pad dropped, so "K "
+ * becomes "K". Sticky like LBJ_Console's lbjClass: a short report has no detail
+ * block, yet still shows the last prefix seen. */
+static void decode_pref(const char *d){
+    for (uint8_t i = 0; i < 2u; i++){
+        uint8_t v = (uint8_t)((nib(d[i * 2u]) << 4) | nib(d[i * 2u + 1u]));
+        g.pref[i] = (v > 0x20u && v < 0x7Fu) ? (char)v : 0;  /* drop NUL/space */
+    }
+    g.pref[2] = '\0';
+}
+
 static char *puttrain(char *o, const char *sb, uint8_t func, bool have){
+    if (g.pref[0]) *o++ = g.pref[0];        /* sticky train prefix, K/T/D/C... */
+    if (g.pref[1]) *o++ = g.pref[1];
     if (!have){ *o++ = '-'; *o++ = '-'; }
     else for (uint8_t i = 0; i < 6u; i++) if (sb[i] != ' ') *o++ = sb[i];
     *o++ = ' ';
@@ -369,6 +402,8 @@ static void format(uint32_t addr, uint8_t func, const char *b, uint16_t len){
 
     const char *d = merged ? (b + (uint16_t)(len - 50u)) : b;
     const uint8_t dlen = merged ? 50u : (uint8_t)(len < 50u ? len : 50u);
+
+    if (has_detail) decode_pref(d);   /* sticky train prefix, [0:4] */
 
     /* row0: train + direction */
     o = g.l0; o = puttrain(o, sb, func, have_short); *o = '\0';

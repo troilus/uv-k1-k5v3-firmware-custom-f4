@@ -24,13 +24,14 @@ POCSAG/LBJ decoder are validated in `test/model_rx.py` against synthetic frames
 
 顶部 1 行状态栏 + 主区 7 行。
 
-状态栏：`LBJ RX`（标题）· `[SUM]/[PDU]`（当前页）· 接收频率（如 `821.2375`）· 电池。
+状态栏保持固件 `UI_DisplayStatus()` 的原样（电池、各种图标），app 不再自绘
+标题与接收频率——顶栏就是收音机自己画的样子。
 
 **SUM 页（解析摘要）**
 
 ```
-[LBJ RX] 821.2375             ███
-412 DN                              ← 第1行：车次 + 方向（DN 下行 / UP 上行 / ?? 未知，粗体）
+██████████████████████████████  ← 顶栏：固件 UI_DisplayStatus() 原样（电池等）
+K412 DN                             ← 第1行：车次前缀 + 车次 + 方向（DN 下行 / UP 上行 / ?? 未知，粗体）
 SPEED 87 km/h                       ← 第2行：速度
 KM 0344.7                           ← 第3行：公里标
 1234000                             ← 第4行：解出的地址值
@@ -53,8 +54,8 @@ KM 0344.7                           ← 第3行：公里标
 只可能有合并形式。
 
 ```
-[LBJ RX] 821.2375             ███
-412 DN                              ← 第1行：车次 + 方向（合并报文取自身短前缀；独立详情取最近一条 1234000）
+██████████████████████████████  ← 顶栏：固件 UI_DisplayStatus() 原样
+K412 DN                             ← 第1行：车次前缀 + 车次 + 方向（合并报文取自身短前缀；独立详情取最近一条 1234000）
 HXD1C 23900050                      ← 第2行：车型(中文) + 8位机车登记号（3位车型码 + 5位车号）
 京沪线                               ← 第3行：GB2312 线路名（中文模式，不带"线路"标签）
 SPD 87 KM 00344.7                   ← 第4行：速度 + 公里标
@@ -62,6 +63,11 @@ SPD 87 KM 00344.7                   ← 第4行：速度 + 公里标
 1234002                             ← 第6行：解出的地址值
 5ZH 4BL:OFF 1SPK:ON 1/3 -95         ← 底部状态栏（同前）
 ```
+
+**车次前缀（K/T/D/C 等）**：取自详情块 `0-3` 的 2 个 ASCII 字符（每个字符 = 2 个
+BCD 半字节，与线路名同样的打包方式），去掉空格/不可打印字符后粘性记住（同
+LBJ_Console 的 `lbjClass`），拼在车次号前面显示——所以只有短报文（无详情块）
+时，车次号前仍带上最近一条详情报文的前缀。这是电台真实发来的数据，非推导。
 
 详情块内偏移：`0-3` 为 2 个 ASCII 车次前缀字符，`4-6` 为 3 位车型代码，
 `7-11` 为 5 位机车号（`4-11` 合起来即 8 位登记号），`12-13` 端号
@@ -187,7 +193,7 @@ only LBJ-family messages reach it nowadays.
 
 | Page | Content |
 |---|---|
-| **SUM** | Newest/selected record. Short report (1233999/1234000): train + direction, `SPEED xx km/h`, `KM xxxx.x`, the decoded address value. New-gen alert (1234001/1234002, standalone or merged; 1233999/1234000 merged): train + direction, model (Chinese; ASCII abbreviation with key `5`) + 8-digit registration number, GB2312 route, `SPD xx KM xxxx.x`, `104-16.1280E 30-35.0780N` DMS coordinates, shown as the upstream Android receiver shows them, with its validity check (tiny font, merged blocks only; the row is hidden when the pair is rejected or the block is short), the decoded address value; a merged report uses its own short prefix, a standalone one the last short report. The bottom bar shows the key hints (`5` language, `4` backlight, `1` speaker) then `x/y` (selected/count, 1 = newest) and the live `-xx` dBm RSSI (every 0.5 s; shown from launch as `0/0`) |
+| **SUM** | Newest/selected record. The status bar is left exactly as the firmware's `UI_DisplayStatus()` draws it (battery and icons; the app draws no title and no frequency). Short report (1233999/1234000): train + direction, `SPEED xx km/h`, `KM xxxx.x`, the decoded address value. New-gen alert (1234001/1234002, standalone or merged; 1233999/1234000 merged): train + direction, model (Chinese; ASCII abbreviation with key `5`) + 8-digit registration number, GB2312 route, `SPD xx KM xxxx.x`, `104-16.1280E 30-35.0780N` DMS coordinates, shown as the upstream Android receiver shows them, with its validity check (tiny font, merged blocks only; the row is hidden when the pair is rejected or the block is short), the decoded address value; a merged report uses its own short prefix, a standalone one the last short report. The train number is prefixed with the train-class letter (K/T/D/C...) decoded from the detail block's `[0:4]` — the two ASCII chars the radio actually transmits, sticky like LBJ_Console's `lbjClass` so a short report still carries the last prefix seen. The bottom bar shows the key hints (`5` language, `4` backlight, `1` speaker) then `x/y` (selected/count, 1 = newest) and the live `-xx` dBm RSSI (every 0.5 s; shown from launch as `0/0`) |
 
 Keys: UP/DOWN pick the newer/older record (`nav_dir`: UV-K1 LEFT/RIGHT; one step
 per press — holding does not auto-repeat) · `1` speaker · `2` clear history +
