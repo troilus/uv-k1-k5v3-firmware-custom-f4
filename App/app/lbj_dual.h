@@ -36,6 +36,11 @@ bool LBJ_PopupActive(void);
 void LBJ_ClosePopup(void);
 void LBJ_DrawPopup(void);
 
+/* Open the decode window by hand (the LBJ menu item), showing the newest
+ * report. Returns false when nothing has been decoded yet, so the caller can
+ * leave the menu where it is. */
+bool LBJ_OpenPopup(void);
+
 /* Key hook: while the popup is up every key event is swallowed, so nothing
  * reaches the radio. Only a fresh press acts - UP/DOWN step through the
  * history once and EXIT closes the window - so holding a key does not

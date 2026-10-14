@@ -67,6 +67,9 @@ const t_menu_item MenuList[] =
 #else
     {"电压",      MENU_VOL           }, // was "VOL"
 #endif
+#ifdef ENABLE_FEAT_F4HWN_LBJ
+    {"LBJ",         MENU_LBJ           }, // last visible item: opens the decode window
+#endif
     // hidden menu items from here on
     // enabled if pressing both the PTT and upper side button at power-on
     {"F锁",      MENU_F_LOCK        },
