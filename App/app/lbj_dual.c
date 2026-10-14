@@ -500,58 +500,33 @@ bool LBJ_HandleKey(uint8_t key){
             int t = (int)g.cur + ((key == KEY_UP) ? -1 : 1);
             if (t < 0) t = 0;
             if (t > (int)g.count - 1) t = (int)g.count - 1;
-            g.cur = (uint8_t)t;
+            if (t != (int)g.cur){
+                g.cur = (uint8_t)t;
+                g.dirty = true;            /* redraw with the other report */
+            }
         }
         return true;
     }
     return true;                          /* swallow every other key */
 }
 
-/* A solid frame inset 2 px on every side, drawn over the normal screen so the
- * window reads as a floating popup instead of a full page. */
-#define POP_X0   2u
-#define POP_X1   125u
-#define POP_Y0   2u
-#define POP_Y1   61u
-#define POP_TEXT 4u                    /* left padding of the text rows       */
-#define POP_L1   1u                    /* first text line of the window       */
-
-static void pop_clear(void){
-    for (uint8_t p = 0; p < FRAME_LINES; p++)
-        memset(&gFrameBuffer[p][POP_X0], 0, POP_X1 - POP_X0 + 1u);
-}
-
-static void pop_hline(uint8_t y){
-    uint8_t *p = &gFrameBuffer[y >> 3][POP_X0];
-    for (uint16_t x = POP_X0; x <= POP_X1; x++)
-        p[x - POP_X0] |= (uint8_t)(1u << (y & 7u));
-}
-
-static void pop_vline(uint8_t x){
-    for (uint8_t p = 0; p < FRAME_LINES; p++){
-        uint8_t mask = 0;
-        for (uint8_t b = 0; b < 8u; b++){
-            const uint8_t y = (uint8_t)((p << 3) + b);
-            if (y >= POP_Y0 && y <= POP_Y1) mask |= (uint8_t)(1u << b);
-        }
-        gFrameBuffer[p][x] |= mask;
-    }
-}
+/* The decode report owns the whole screen while it is up: the main area is
+ * cleared and redrawn. The status bar is left exactly as UI_DisplayStatus()
+ * drew it - no caption, no frequency. */
+#define POP_PAGEX  20u                  /* page number, middle-left            */
+#define POP_TIMEX  52u                  /* age, middle                        */
+#define POP_EXITX 100u                  /* EXIT, hard right (100..127)        */
 
 void LBJ_DrawPopup(void){
     const lbj_rec_t *r = &g.rec[g.cur];
     char s[22];
 
-    pop_clear();
-    pop_hline(POP_Y0);
-    pop_hline(POP_Y1);
-    pop_vline(POP_X0);
-    pop_vline(POP_X1);
+    UI_DisplayClear();
 
-    UI_PrintStringSmallBold(r->l0, POP_TEXT, 0, POP_L1 + 0u);
-    UI_PrintStringSmallBold(r->l1, POP_TEXT, 0, POP_L1 + 1u);
-    UI_PrintStringSmallBold(r->l2, POP_TEXT, 0, POP_L1 + 2u);
-    UI_PrintStringSmallBold(r->l3, POP_TEXT, 0, POP_L1 + 3u);
+    UI_PrintStringSmallBold(r->l0, 0, 0, 0);
+    UI_PrintStringSmallBold(r->l1, 0, 0, 1);
+    UI_PrintStringSmallBold(r->l2, 0, 0, 2);
+    UI_PrintStringSmallBold(r->l3, 0, 0, 3);
 
     /* the decoded address code and the strength it was received at */
     {
@@ -563,21 +538,27 @@ void LBJ_DrawPopup(void){
         o = putu(o, (uint32_t)v);
         o = put(o, "dB");
         *o = '\0';
-        UI_PrintStringSmallNormal(s, POP_TEXT, 0, POP_L1 + 4u);
+        UI_PrintStringSmallNormal(s, 0, 0, 4);
     }
 
-    /* footer: age, page, EXIT */
+    /* footer: page and age in normal size, EXIT bold and hard right */
     {
         char *o = s;
-        o = putage(o, (uint16_t)(g.sec - r->sec));
-        *o++ = ' ';
         o = putu(o, (uint32_t)g.cur + 1u);
         *o++ = '/';
         o = putu(o, g.count);
-        o = put(o, " EXIT");
         *o = '\0';
-        UI_PrintStringSmallBold(s, POP_TEXT, 0, POP_L1 + 5u);
+        UI_PrintStringSmallNormal(s, POP_PAGEX, 0, 5);
     }
+    {
+        char *o = putage(s, (uint16_t)(g.sec - r->sec));
+        *o = '\0';
+        UI_PrintStringSmallNormal(s, POP_TIMEX, 0, 5);
+    }
+    UI_PrintStringSmallBold("EXIT", POP_EXITX, 0, 5);
+
+    ST7565_BlitStatusLine();
+    ST7565_BlitFullScreen();
 }
 
 /* ---- frequency test ("LBJ mode" is selected by the channel modulation, but

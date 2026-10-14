@@ -2008,9 +2008,13 @@ static void ProcessKey(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
     #endif
 
 #ifdef ENABLE_FEAT_F4HWN_LBJ
-    /* The LBJ decode popup is display-only: EXIT closes it and is consumed. */
-    if (bKeyPressed && LBJ_HandleKey((uint8_t)Key))
+    /* The LBJ decode window owns the keypad: every key event (press, hold and
+     * release) is swallowed so nothing reaches the radio, but the backlight is
+     * still woken so the key press is visible. PTT returns false and
+     * transmits. */
+    if (LBJ_HandleKey((uint8_t)Key))
     {
+        BACKLIGHT_TurnOn();
         gBeepToPlay = BEEP_NONE;
         return;
     }
