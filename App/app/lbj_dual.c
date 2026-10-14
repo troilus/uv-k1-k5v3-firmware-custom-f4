@@ -109,6 +109,15 @@ typedef struct {
 static dem_t g_dm;
 
 /* ---- state ---- */
+#define LBJ_HISTORY   8u          /* decoded reports kept for paging back     */
+
+typedef struct {
+    uint32_t addr;                /* decoded address code (1233999..1234002) */
+    uint16_t sec;                 /* receive time, seconds (age base)        */
+    int16_t  dbm;                 /* signal strength at receive time         */
+    char     l0[14], l1[18], l2[14], l3[20];
+} lbj_rec_t;
+
 static struct {
     lbj_rx_t rx;
     char     sess[16];            /* last 1233999/1234000 short block (15 ch) */
@@ -116,7 +125,11 @@ static struct {
     bool     popup;
     bool     dirty;
     bool     dismissed;           /* popup dismissed until the carrier drops  */
-    char     l0[20], l1[20], l2[20], l3[20], l4[20];
+    char     l0[14], l1[18], l2[14], l3[20];
+
+    lbj_rec_t rec[LBJ_HISTORY];   /* history, newest first                    */
+    uint8_t   count, cur;
+    uint16_t  sec, subSec;        /* free running clock for the message age  */
 
     volatile bool pending;        /* decoded report handed to the main loop   */
     uint32_t pendAddr;
@@ -162,9 +175,186 @@ static char *puttrain(char *o, const char *sb, uint8_t func, bool have){
     return put(o, (func == 1u) ? "DN" : ((func == 3u) ? "UP" : "??"));
 }
 
-/* One unified 5-row layout for every LBJ address:
- *   row0 train + direction, row1 SPD, row2 KM, row3 model code + loco number,
- *   row4 the decoded address code. Missing fields are dashes. */
+/* True when all n BCD characters are real digits. Used so a field that was
+ * not decoded shows a dash instead of a fake 0. */
+static bool bcdnum(const char *p, uint8_t n){
+    for (uint8_t i = 0; i < n; i++) if (p[i] < '0' || p[i] > '9') return false;
+    return true;
+}
+
+/* Locomotive model code -> ASCII name. Hard coded so there is no pointer
+ * table in .rodata (the generated table was the one thing the detail path
+ * touched that could take the radio down). */
+static const char *type_name(uint16_t c){
+    switch (c){
+        case    1: return "JF";
+        case    3: return "QJ";
+        case    5: return "JS";
+        case    6: return "KD7";
+        case   55: return "LJK";
+        case   81: return "DF21";
+        case  101: return "DF";
+        case  102: return "DF2";
+        case  103: return "DF3";
+        case  104: return "DF4";
+        case  105: return "DF4K";
+        case  106: return "DF4C";
+        case  107: return "DF5";
+        case  108: return "DF5W";
+        case  109: return "DF6";
+        case  110: return "DF7";
+        case  111: return "DF8";
+        case  112: return "DF9";
+        case  113: return "DF10";
+        case  114: return "DFH1";
+        case  115: return "DFH2";
+        case  116: return "DFH3";
+        case  117: return "DFH5";
+        case  118: return "BJ";
+        case  119: return "BJW";
+        case  120: return "ND2";
+        case  121: return "ND3";
+        case  122: return "ND4";
+        case  123: return "ND5";
+        case  124: return "NY5";
+        case  125: return "NY6";
+        case  126: return "NY7";
+        case  127: return "QY";
+        case  128: return "DFH21";
+        case  129: return "DF7B";
+        case  130: return "DF5S";
+        case  131: return "DF7C";
+        case  132: return "DF7S";
+        case  133: return "GK1";
+        case  134: return "GK1F";
+        case  135: return "DF4E";
+        case  136: return "DF7D";
+        case  137: return "GK1A";
+        case  138: return "DF11";
+        case  139: return "TA";
+        case  140: return "DF10F";
+        case  141: return "DF4D";
+        case  142: return "DF8B";
+        case  143: return "DF12";
+        case  144: return "DF7E";
+        case  145: return "NYJ1";
+        case  146: return "NZJ1";
+        case  147: return "NZJ2";
+        case  148: return "DF4DJ";
+        case  149: return "XSG";
+        case  150: return "SZ";
+        case  151: return "NJ2";
+        case  152: return "DF7G";
+        case  153: return "NDJ3";
+        case  156: return "DF11Z";
+        case  157: return "FXN3D";
+        case  158: return "DF11G";
+        case  160: return "HXN3";
+        case  161: return "HXN5";
+        case  162: return "HXN3B";
+        case  163: return "HXN5B";
+        case  167: return "FXN3B";
+        case  169: return "FXN3C";
+        case  170: return "FXN5C";
+        case  171: return "FXN3-J";
+        case  201: return "8G";
+        case  202: return "8K";
+        case  203: return "6G";
+        case  204: return "6K";
+        case  205: return "SS1";
+        case  206: return "SS3";
+        case  207: return "SS4";
+        case  208: return "SS5";
+        case  209: return "SS6";
+        case  210: return "SS3B";
+        case  211: return "SS7";
+        case  212: return "SS8";
+        case  213: return "SS7B";
+        case  214: return "SS7C";
+        case  215: return "SS6B";
+        case  216: return "SS9";
+        case  217: return "SS7D";
+        case  218: return "DJXM";
+        case  219: return "DJ1";
+        case  220: return "DJ2";
+        case  221: return "DJF";
+        case  222: return "LJD";
+        case  223: return "XFH";
+        case  224: return "SS7E";
+        case  225: return "SS4G";
+        case  226: return "SS3C";
+        case  228: return "TS";
+        case  229: return "DJ4HX";
+        case  230: return "KTT";
+        case  231: return "HXD1";
+        case  232: return "HXD2";
+        case  233: return "HXD3";
+        case  234: return "HXD1B";
+        case  235: return "HXD2B";
+        case  236: return "HXD3B";
+        case  237: return "HXD1C";
+        case  238: return "HXD2C";
+        case  239: return "HXD3C";
+        case  240: return "HXD1D";
+        case  241: return "HXD2D";
+        case  242: return "HXD3D";
+        case  243: return "FXD1B";
+        case  244: return "FXD2B";
+        case  245: return "FXD1";
+        case  246: return "FXD3";
+        case  247: return "FXD1-J";
+        case  248: return "FXD3-J";
+        case  249: return "KZ25TA";
+        case  251: return "KZ25TB";
+        case  252: return "HXD1D-J";
+        case  254: return "FXD1H";
+        case  300: return "XYSZ";
+        case  301: return "CRH1";
+        case  302: return "CRH2";
+        case  303: return "CRH3";
+        case  305: return "CRH5";
+        case  306: return "CRH380A";
+        case  307: return "CRH380B";
+        case  308: return "CRH380C";
+        case  309: return "CRH380D";
+        case  310: return "CRH6A";
+        case  311: return "CR400AF";
+        case  312: return "CR400BF";
+        case  313: return "CR300AF";
+        case  314: return "CR300BF";
+        case  315: return "CRH2E";
+        case  316: return "CRH6F";
+        case  330: return "CJ1";
+        case  331: return "CJ2";
+        case  332: return "CJ3";
+        case  333: return "CJ4";
+        case  334: return "CJ5";
+        case  335: return "CJ6";
+        case  400: return "GCD-1000J";
+        case  403: return "GX-160";
+        case 3073: return "CRH380BL";
+        case 3075: return "CRH380BG";
+        case 3111: return "CR400AF-Z";
+        case 3112: return "CR400AF-S";
+        case 3125: return "CR400BF-G";
+        default:   return 0;
+    }
+}
+
+/* "<age>" - 12s below a minute, 3m20s up to 99 min, 99m+ after that. */
+static char *putage(char *o, uint16_t sec){
+    if (sec < 60u){ o = putu(o, sec); *o++ = 's'; return o; }
+    uint32_t v = sec;
+    const unsigned m = sub(&v, 60u);                    /* v = leftover seconds */
+    if (m > 99u){ return put(o, "99m+"); }
+    o = putu(o, m); *o++ = 'm';
+    if (v < 10u) *o++ = '0';
+    o = putu(o, v); *o++ = 's';
+    return o;
+}
+
+/* One unified layout for every LBJ address; missing fields are dashes. The
+ * address code and the signal strength are added by the popup itself. */
 static void format(uint32_t addr, uint8_t func, const char *b, uint16_t len){
     char *o;
     const bool merged     = (len >= 65u);
@@ -183,28 +373,30 @@ static void format(uint32_t addr, uint8_t func, const char *b, uint16_t len){
     /* row0: train + direction */
     o = g.l0; o = puttrain(o, sb, func, have_short); *o = '\0';
 
-    /* row1: speed */
+    /* row1: speed. A speed that was not decoded is a dash, never a 0. */
     o = g.l1; o = put(o, "SPD ");
-    if (have_short) o = putu(o, digv(sb + 6u, 3u)); else o = putdash(o, 7u);
+    if (have_short && bcdnum(sb + 6u, 3u)) o = putu(o, digv(sb + 6u, 3u));
+    else                                   *o++ = '-';
+    o = put(o, " km/h");
     *o = '\0';
 
-    /* row2: position km */
+    /* row2: position km, same rule as the speed */
     o = g.l2; o = put(o, "KM ");
-    if (have_short) o = putkm(o, sb + 10u); else o = putdash(o, 7u);
+    if (have_short && bcdnum(sb + 10u, 5u)) o = putkm(o, sb + 10u);
+    else                                    *o++ = '-';
     *o = '\0';
 
-    /* row3: model code (3) + loco number (5) = the 8-digit registration */
+    /* row3: model name + the 8-digit code/registration */
     o = g.l3;
     if (has_detail){
+        const char *nm = type_name((uint16_t)digv(d + 4u, 3u));
+        if (nm) o = put(o, nm); else o = put(o, "--");
+        *o++ = ' ';
         for (uint8_t i = 4u; i < 12u && i < dlen; i++) *o++ = d[i];
-        if (o == g.l3) o = putdash(o, 7u);
     } else {
         o = putdash(o, 7u);
     }
     *o = '\0';
-
-    /* row4: the decoded address code (1233999..1234002) */
-    o = g.l4; o = putu(o, addr); *o = '\0';
 }
 
 /* ---- decoder callback (timer ISR context: only queue the raw report; all
@@ -223,6 +415,35 @@ void lbj_emit_msg(const lbj_rx_t *r, const char *bcd, uint16_t len){
 /* Replace any non-printable byte so the font routine never sees one. */
 static void sanitize(char *s){
     for (; *s; s++){ uint8_t c = (uint8_t)*s; if (c < 0x20u || c > 0x7Eu) *s = '.'; }
+}
+
+static void copyline(char *dst, uint8_t cap, const char *src){
+    uint8_t i = 0;
+    while (src[i] && i + 1u < cap){ dst[i] = src[i]; i++; }
+    dst[i] = '\0';
+}
+
+/* Signal strength in dBm, with the same band correction the S-meter uses. */
+static int16_t lbj_dbm(void){
+    return (int16_t)(BK4819_GetRSSI_dBm() + dBmCorrTable[gRxVfo->Band]);
+}
+
+/* Store the freshly formatted report (newest first) together with the time
+ * and the signal strength it was received at, then make it the current one. */
+static void history_push(uint32_t addr){
+    if (g.count < LBJ_HISTORY)
+        g.count++;
+    for (uint8_t k = (uint8_t)(g.count - 1u); k > 0u; k--)
+        g.rec[k] = g.rec[k - 1u];
+
+    g.rec[0].addr = addr;
+    g.rec[0].sec  = g.sec;
+    g.rec[0].dbm  = lbj_dbm();
+    copyline(g.rec[0].l0, (uint8_t)sizeof g.rec[0].l0, g.l0);
+    copyline(g.rec[0].l1, (uint8_t)sizeof g.rec[0].l1, g.l1);
+    copyline(g.rec[0].l2, (uint8_t)sizeof g.rec[0].l2, g.l2);
+    copyline(g.rec[0].l3, (uint8_t)sizeof g.rec[0].l3, g.l3);
+    g.cur = 0;                       /* a new report always shows the newest */
 }
 
 /* Format the queued report and (unless dismissed) show the popup. Main loop. */
@@ -244,7 +465,8 @@ static void processPending(void){
         g.sessValid = true;
     }
     format(addr, func, bcd, len);
-    sanitize(g.l0); sanitize(g.l1); sanitize(g.l2); sanitize(g.l3); sanitize(g.l4);
+    sanitize(g.l0); sanitize(g.l1); sanitize(g.l2); sanitize(g.l3);
+    history_push(addr);
     if (!g.dismissed){
         g.popup = true;
         g.dirty = true;
@@ -258,6 +480,9 @@ void LBJ_ClosePopup(void){
     g.dismissed = true;              /* stay dismissed until the carrier drops */
 }
 
+/* The decode window owns the keypad while it is up: nothing else may reach
+ * the radio. The two paging keys step through the message history, EXIT
+ * closes the window and PTT closes it and transmits. */
 bool LBJ_HandleKey(uint8_t key){
     if (key == KEY_PTT){                 /* PTT closes the popup and stops the sampler, still transmits */
         LBJ_ClosePopup();
@@ -270,36 +495,89 @@ bool LBJ_HandleKey(uint8_t key){
         LBJ_ClosePopup();
         return true;
     }
-    return false;
+    if (key == KEY_UP || key == KEY_DOWN){
+        if (g.count){
+            int t = (int)g.cur + ((key == KEY_UP) ? -1 : 1);
+            if (t < 0) t = 0;
+            if (t > (int)g.count - 1) t = (int)g.count - 1;
+            g.cur = (uint8_t)t;
+        }
+        return true;
+    }
+    return true;                          /* swallow every other key */
+}
+
+/* A solid frame inset 2 px on every side, drawn over the normal screen so the
+ * window reads as a floating popup instead of a full page. */
+#define POP_X0   2u
+#define POP_X1   125u
+#define POP_Y0   2u
+#define POP_Y1   61u
+#define POP_TEXT 4u                    /* left padding of the text rows       */
+#define POP_L1   1u                    /* first text line of the window       */
+
+static void pop_clear(void){
+    for (uint8_t p = 0; p < FRAME_LINES; p++)
+        memset(&gFrameBuffer[p][POP_X0], 0, POP_X1 - POP_X0 + 1u);
+}
+
+static void pop_hline(uint8_t y){
+    uint8_t *p = &gFrameBuffer[y >> 3][POP_X0];
+    for (uint16_t x = POP_X0; x <= POP_X1; x++)
+        p[x - POP_X0] |= (uint8_t)(1u << (y & 7u));
+}
+
+static void pop_vline(uint8_t x){
+    for (uint8_t p = 0; p < FRAME_LINES; p++){
+        uint8_t mask = 0;
+        for (uint8_t b = 0; b < 8u; b++){
+            const uint8_t y = (uint8_t)((p << 3) + b);
+            if (y >= POP_Y0 && y <= POP_Y1) mask |= (uint8_t)(1u << b);
+        }
+        gFrameBuffer[p][x] |= mask;
+    }
 }
 
 void LBJ_DrawPopup(void){
-    char f[16];
-    UI_DisplayClear();
-    UI_StatusClear();
+    const lbj_rec_t *r = &g.rec[g.cur];
+    char s[22];
 
-    GUI_DisplaySmallest("LBJ", 2, 0, true, true);
+    pop_clear();
+    pop_hline(POP_Y0);
+    pop_hline(POP_Y1);
+    pop_vline(POP_X0);
+    pop_vline(POP_X1);
+
+    UI_PrintStringSmallBold(r->l0, POP_TEXT, 0, POP_L1 + 0u);
+    UI_PrintStringSmallBold(r->l1, POP_TEXT, 0, POP_L1 + 1u);
+    UI_PrintStringSmallBold(r->l2, POP_TEXT, 0, POP_L1 + 2u);
+    UI_PrintStringSmallBold(r->l3, POP_TEXT, 0, POP_L1 + 3u);
+
+    /* the decoded address code and the strength it was received at */
     {
-        uint32_t fr = LBJ_FREQ_HZ10;
-        char *o = f;
-        o = putu(o, sub(&fr, 100000u)); *o++ = '.';
-        *o++ = (char)('0' + sub(&fr, 10000u));
-        *o++ = (char)('0' + sub(&fr, 1000u));
-        *o++ = (char)('0' + sub(&fr, 100u));
-        *o++ = (char)('0' + sub(&fr, 10u));
+        char *o = s;
+        int16_t v = r->dbm;
+        o = putu(o, r->addr);
+        *o++ = ' ';
+        if (v < 0){ *o++ = '-'; v = (int16_t)(-v); }
+        o = putu(o, (uint32_t)v);
+        o = put(o, "dB");
         *o = '\0';
+        UI_PrintStringSmallNormal(s, POP_TEXT, 0, POP_L1 + 4u);
     }
-    GUI_DisplaySmallest(f, 46, 0, true, true);
 
-    UI_PrintStringSmallBold(g.l0, 0, 0, 0);
-    UI_PrintStringSmallBold(g.l1, 0, 0, 1);
-    UI_PrintStringSmallBold(g.l2, 0, 0, 2);
-    UI_PrintStringSmallBold(g.l3, 0, 0, 3);
-    UI_PrintStringSmallBold(g.l4, 0, 0, 4);
-    GUI_DisplaySmallest("EXIT", 100, 48, false, true);
-
-    ST7565_BlitStatusLine();
-    ST7565_BlitFullScreen();
+    /* footer: age, page, EXIT */
+    {
+        char *o = s;
+        o = putage(o, (uint16_t)(g.sec - r->sec));
+        *o++ = ' ';
+        o = putu(o, (uint32_t)g.cur + 1u);
+        *o++ = '/';
+        o = putu(o, g.count);
+        o = put(o, " EXIT");
+        *o = '\0';
+        UI_PrintStringSmallBold(s, POP_TEXT, 0, POP_L1 + 5u);
+    }
 }
 
 /* ---- frequency test ("LBJ mode" is selected by the channel modulation, but
@@ -436,6 +714,9 @@ void LBJ_AdcEnd(void){
 
 /* ---- 10 ms tick ---- */
 void LBJ_Tick(void){
+    /* Free running clock used for the message age (10 ms resolution). */
+    if (++g.subSec >= 100u){ g.subSec = 0; g.sec++; }
+
     /* Format a decoded report queued by the ISR (main-loop context). */
     processPending();
 
@@ -450,9 +731,8 @@ void LBJ_Tick(void){
         return;
     }
 
-    /* Another channel got a signal: dismiss the LBJ decode window. */
-    if (!LBJ_RxVfoIsLbj() && g_SquelchLost)
-        LBJ_ClosePopup();
+    /* The window stays up until EXIT: a signal on the other channel no longer
+       dismisses it, and the audio of the received channel keeps playing. */
 
     if (g.on){
         if (++g.ticks >= LBJ_MAX_TICKS){          /* watchdog only */
