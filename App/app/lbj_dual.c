@@ -122,6 +122,7 @@ typedef struct {
     uint32_t addr;                /* decoded address code (1233999..1234002) */
     uint16_t sec;                 /* receive time, seconds (age base)        */
     int16_t  dbm;                 /* signal strength at receive time         */
+    char     rt[5];               /* route name initials, e.g. "JGX"         */
     char     l0[14], l1[18], l2[14], l3[20];
 } lbj_rec_t;
 
@@ -133,6 +134,7 @@ static struct {
     bool     dirty;
     bool     dismissed;           /* popup dismissed until the carrier drops  */
     char     pref[3];             /* sticky 2-char train prefix from the last detail */
+    char     rt[5];               /* route initials of the report being formatted */
     char     l0[14], l1[18], l2[14], l3[20];
 
     lbj_rec_t rec[LBJ_HISTORY];   /* history, newest first                    */
@@ -142,6 +144,7 @@ static struct {
     volatile bool pending;        /* decoded report handed to the main loop   */
     uint32_t pendAddr;
     uint8_t  pendFunc;
+    uint8_t  pendErr, pendCor;    /* BCH verdict of the queued report          */
     uint16_t pendLen;
     char     pendBcd[LBJ_CWMAX * 5u];
 
@@ -206,6 +209,25 @@ static char *puttrain(char *o, const char *sb, uint8_t func, bool have){
     else for (uint8_t i = 0; i < 6u; i++) if (sb[i] != ' ') *o++ = sb[i];
     *o++ = ' ';
     return put(o, (func == 1u) ? "DN" : ((func == 3u) ? "UP" : "??"));
+}
+
+/* Route name = up to 4 GB2312 characters in the detail block's [14:30). GB2312
+ * level-1 (0xB0A1..0xD7F9) is sorted by pinyin, so the first letter of every
+ * character is a range lookup in this 23-entry table; no per-character table
+ * needed. Pinyin has no initial for I/U/V, hence 23 letters and not 26. */
+static const uint16_t INIT_BOUND[23] = {
+    0, 36, 220, 453, 637, 659, 784, 939, 1120, 1415, 1515, 1763, 1914,
+    1995, 2003, 2125, 2282, 2341, 2627, 2783, 2903, 3126, 3432 };
+static char cn_initial(uint8_t hi, uint8_t lo){
+    if (hi < 0xB0u || hi > 0xD7u)
+        return '?';                                   /* level-2 or symbol */
+    const uint16_t idx = (uint16_t)((uint16_t)(hi - 0xB0u) * 94u + (lo - 0xA1u));
+    uint8_t k = 0;
+    for (uint8_t i = 1u; i < 23u; i++){
+        if (idx < INIT_BOUND[i]) break;
+        k = i;
+    }
+    return "ABCDEFGHJKLMNOPQRSTWXYZ"[k];
 }
 
 /* True when all n BCD characters are real digits. Used so a field that was
@@ -405,8 +427,27 @@ static void format(uint32_t addr, uint8_t func, const char *b, uint16_t len){
 
     if (has_detail) decode_pref(d);   /* sticky train prefix, [0:4] */
 
-    /* row0: train + direction */
-    o = g.l0; o = puttrain(o, sb, func, have_short); *o = '\0';
+    /* row0: train + direction, then the BCH verdict: nothing when the report
+     * arrived clean, '*' when a codeword was repaired, '!' when it could not be
+     * repaired at all. */
+    o = g.l0; o = puttrain(o, sb, func, have_short);
+    if (g.pendErr)      *o++ = '!';
+    else if (g.pendCor) *o++ = '*';
+    *o = '\0';
+
+    /* route name initials (the popup draws them as "LINE xxx") */
+    o = g.rt;
+    if (has_detail){
+        for (uint8_t m = 0; m < 4u; m++){
+            const uint8_t k = (uint8_t)(14u + 4u * m);
+            if ((uint16_t)k + 3u >= (uint16_t)dlen) break;
+            const uint8_t hi = (uint8_t)((nib(d[k]) << 4) | nib(d[k + 1u]));
+            const uint8_t lo = (uint8_t)((nib(d[k + 2u]) << 4) | nib(d[k + 3u]));
+            if (!hi || !lo) break;
+            *o++ = cn_initial(hi, lo);
+        }
+    }
+    *o = '\0';
 
     /* row1: speed. A speed that was not decoded is a dash, never a 0. */
     o = g.l1; o = put(o, "SPD ");
@@ -442,6 +483,8 @@ void lbj_emit_msg(const lbj_rx_t *r, const char *bcd, uint16_t len){
     uint16_t n = (len > sizeof g.pendBcd) ? (uint16_t)sizeof g.pendBcd : len;
     g.pendAddr = r->addr;
     g.pendFunc = r->func;
+    g.pendErr  = r->err;
+    g.pendCor  = r->cor;
     g.pendLen  = n;
     for (uint16_t i = 0; i < n; i++) g.pendBcd[i] = bcd[i];
     g.pending = true;
@@ -474,6 +517,7 @@ static void history_push(uint32_t addr){
     g.rec[0].addr = addr;
     g.rec[0].sec  = g.sec;
     g.rec[0].dbm  = lbj_dbm();
+    copyline(g.rec[0].rt, (uint8_t)sizeof g.rec[0].rt, g.rt);
     copyline(g.rec[0].l0, (uint8_t)sizeof g.rec[0].l0, g.l0);
     copyline(g.rec[0].l1, (uint8_t)sizeof g.rec[0].l1, g.l1);
     copyline(g.rec[0].l2, (uint8_t)sizeof g.rec[0].l2, g.l2);
@@ -579,6 +623,15 @@ void LBJ_DrawPopup(void){
     UI_PrintStringSmallBold(r->l2, 0, 0, 2);
     UI_PrintStringSmallBold(r->l3, 0, 0, 3);
 
+    /* route line: the ASCII initials of the line name, or a dash */
+    {
+        char *o = s;
+        o = put(o, "LINE ");
+        if (r->rt[0]) o = put(o, r->rt); else *o++ = '-';
+        *o = '\0';
+        UI_PrintStringSmallBold(s, 0, 0, 4);
+    }
+
     /* the decoded address code and the strength it was received at */
     {
         char *o = s;
@@ -589,7 +642,7 @@ void LBJ_DrawPopup(void){
         o = putu(o, (uint32_t)v);
         o = put(o, "dB");
         *o = '\0';
-        UI_PrintStringSmallNormal(s, 0, 0, 4);
+        UI_PrintStringSmallNormal(s, 0, 0, 5);
     }
 
     /* footer on the bottom row: page and age in normal size, EXIT bold and

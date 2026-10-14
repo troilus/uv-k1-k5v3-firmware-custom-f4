@@ -137,6 +137,7 @@ typedef struct {
 } rec_t;
 #define RF_ERR  1u             /* BCH could not correct the report */
 #define RF_LBJ  2u             /* address belongs to the LBJ set */
+#define RF_COR  4u             /* BCH repaired a bit in the report */
 
 static struct {
     const app_api_t *A;
@@ -328,8 +329,9 @@ void lbj_emit_msg(const lbj_rx_t *r, const char *bcd, uint16_t len){
     g.hist[0]=rec;
     rec->addr=r->addr;
     rec->func=r->func;
-    /* rec->flags (RF_ERR/RF_LBJ) is only read by the #if 0 PDU page. */
-    /* rec->flags=(uint8_t)((r->err?RF_ERR:0u) | (is_lbj(r->addr)?RF_LBJ:0u)); */
+    /* BCH verdict: '*' when a codeword was repaired, '!' when it could not be,
+     * nothing when the report arrived clean (see puttrain). */
+    rec->flags=(uint8_t)((r->err?RF_ERR:0u) | (r->cor?RF_COR:0u) | (is_lbj(r->addr)?RF_LBJ:0u));
     rec->len=(uint8_t)(len>BCDMAX?BCDMAX:len);
     for(uint8_t i=0;i<rec->len;i++) rec->bcd[i]=bcd[i];
     if((r->addr==1233999u||r->addr==1234000u) && len>=15u){   /* remember the short block */
@@ -411,16 +413,36 @@ static void drawFooter(const char *s){
     g.A->print_tiny(str,0,ROWY(6),false,true);
 }
 
+/* Route name initials. GB2312 level-1 (0xB0A1..0xD7F9) is sorted by pinyin, so
+ * the first letter of every character is a range lookup in this 23-entry table.
+ * Pinyin has no initial for I/U/V, hence 23 letters and not 26. */
+static const uint16_t INIT_BOUND[23] = {
+    0, 36, 220, 453, 637, 659, 784, 939, 1120, 1415, 1515, 1763, 1914,
+    1995, 2003, 2125, 2282, 2341, 2627, 2783, 2903, 3126, 3432 };
+static char cn_initial(uint8_t hi,uint8_t lo){
+    if(hi<0xB0u||hi>0xD7u) return '?';                /* level-2 or symbol */
+    const uint16_t idx=(uint16_t)((uint16_t)(hi-0xB0u)*94u+(lo-0xA1u));
+    uint8_t k=0;
+    for(uint8_t i=1u;i<23u;i++){
+        if(idx<INIT_BOUND[i]) break;
+        k=i;
+    }
+    return "ABCDEFGHJKLMNOPQRSTWXYZ"[k];
+}
+
 /* Append "<train> <dir>" from the short block sb (6 chars); used by both the
  * short and the 1234002 layouts. The sticky train prefix (K/T/D/C...) decoded
- * from the last detail block goes in front, as LBJ_Console's fullTrainNumber. */
-static char *puttrain(char *o,const char *sb,const char *s,uint8_t func,bool have){
+ * from the last detail block goes in front, as LBJ_Console's fullTrainNumber,
+ * followed by the BCH verdict: '*' repaired, '!' unrecoverable, nothing clean. */
+static char *puttrain(char *o,const char *sb,const char *s,uint8_t func,bool have,uint8_t rf){
     if(g.pref[0]) *o++=g.pref[0];
     if(g.pref[1]) *o++=g.pref[1];
     if(!have){ *o++='-'; *o++='-'; }
     else for(uint8_t i=0;i<6u;i++) if(sb[i]!=' ') *o++=sb[i];
     *o++=' ';
-    return put(o,(func==1u)?s+T_DN:((func==3u)?s+T_UP:s+T_UNK));
+    o=put(o,(func==1u)?s+T_DN:((func==3u)?s+T_UP:s+T_UNK));
+    if(rf&RF_ERR) *o++='!'; else if(rf&RF_COR) *o++='*';
+    return o;
 }
 
 /* SUM page. 1233999/1234000 (short): train/dir, SPEED, KM, address value.
@@ -448,7 +470,7 @@ static void drawSummary(char *s){
         decode_pref(d);                        /* sticky train prefix, [0:4] */
 
         /* row0: train + direction. */
-        o=str; o=puttrain(o,sb,s,rec->func,have); *o='\0';
+        o=str; o=puttrain(o,sb,s,rec->func,have,rec->flags); *o='\0';
         A->print_bold(str,0,0,0);
 
         /* row1: model name (CN) / abbreviation (EN) + registration number.
@@ -470,13 +492,25 @@ static void drawSummary(char *s){
         *o='\0';
         A->print_bold(str,0,0,1);
 
-        /* row2: route (GB2312), no label; hidden in English mode. */
+        /* row2: route. Chinese mode keeps the GB2312 bytes the firmware's 8x8
+         * font draws; English mode falls back to ASCII initials, which the
+         * level-1 code ordering gives us for free. */
+        o=str;
         if(!g.en){
-            o=str;
             for(uint8_t i=0;i<8u;i++){ uint8_t v=(uint8_t)((nib(d[14u+i*2u])<<4)|nib(d[15u+i*2u])); if(!v) break; *o++=(char)v; }
-            *o='\0';
-            A->print_bold(str,0,0,2);
+        } else {
+            o=put(o,s+T_LINE);
+            for(uint8_t m=0;m<4u;m++){
+                uint8_t k=(uint8_t)(14u+4u*m);
+                if((uint16_t)k+3u>=(uint16_t)dlen) break;
+                uint8_t hi=(uint8_t)((nib(d[k])<<4)|nib(d[k+1u]));
+                uint8_t lo=(uint8_t)((nib(d[k+2u])<<4)|nib(d[k+3u]));
+                if(!hi||!lo) break;
+                *o++=cn_initial(hi,lo);
+            }
         }
+        *o='\0';
+        A->print_bold(str,0,0,2);
 
         /* row3: speed and position km (from the short prefix / last report).
          * A speed that was not decoded is a dash, never a fake 0. */
@@ -505,7 +539,7 @@ static void drawSummary(char *s){
         A->print_bold(str,0,0,5);
     } else {
         /* row0: train + direction. */
-        o=str; o=puttrain(o,b,s,rec->func,rec->len>=6u); *o='\0';
+        o=str; o=puttrain(o,b,s,rec->func,rec->len>=6u,rec->flags); *o='\0';
         A->print_bold(str,0,0,0);
         /* row1: SPEED xx km/h; an undecoded speed is a dash, not a 0. */
         o=str; o=put(o,s+T_SPD); o=putspd(o,b+6u); o=put(o,s+T_KMH); *o='\0';
