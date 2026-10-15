@@ -27,9 +27,18 @@ cd "$(dirname "$0")"
 export MSYS_NO_PATHCONV=1
 
 # --- discover apps (any App/apps/<name>/build.sh) ---
+# cwdecode is pulled from upstream but cannot build here: its gen_assets.py
+# parses gFontSmallPacked out of App/font.c, which this fork's optimised font
+# table does not define. Keep the sources and skip it in every build.
+SKIP_APPS=(cwdecode)
 ALL_APPS=()
 for d in "$APPS_DIR"/*/; do
-    [ -f "${d}build.sh" ] && ALL_APPS+=("$(basename "$d")")
+    [ -f "${d}build.sh" ] || continue
+    name="$(basename "$d")"
+    for s in "${SKIP_APPS[@]}"; do
+        if [ "$s" = "$name" ]; then continue 2; fi
+    done
+    ALL_APPS+=("$name")
 done
 if [ "${#ALL_APPS[@]}" -eq 0 ]; then
     echo "❌ No apps found under $APPS_DIR/*/build.sh"; exit 1
