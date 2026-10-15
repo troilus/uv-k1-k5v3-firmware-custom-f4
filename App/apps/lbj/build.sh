@@ -26,6 +26,16 @@ CFLAGS="-mcpu=cortex-m0plus -mthumb -Oz -fno-jump-tables -std=gnu11 -ffreestandi
 if [ -n "${LBJ_HIDE9:-}" ]; then
   CFLAGS="$CFLAGS -DLBJ_HIDE9"
 fi
+# [C3] LBJ_COORDS: the coordinates row. Off by default - it does not fit the
+# 4 KiB overlay together with everything else.
+if [ -n "${LBJ_COORDS:-}" ]; then
+  CFLAGS="$CFLAGS -DLBJ_COORDS"
+fi
+# [C5 route] LBJ_ROUTE_CN: the Chinese route row plus the key-5 language toggle,
+# instead of the default English "LINE xxx" row.
+if [ -n "${LBJ_ROUTE_CN:-}" ]; then
+  CFLAGS="$CFLAGS -DLBJ_ROUTE_CN"
+fi
 LDFLAGS="-nostdlib -nostartfiles -T app.ld -Wl,--defsym,APP_VMA=${APP_VMA} \
   -Wl,--gc-sections -Wl,-Map=${APP}.map -Wl,--build-id=none -Wl,--no-warn-rwx-segments"
 

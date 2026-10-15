@@ -33,6 +33,7 @@ UI = [
     ("T_UP",     "UP"),
     ("T_UNK",    "??"),
     ("T_ROUTE",  "线路 "),
+    ("T_LINE",   "LINE "),    # English route row: LINE + the pinyin initials
     # footer flags (bottom status bar): "5EN 4BL:ON 1SPK:ON x/y -rr"
     ("T_L5",     "5"),
     ("T_EN",     "EN"),
@@ -122,12 +123,24 @@ def abbr(name):
 TYPES.sort(key=lambda t: t[0])
 names = [name for _, name in TYPES]
 ens = [abbr(name) for name in names]
-width = max(max(len(n.encode("gb2312")) for n in names),
-            max(len(e) for e in ens)) + 1
+# [C5] The stride only has to fit the English abbreviations now.
+# width = max(max(len(n.encode("gb2312")) for n in names),
+#             max(len(e) for e in ens)) + 1
+width = max(len(e) for e in ens) + 1
 a.u16("TY_CODE", [code for code, _ in TYPES])
-a.table("TY_NAME", names, stride=width, enc="gb2312")
+# [C5] The Chinese model-name table is gone: the model row always shows the
+# English abbreviation, so the GB2312 names are dead weight in the asset blob.
+# a.table("TY_NAME", names, stride=width, enc="gb2312")
 a.table("TY_EN", ens, stride=width)
 a.const("TY_COUNT", len(TYPES))
+
+# [C5 route] GB2312 level-1 is sorted by pinyin, so the first letter of a route
+# character is a range lookup in this 23-entry table (Pinyin has no initial for
+# I/U/V, hence 23 letters and not 26). Kept in the assets, not in the overlay:
+# the 46 B cost is the asset blob's, not the 4 KiB code budget's.
+a.u16("INIT_BOUND", [0, 36, 220, 453, 637, 659, 784, 939, 1120, 1415, 1515,
+                     1763, 1914, 1995, 2003, 2125, 2282, 2341, 2627, 2783,
+                     2903, 3126, 3432])
 
 if __name__ == "__main__":
     a.main()
