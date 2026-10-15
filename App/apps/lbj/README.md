@@ -159,10 +159,23 @@ LBJ_Console 的 `lbjClass`），拼在车次号前面显示——所以只有短
 | `LBJ_HIDE9` | 车次整串首字符为 `9` 的记录整条不显示、不进历史 | 关 |
 
 环境变量经 `build.sh`（`LBJ_HIDE9=1 LBJ_ROUTE_CN=1 ./build.sh`）打开，`compile-app.sh`
-会透传给 Docker。CI 每次出两个 overlay 工件：默认名（隐藏9）与名含 `9`（不隐藏9）。
+会透传给 Docker。
 
-余量（本地 GCC 10 `-Os` 实测，CI 的 GCC 13 `-Oz` 差几字节）：英文版约 128 B、
-不隐藏9 约 180 B、中文版约 228 B。
+CI（`.github/workflows/build-apps.yml`）一次出 **6 个工件**，下载后取里面的
+`LBJRX.app` 即可：
+
+| 工件 | 内容 |
+|---|---|
+| `overlay-apps` | 英文版，隐藏9 |
+| `overlay-apps9` | 英文版，不隐藏9 |
+| `overlay-apps-cn` | 中文版，隐藏9 |
+| `overlay-apps-cn9` | 中文版，不隐藏9 |
+| `overlay-apps-cn-coord` | 中文版 + 经纬度行，隐藏9 |
+| `overlay-apps-cn9-coord` | 中文版 + 经纬度行，不隐藏9 |
+
+余量（本地 GCC 10 `-Os` 实测，CI 的 GCC 13 `-Oz` 一般小 40 B 左右）：
+英文版 128 / 180 B、中文版 228 / 280 B、中文版+经纬度 **24 / 76 B**——最后
+这一档最紧，是唯一可能因编译器版本擦边的。
 
 ## Using the app
 
@@ -314,11 +327,21 @@ decoder tolerates (about +2–3 dB).
 | `LBJ_HIDE9` | Records whose train string starts with `9` are dropped entirely (never shown, never stored) | off |
 
 They are environment variables for `build.sh` (`LBJ_HIDE9=1 LBJ_ROUTE_CN=1
-./build.sh`), which `compile-app.sh` passes through to Docker. CI ships two
-overlay artifacts per run: the default name (hide-9) and one whose name contains
-`9` (no hiding).
+./build.sh`), which `compile-app.sh` passes through to Docker. CI
+(`.github/workflows/build-apps.yml`) ships **six** overlay artifacts per run -
+download the one you want and take the `LBJRX.app` inside:
 
-Room left (local GCC 10 `-Os`; CI's GCC 13 `-Oz` differs by a few bytes):
-English build about 128 B, the no-hide-9 variant about 180 B, the Chinese build
-about 228 B. Everything cut to buy that room back is tagged `[C1]`..`[C6]` in the
-source, so it can be put back one item at a time.
+| Artifact | Build |
+|---|---|
+| `overlay-apps` | English, hide-9 |
+| `overlay-apps9` | English, show all |
+| `overlay-apps-cn` | Chinese, hide-9 |
+| `overlay-apps-cn9` | Chinese, show all |
+| `overlay-apps-cn-coord` | Chinese + coordinates row, hide-9 |
+| `overlay-apps-cn9-coord` | Chinese + coordinates row, show all |
+
+Room left (local GCC 10 `-Os`; CI's GCC 13 `-Oz` is usually about 40 B
+smaller): English 128 / 180 B, Chinese 228 / 280 B, Chinese + coordinates **24 /
+76 B**. The last flavour is the tight one - the only one that could brush the
+limit on a different compiler. Everything cut to buy that room back is tagged
+`[C1]`..`[C6]` in the source, so it can be put back one item at a time.
