@@ -23,10 +23,9 @@ UI = [
     ("T_WAIT",   WAIT),
     ("T_SUM",    "SUM"),
     ("T_PDU",    "PDU"),
-    ("T_SPD",    "SPEED "),   # 1234000 row1 prefix
-    ("T_KMH",    " km/h"),    # 1234000 row1 suffix
-    ("T_SPD2",   "SPD "),     # 1234002 row3 prefix (speed + km on one line)
-    ("T_KM",     "KM "),
+    ("T_SPD",    "SPD "),     # row1 prefix: "SPD 87 km/h", both layouts
+    ("T_KMH",    " km/h"),    # row1 suffix
+    ("T_KM",     "KM "),      # row2 prefix: "KM 0344.7"
     ("T_LBJ",    "LBJ"),
     ("T_NOLBJ",  "--"),
     ("T_DN",     "DN"),

@@ -32,17 +32,17 @@ POCSAG/LBJ decoder are validated in `test/model_rx.py` against synthetic frames
 **SUM 页（解析摘要）**
 
 ```
-```
-███████████████████████████████  ← 顶栏：固件 UI_DisplayStatus() 原样（电池等）
-K412 DN                             ← 第1行：车次前缀 + 车次 + 方向（DN 下行 / UP 上行 /
-                                      ?? 未知，粗体），末尾跟 BCH 标记：干净无字符、
-                                      修复过加 `*`、修不好加 `!`（`!` 优先）
-SPEED 87 km/h                       ← 第2行：速度
-KM 0344.7                           ← 第3行：公里标
-1234000 -95dB                       ← 第4行：解出的地址值 + 接收瞬间的信号强度
+███████████████████████████████     ← 顶栏：固件 UI_DisplayStatus() 原样（电池等）
+K412 DN                             ← 第1行：车次前缀 + 车次 + 方向（DN 下行 / UP 上行 / ?? 未知，粗体），
+                                      末尾 BCH 标记：干净无字符、修复过加 `*`、修不好加 `!`（`!` 优先）
+SPD 87 km/h                         ← 第2行：速度（没解出来显示 `-`，不会显示假的 0）
+KM 0344.7                           ← 第3行：公里标（同上）
+-------                             ← 第4行：短报文没有详情块 → 车型行画 7 个横杠（与固件一致）
+LINE -                              ← 第5行：同理无线路 → `LINE -`（与固件一致；中文版没有拼音行，留空）
+1234000 -95dB                       ← 第6行：解出的地址值 + 接收瞬间的信号强度
                                       （小字、不加粗；不是实时值）
 4BL:OFF 1SPK:ON 1/3                 ← 底部状态栏：4=背光常亮(ON/OFF)、1=扬声器(ON/OFF)、
-                                      x/y；进入即显示 0/0（不再显示 RSSI、不再每 0.5s 刷新）
+                                      x/y；进入即显示 0/0（不显示 RSSI、不每 0.5s 刷新）
 ```
 
 > PDU 页（报文 + 地址/功能/LBJ/BCH + 原始 BCD）与 `M/S/W/F/B` 计数行、
@@ -59,27 +59,28 @@ KM 0344.7                           ← 第3行：公里标
 只可能有合并形式。
 
 ```
-██████████████████████████████  ← 顶栏：固件 UI_DisplayStatus() 原样
-```
-███████████████████████████████  ← 顶栏：固件 UI_DisplayStatus() 原样
-K412 DN*                            ← 第1行：车次前缀 + 车次 + 方向 + BCH 标记（合并报文取
-                                      自身短前缀；独立详情取最近一条 1234000）
-HXD1C 23900050                      ← 第2行：车型**英文缩写** + 8位机车登记号
-                                      （3位车型码 + 5位车号）
-LINE JHX                            ← 第3行：线路，默认英文 `LINE ` + 每个汉字的拼音首字母
-                                      （例：京沪线 → JHX；非一级汉字显示 `?`）
-SPD 87 KM 00344.7                   ← 第4行：速度 + 公里标
-1234002 -87dB                       ← 第5行：解出的地址值 + 接收瞬间的信号强度
-                                      （小字、不加粗）
+███████████████████████████████     ← 顶栏：固件 UI_DisplayStatus() 原样
+K412 DN*                            ← 第1行：同上，多一个 BCH 标记（合并报文取自身短前缀；独立
+                                      详情取最近一条 1234000 的短前缀）
+SPD 87 km/h                         ← 第2行：速度（无效时显示 `-`）
+KM 0344.7                           ← 第3行：公里标（无效时显示 `-`）
+HXD1C 23900050                      ← 第4行：车型英文缩写 + 8 位机车登记号
+                                      （3 位车型码 + 5 位车号）
+LINE JHX                            ← 第5行：线路 `LINE ` + 每个汉字的拼音首字母（京沪线 → JHX；
+                                      非一级汉字显示 `?`；中文版改原样汉字、英文模式留空）
+1234002 -87dB                       ← 第6行：地址 + 强度（小字、不加粗）
 4BL:OFF 1SPK:ON 1/3                 ← 底部状态栏（同前）
 ```
 
-> 经纬度行默认**关闭**（4 KiB 容量装不下；编译选项 `LBJ_COORDS` 打开）。打开后
-> 经纬度占第 5 行、地址行退到第 6 行。
+> 经纬度默认**关闭**（编译选项 `LBJ_COORDS` 打开）。打开后坐标与地址、强度**合并成
+> 同一行**（tiny 字，分钟只留 1 位小数、0.1'≈185 m，32 个字符正好铺满 128 px）：
+> `1234002 -120dB 104-16.1E30-35.1N`；校验不通过或详情块不足 47 字符时退回普通
+> 地址行（地址与强度照常显示，只是没有坐标）。
 >
 > 中文版另有构建选项 `LBJ_ROUTE_CN`：线路行改回原样的 GB2312 汉字（不带"线路"
-> 标签）、车型行恢复中文/英文切换、键 `5` 恢复、底栏恢复 `5EN/ZH` 提示。中文版
-> 余量更大（约 228 B），可自行搭配 `LBJ_COORDS`。
+> 标签）、键 `5` 恢复、底栏恢复 `5EN/ZH` 提示；英文模式下线路行留空（拼音首字母行
+> 只编进英文版构建，车型行两个版本都只显示英文缩写）。中文版余量更大（332 /
+> 408 B），可自行搭配 `LBJ_COORDS`。
 >
 > 编译选项 `LBJ_PIN_FREQ` 在进入时把接收钉到 821.2375 MHz（写 BK4819 的
 > REG_38/39，就是 `BK4819_SetFrequency` 干的事）。退出时 loader 会用**没被 app
@@ -97,16 +98,17 @@ LBJ_Console 的 `lbjClass`），拼在车次号前面显示——所以只有短
 `7-11` 为 5 位机车号（`4-11` 合起来即 8 位登记号），`12-13` 端号
 （31=A、32=B、30=未知，暂未显示），`14-29` 线路 GB2312，`30-38` 经度
 `DDD MM MMMM`，`39-46` 纬度 `DD MM MMMM`（均为纯数字，没有小数点）。
-经纬度**照搬上游安卓接收机（`LbjDecoder.kt`）的做法**：直接把 DMS 原样打成
-`104-16.1280E 30-35.0780N`（小字体里没有度/分字形，用 `-` 分隔度与分），并套用
-它的合法性校验：9/8 个数字必须全是 0-9、分钟 <60、经度首位 ≤1。校验不通过、
-或独立详情不足 47 字符时**整行不显示** —— 不会把坏数据印成一个“看着挺像”的
-十进制数（整行为编译选项 `LBJ_COORDS`，默认关闭）。车型行**只显示英文缩写**
+经纬度的**读法照搬上游安卓接收机（`LbjDecoder.kt`）**：同样的 DMS 打法、同样的
+合法性校验（9/8 个数字必须全是 0-9、分钟 <60、经度首位 ≤1），小字体里没有度/分
+字形、用 `-` 分隔度与分；只是分钟只留 1 位小数（0.1'≈185 m），好和地址、强度挤在
+同一行：`1234002 -120dB 104-16.1E30-35.1N`。校验不通过、或详情块不足 47 字符时
+**退回普通地址行**——不会把坏数据印成一个“看着挺像”的十进制数（坐标为编译选项
+`LBJ_COORDS`，默认关闭）。车型行**只显示英文缩写**
 （如 东风4C→DF4C、韶山7E→SS7E、东方红21→DFH21）——中文名表已从资源里删掉。
 线路行默认显示 `LINE ` + 每个汉字的拼音首字母：GB2312 一级字库本身按拼音排序，
 所以首字母就是 23 项边界码表的一次区间查找（拼音没有 I/U/V 三个声母，所以是
 23 个字母）；二级字库/符号显示 `?`。中文版（`LBJ_ROUTE_CN`）恢复原样的汉字
-线路名和键 `5` 切换。
+线路名和键 `5` 切换（英文模式与短报文下该行留空）。
 
 详情卡与它的 `1233999/1234000` 基础预警卡**各留一条**，历史里不做自动合并或
 删除（独立详情块里没有完整车次，无法安全判定它属于哪趟车）。
@@ -162,9 +164,9 @@ LBJ_Console 的 `lbjClass`），拼在车次号前面显示——所以只有短
 
 | 选项 | 作用 | 默认 |
 |---|---|---|
-| （无选项） | 英文版：线路行 `LINE `+拼音首字母、车型只显示英文缩写、没有键 `5`、没有经纬度行 | 默认 |
-| `LBJ_ROUTE_CN` | 中文版：线路行改回 GB2312 汉字、车型恢复中/英切换、键 `5` 恢复、底栏恢复 `5EN/ZH` 提示 | 关 |
-| `LBJ_COORDS` | 打开经纬度行（英文版装不下会溢出 4 KiB，中文版可以） | 关 |
+| （无选项） | 英文版：线路行 `LINE `+拼音首字母、车型只显示英文缩写、没有键 `5`、默认不显示经纬度 | 默认 |
+| `LBJ_ROUTE_CN` | 中文版：线路行改回 GB2312 汉字（英文模式该行留空）、键 `5` 恢复、底栏恢复 `5EN/ZH` 提示 | 关 |
+| `LBJ_COORDS` | 把经纬度并进地址行（英文版现在也装得下、只剩几十字节；CI 只出中文版的经纬度工件） | 关 |
 | `LBJ_HIDE9` | 车次整串首字符为 `9` 的记录整条不显示、不进历史 | 关 |
 | `LBJ_PIN_FREQ` | 进入时把接收钉到 821.2375 MHz，退出由 loader 还原成原频率 | 关 |
 
@@ -180,12 +182,13 @@ CI（`.github/workflows/build-apps.yml`）一次出 **6 个工件**，下载后�
 | `overlay-apps9` | 英文版，不隐藏9 |
 | `overlay-apps-cn` | 中文版，隐藏9，**进入自动钉 821.2375 MHz** |
 | `overlay-apps-cn9` | 中文版，不隐藏9 |
-| `overlay-apps-cn-coord` | 中文版 + 经纬度行，隐藏9 |
-| `overlay-apps-cn9-coord` | 中文版 + 经纬度行，不隐藏9 |
+| `overlay-apps-cn-coord` | 中文版 + 经纬度（并进地址行），隐藏9 |
+| `overlay-apps-cn9-coord` | 中文版 + 经纬度（并进地址行），不隐藏9 |
 
 余量（本地 GCC 10 `-Os` 实测，带 pin 的两个已计入 +24 B；CI 的 GCC 13 `-Oz`
-一般再小 40 B 左右）：英文版 104 / 180 B、中文版 204 / 280 B、中文版+经纬度
-**24 / 76 B**——最后这一档最紧，是唯一可能因编译器版本擦边的。
+一般再小 40 B 左右）：英文版 232 / 308 B、中文版 332 / 408 B、中文版+经纬度
+**140 / 192 B**——与固件排版对齐的这一版把六档各省了 116～128 B，最紧的经纬度档
+也从"擦边"变成宽裕了。
 
 ## Using the app
 
@@ -238,14 +241,18 @@ train `[0:6]`, speed `[6:9]`, position km `[10:15]`. A detail block sits at
 `[0:len)` of a standalone 30..64-char report, or at the last 50 chars of a
 65-char merged report: 2 ASCII prefix chars `0:4`, 3-digit model code `4:7`,
 loco number `7:12`, end flag `12:14`, GB2312 route `14:30`, longitude `30:39`,
-latitude `39:47` (`DDDMM.MMMM` / `DDMM.MMMM`, shown as decimal degrees).
+latitude `39:47` (`DDDMM.MMMM` / `DDMM.MMMM`, rendered as `104-16.1E` / `30-35.1N`:
+a tenth of a minute instead of the upstream receiver's four decimals - the address
+row shares the line, so the pair has to fit 32 chars).
 
 The model row always shows the English abbreviation (DF4C/SS7E/DFH21); the GB2312
 name table is gone from the assets. The route row is a compile option: by default
 it reads `LINE ` + the pinyin initial of each GB2312 route character (level-1 of
 the font is sorted by pinyin, so a 23-entry boundary table in the assets is all
 it takes), while `-DLBJ_ROUTE_CN` keeps the original Chinese route and the key-5
-language toggle for radios with the built-in 8x8 font.
+language toggle for radios with the built-in 8x8 font; in that build the row stays
+blank in English mode (the pinyin row is compiled into the English builds only)
+and blank for short reports, which carry no route at all.
 
 ## Pages
 
@@ -258,7 +265,7 @@ only LBJ-family messages reach it nowadays.
 
 | Page | Content |
 |---|---|
-| **SUM** | Newest/selected record. The status bar is left exactly as the firmware's `UI_DisplayStatus()` draws it (battery and icons; the app draws no title and no frequency). The train line ends with the BCH verdict: nothing when the report arrived clean, `*` when a codeword was repaired, `!` when it could not be repaired at all (`!` wins). Short report (1233999/1234000): train + direction, `SPEED xx km/h`, `KM xxxx.x`, then the decoded address value plus the strength captured at reception (`1234000 -87dB`, small font, not bold). New-gen alert (1234001/1234002, standalone or merged; 1233999/1234000 merged): train + direction, model abbreviation + 8-digit registration number, the `LINE xxx` route row, `SPD xx KM xxxx.x`, then the address value + strength; the DMS coordinates row (`104-16.1280E 30-35.0780N`, drawn as the upstream Android receiver draws them, with its validity check, tiny font, merged blocks only, hidden when the pair is rejected or the block is short) is a compile option (`LBJ_COORDS`, off by default). A merged report uses its own short prefix, a standalone one the last short report. The train number is prefixed with the train-class letter (K/T/D/C...) decoded from the detail block's `[0:4]` — the two ASCII chars the radio actually transmits, sticky like LBJ_Console's `lbjClass` so a short report still carries the last prefix seen. The bottom bar shows the key hints (`4` backlight, `1` speaker) then `x/y` (selected/count, 1 = newest), drawn from launch as `0/0`; it is not polled for RSSI any more |
+| **SUM** | Newest/selected record, laid out row for row like the firmware's `LBJ_DrawPopup`: the status bar stays exactly as `UI_DisplayStatus()` draws it (battery and icons; the app draws no title and no frequency), then row 1 train + direction ending in the BCH verdict (nothing when the report arrived clean, `*` when a codeword was repaired, `!` when it could not be repaired at all; `!` wins), row 2 `SPD xx km/h`, row 3 `KM xxxxx.x`, row 4 model abbreviation + 8-digit registration number, row 5 `LINE xxx` route, row 6 the decoded address value plus the strength captured at reception (`1234002 -87dB`, small font, not bold). A short report (1233999/1234000) has no detail block, so rows 4/5 get the firmware's placeholders - `-------` and `LINE -` (the Chinese build, which has no pinyin row, leaves row 5 empty); the train/speed/km digits show a dash instead of a fake 0 unless a full 15-char short prefix is there, which is the firmware's own gate. A merged 65-char report uses its own short prefix, a standalone detail (30..64 chars) the last short report kept in `g.sess`. With `LBJ_COORDS` (off by default) the coordinates join row 6 in the tiny font as `1234002 -120dB 104-16.1E30-35.1N` - the upstream Android receiver's DMS layout and validity check, minutes to a tenth of a minute so the pair fits the 128 px row; a rejected pair or a detail block shorter than 47 chars falls back to the plain address row. The train number is prefixed with the train-class letter (K/T/D/C...) decoded from the detail block's `[0:4]` - the two ASCII chars the radio actually transmits, sticky like LBJ_Console's `lbjClass` so a short report still carries the last prefix seen. The bottom bar shows the key hints (`4` backlight, `1` speaker) then `x/y` (selected/count, 1 = newest), drawn from launch as `0/0`; it is not polled for RSSI any more |
 
 Keys: UP/DOWN pick the newer/older record (`nav_dir`: UV-K1 LEFT/RIGHT; one step
 per press — holding does not auto-repeat) · `1` speaker · `2` clear history +
@@ -334,9 +341,9 @@ decoder tolerates (about +2–3 dB).
 
 | Option | Effect | Default |
 |---|---|---|
-| (none) | English build: `LINE ` + pinyin-initial route row, model row shows the English abbreviation only, no key `5`, no coordinates row | default |
-| `LBJ_ROUTE_CN` | Chinese build: the original GB2312 route row, the model-row CN/EN toggle, key `5` and the `5EN/ZH` footer hint all come back | off |
-| `LBJ_COORDS` | The DMS coordinates row (it overflows the 4 KiB overlay in the English build; it fits in the Chinese one) | off |
+| (none) | English build: `LINE ` + pinyin-initial route row, model row shows the English abbreviation only, no key `5`, no coordinates | default |
+| `LBJ_ROUTE_CN` | Chinese build: the original GB2312 route row (blank in English mode - the pinyin row is compiled into the English builds only), key `5` and the `5EN/ZH` footer hint come back; the model row is English-only in every build | off |
+| `LBJ_COORDS` | The coordinates merged into the address row (`1234002 -120dB 104-16.1E30-35.1N`, tiny font); the English build fits them too now, with only tens of bytes left, so CI ships the coordinate flavour for the Chinese builds only | off |
 | `LBJ_HIDE9` | Records whose train string starts with `9` are dropped entirely (never shown, never stored) | off |
 | `LBJ_PIN_FREQ` | The receiver is pinned to 821.2375 MHz on entry (BK4819 REG_38/39, what `BK4819_SetFrequency` does); on exit the loader re-tunes from the untouched `gRxVfo->pRX->Frequency`, so the app carries no restore code at all. FM comes from the app's own `set_af(APP_AF_FM)` and the audio filter is bypassed in RAW, so those cost no extra bytes | off |
 
@@ -354,12 +361,12 @@ download the one you want and take the `LBJRX.app` inside:
 | `overlay-apps9` | English, show all |
 | `overlay-apps-cn` | Chinese, hide-9, **pins 821.2375 MHz on entry** |
 | `overlay-apps-cn9` | Chinese, show all |
-| `overlay-apps-cn-coord` | Chinese + coordinates row, hide-9 |
-| `overlay-apps-cn9-coord` | Chinese + coordinates row, show all |
+| `overlay-apps-cn-coord` | Chinese + coordinates in the address row, hide-9 |
+| `overlay-apps-cn9-coord` | Chinese + coordinates in the address row, show all |
 
 Room left (local GCC 10 `-Os`, the two pinned builds including their +24 B;
-CI's GCC 13 `-Oz` is usually about 40 B smaller): English 104 / 180 B, Chinese
-204 / 280 B, Chinese + coordinates **24 /
-76 B**. The last flavour is the tight one - the only one that could brush the
-limit on a different compiler. Everything cut to buy that room back is tagged
-`[C1]`..`[C6]` in the source, so it can be put back one item at a time.
+CI's GCC 13 `-Oz` is usually about 40 B smaller): English 232 / 308 B, Chinese
+332 / 408 B, Chinese + coordinates **140 / 192 B**. The row-for-row firmware
+layout bought every flavour 116-128 B, so the coordinate build is no longer the
+razor-edge one. Everything cut to buy that room back is tagged `[C1]`..`[C6]`
+in the source, so it can be put back one item at a time.

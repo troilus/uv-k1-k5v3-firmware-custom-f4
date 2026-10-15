@@ -147,7 +147,8 @@ typedef struct {
 typedef struct {
     uint32_t addr;
     uint8_t  func, flags, len;
-    int8_t   rssi;             /* [C2] strength at the moment of reception     */
+    int16_t  rssi;             /* [C2] strength at reception; dBm can drop
+                                * below -128, so the signed byte was not enough */
     uint8_t  cor;              /* [C6] a codeword was repaired: show '*'       */
     char     bcd[BCDMAX];
 } rec_t;
@@ -207,23 +208,26 @@ static char *putkm(char *o,const char *p){
     char c=p[4]; *o++=(c>='0'&&c<='9')?c:'0';
     return o;
 }
+/* n dashes: the rows a report carries no data for (the firmware's putdash) */
+static char *putdash(char *o,uint8_t n){ while(n--) *o++='-'; return o; }
 
 #ifdef LBJ_COORDS   /* [C3] coordinates: a compile option, off by default */
 /* One DMS coordinate field, read exactly as the upstream Android receiver
  * reads the detail block: dg degree nibbles then MM MMMM minutes - all plain
  * decimal nibbles with no decimal point (lon [30:39], lat [39:47]). Writes
- * "DDD-MM.MMMM<E>" and returns the new end, or NULL when a nibble is not a
+ * "DDD-MM.M<E>" and returns the new end, or NULL when a nibble is not a
  * digit, the minutes are >= 60 or the longitude starts above 1, so a
  * corrupted block shows no coordinates at all instead of a plausible wrong
- * pair. No arithmetic at all: degrees and minutes are copied digit by digit,
- * exactly as upstream prints them (leading zeros kept). */
+ * pair. Degrees and minutes are copied digit by digit, as upstream prints
+ * them (leading zeros kept); the minutes keep a single decimal (0.1' = about
+ * 185 m) because the address and the dB figure share the row now. */
 static char *putdms(char *o,const char *p,uint8_t dg,char hemi){
     for(uint8_t i=0;i<dg+6u;i++) if(p[i]<'0'||p[i]>'9') return NULL;
     if(p[dg]>'5') return NULL;                  /* minutes must be < 60  */
     if(dg==3u && p[0]>'1') return NULL;         /* longitude <= 19x      */
     for(uint8_t i=0;i<dg;i++) *o++=p[i];        /* degrees, as upstream  */
     *o++='-'; *o++=p[dg]; *o++=p[dg+1u]; *o++='.';
-    *o++=p[dg+2u]; *o++=p[dg+3u]; *o++=p[dg+4u]; *o++=p[dg+5u];
+    *o++=p[dg+2u];
     *o++=hemi;
     return o;
 }
@@ -373,7 +377,7 @@ void lbj_emit_msg(const lbj_rx_t *r, const char *bcd, uint16_t len){
      * row ends with '!'), rec->cor = a codeword was repaired (ends with '*'). */
     rec->flags=(uint8_t)(r->err?RF_ERR:0u);
     rec->cor=r->cor;
-    rec->rssi=(int8_t)g.A->rssi_dbm();      /* [C2] the strength right now */
+    rec->rssi=(int16_t)g.A->rssi_dbm();     /* [C2] the strength right now */
     /* rec->flags (RF_LBJ) is only read by the #if 0 PDU page. */
     /* rec->flags=(uint8_t)((r->err?RF_ERR:0u) | (is_lbj(r->addr)?RF_LBJ:0u)); */
     rec->len=(uint8_t)(len>BCDMAX?BCDMAX:len);
@@ -478,24 +482,36 @@ static char *puttrain(char *o,const char *sb,const char *s,uint8_t func,bool hav
     return put(o,(func==1u)?s+T_DN:((func==3u)?s+T_UP:s+T_UNK));
 }
 
-/* [C2] "<addr> -87dB" on the given row, in the small (not bold) font, left
- * aligned like every other row: the strength is the one captured when the
- * report was received, not a live reading. */
-static void addrrow(const rec_t *rec,uint8_t row){
-    char *o=str;
-    o=putu(o,rec->addr); *o++=' '; *o++='-';
+/* [C2] "<addr> -87dB", written exactly as the firmware's popup writes it: the
+ * strength is the one captured when the report was received, not a live
+ * reading. Bounded at 14 chars by construction (7-digit address, |dBm| under
+ * 1000), so the coord builds can glue it and the coordinates into the 32-char
+ * tiny row without a guard. */
+static char *addrstr(char *o,const rec_t *rec){
+    o=putu(o,rec->addr);
+    *o++=' ';
     int32_t r=rec->rssi;
     if(r<0){ *o++='-'; r=-r; }
     o=putu(o,(uint32_t)r);
-    *o++='d'; *o++='B'; *o='\0';
+    *o++='d'; *o++='B';
+    return o;
+}
+/* The address row on its own: small (not bold) font, left aligned like every
+ * other row. */
+static void addrrow(const rec_t *rec,uint8_t row){
+    *addrstr(str,rec)='\0';
     g.A->print_normal(str,0,0,row);
 }
 
-/* SUM page. 1233999/1234000 (short): train/dir, SPEED, KM, address value.
- * 1234001/1234002 (detail): train/dir + model + route, speed/km, LON/LAT
- * (tiny font), address value. A merged 65-char report carries its own short
- * prefix; a standalone detail (30..64 chars) borrows the most recent short
- * report kept in g.sess. */
+/* SUM page: the firmware's popup layout, row for row.
+ *   row0 train + direction + the BCH verdict       row1 "SPD xx km/h"
+ *   row2 "KM xxxxx.x"   row3 model + registration  row4 route
+ *   row5 "<addr> -87dB"
+ * 1234001/1234002 (detail): model/route from the detail block, speed and km
+ * from the short prefix. 1233999/1234000 (short): no detail block at all, so
+ * rows 3/4 get the firmware's dashes. A merged 65-char report carries its own
+ * short prefix; a standalone detail (30..64 chars) borrows the most recent
+ * short report kept in g.sess. */
 __attribute__((noinline))
 static void drawSummary(char *s){
     const app_api_t *A=g.A;
@@ -504,61 +520,80 @@ static void drawSummary(char *s){
     const rec_t *rec=g.hist[g.cur];
     const char *b=rec->bcd;
     const bool det=hasdet(rec->addr,rec->len);
+    const bool merged=det && (rec->len>=DET_MERGED);
+    const uint8_t start=(uint8_t)(merged?(rec->len-DET_NIB):0u);
+    const char *d=b+start;                    /* the 50-char (or shorter) block */
+    const char *sb=merged?b:(det?g.sess:b);   /* the short prefix for train/spd */
+    /* Train digits, speed and km only exist when a full 15-char short prefix
+     * is there - the same gate the firmware's format() uses. */
+    const bool have=merged||(det?g.sessValid:(rec->len>=15u));
+#ifdef LBJ_COORDS
+    const uint8_t dlen=(uint8_t)(rec->len-start);
+#endif
 
+    if(det) decode_pref(d);                    /* sticky train prefix, [0:4] */
+
+    /* row0: train + direction, then the BCH verdict: nothing when the report
+     * arrived clean, '*' when a codeword was repaired, '!' when it could not be
+     * repaired at all. [C6] */
+    o=str; o=puttrain(o,sb,s,rec->func,have);
+    if(rec->flags&RF_ERR) *o++='!';
+    else if(rec->cor)     *o++='*';
+    *o='\0';
+    A->print_bold(str,0,0,0);
+
+    /* row1: speed. A speed that was not decoded is a dash, never a fake 0. */
+    o=str; o=put(o,s+T_SPD);
+    if(have) o=putspd(o,sb+6u); else *o++='-';
+    o=put(o,s+T_KMH); *o='\0';
+    A->print_bold(str,0,0,1);
+
+    /* row2: position km, same rule as the speed. */
+    o=str; o=put(o,s+T_KM);
+    if(have) o=putkm(o,sb+10u); else *o++='-';
+    *o='\0';
+    A->print_bold(str,0,0,2);
+
+    /* row3: model abbreviation + the 8-char code/number registration, or the
+     * firmware's dashes when the report carries no detail block. The 3-digit
+     * model code is [4:7] (the 2 ASCII prefix chars are at [0:4]); [4:12] as a
+     * whole is the registration. */
+    o=str;
     if(det){
-        const bool merged=(rec->len>=DET_MERGED);
-        const uint8_t start=merged?(uint8_t)(rec->len-DET_NIB):0u;
-        const char *d=b+start;                 /* the 50-char (or shorter) block */
-        const uint8_t dlen=(uint8_t)(rec->len-start);
-        const char *sb=merged?b:g.sess;        /* merged carries its own short block */
-        const bool have=merged||g.sessValid;
-
-        decode_pref(d);                        /* sticky train prefix, [0:4] */
-
-        /* row0: train + direction, then the BCH verdict: nothing when the
-         * report arrived clean, '*' when a codeword was repaired, '!' when it
-         * could not be repaired at all. [C6] */
-        o=str; o=puttrain(o,sb,s,rec->func,have);
-        if(rec->flags&RF_ERR) *o++='!';
-        else if(rec->cor)     *o++='*';
-        *o='\0';
-        A->print_bold(str,0,0,0);
-
-        /* row1: model abbreviation + registration number.
-         * The 3-digit model code is [4:7] (the 2 ASCII prefix chars are at
-         * [0:4]); [4:12] as a whole is the 8-char code+number registration. */
-        o=str;
-        {
-            char nb[TY_EN_STRIDE];
-            int idx=type_index((uint16_t)digv(d+4u,3u));
-            if(idx<0) o=put(o,"--");
-            else {
-                /* [C5] the English abbreviation only: the GB2312 name table is
-                 * gone from the assets (a.table("TY_NAME", ...) in gen_assets). */
-                A->asset_read((uint16_t)(TY_EN+(uint16_t)idx*TY_EN_STRIDE),nb,TY_EN_STRIDE);
-                o=put(o,nb);
-            }
+        char nb[TY_EN_STRIDE];
+        int idx=type_index((uint16_t)digv(d+4u,3u));
+        if(idx<0) o=put(o,"--");
+        else {
+            /* [C5] the English abbreviation only: the GB2312 name table is
+             * gone from the assets (a.table("TY_NAME", ...) in gen_assets). */
+            A->asset_read((uint16_t)(TY_EN+(uint16_t)idx*TY_EN_STRIDE),nb,TY_EN_STRIDE);
+            o=put(o,nb);
         }
         *o++=' ';
-        for(uint8_t i=4u;i<12u;i++) *o++=d[i];   /* the 8-char code+number registration */
-        *o='\0';
-        A->print_bold(str,0,0,1);
+        for(uint8_t i=4u;i<12u;i++) *o++=d[i];   /* the 8-char registration */
+    } else o=putdash(o,7u);
+    *o='\0';
+    A->print_bold(str,0,0,3);
 
 #ifdef LBJ_ROUTE_CN
-        /* row2: route (GB2312), no label; hidden in English mode. */
-        if(!g.en){
-            o=str;
-            for(uint8_t i=0;i<8u;i++){ uint8_t v=(uint8_t)((nib(d[14u+i*2u])<<4)|nib(d[15u+i*2u])); if(!v) break; *o++=(char)v; }
-            *o='\0';
-            A->print_bold(str,0,0,2);
-        }
+    /* row4: the GB2312 route row, no label (key 5). The pinyin row is not in
+     * this build ([C5 route]: the tightest flavour has no room for it), so the
+     * row stays empty in English mode and for a short report. */
+    if(!g.en && det){
+        o=str;
+        for(uint8_t i=0;i<8u;i++){ uint8_t v=(uint8_t)((nib(d[14u+i*2u])<<4)|nib(d[15u+i*2u])); if(!v) break; *o++=(char)v; }
+        *o='\0';
+        A->print_bold(str,0,0,4);
+    }
 #else
-        /* row2: [C5 route] "LINE " + the pinyin initial of each GB2312 route
-         * character, read from the boundary table in the assets. */
-        {
-            uint16_t bnd[23];
-            A->asset_read(INIT_BOUND,bnd,sizeof bnd);
-            o=str; o=put(o,s+T_LINE);
+    /* row4: [C5 route] "LINE " + the pinyin initial of each GB2312 route
+     * character, read from the boundary table in the assets; "LINE -" when the
+     * report has no detail block, as the firmware's popup draws it. */
+    {
+        uint16_t bnd[23];
+        A->asset_read(INIT_BOUND,bnd,sizeof bnd);
+        o=str; o=put(o,s+T_LINE);
+        if(det){
             for(uint8_t m=0;m<4u;m++){
                 const uint8_t k=(uint8_t)(14u+4u*m);
                 const uint8_t hi=(uint8_t)((nib(d[k])<<4)|nib(d[k+1u]));
@@ -566,60 +601,28 @@ static void drawSummary(char *s){
                 if(!hi||!lo) break;
                 *o++=cn_initial(bnd,hi,lo);
             }
-            *o='\0';
-            A->print_bold(str,0,0,2);
-        }
-#endif
-
-        /* row3: speed and position km (from the short prefix / last report).
-         * A speed that was not decoded is a dash, never a fake 0. */
-        o=str; o=put(o,s+T_SPD2);
-        if(have){
-            o=putspd(o,sb+6u);
-            o=put(o,s+T_KM); o=putkm(o,sb+10u);
-        }
-        else o=put(o,"--");
+        } else *o++='-';
         *o='\0';
-        A->print_bold(str,0,0,3);
+        A->print_bold(str,0,0,4);
+    }
+#endif
 
 #ifdef LBJ_COORDS
-        /* row4: the coordinates, DMS exactly as the upstream Android receiver
-         * shows them (the 3x5 tiny font has no degree/minute glyphs, so the
-         * separator is a '-'). A rejected pair hides the whole row instead of
-         * printing a plausible wrong value. Only the full 50-char block
-         * carries the coordinates; a short standalone detail stops before. */
-        if(dlen>=47u){
-            char *e=putdms(str,d+30u,3u,'E');
-            if(e){ *e++=' '; e=putdms(e,d+39u,2u,'N'); }
-            if(e){ *e='\0'; A->print_tiny(str,0,ROWY(4),false,true); }
-        }
-
-        /* row5: the decoded address value. */
-        addrrow(rec,5);
+    /* row5: "<addr> -87dB" plus the coordinates, both in the tiny font so the
+     * pair fits the 128 px row (32 chars: 14 for the address, one blank, 17
+     * for the two DMS fields at a tenth of a minute). A rejected pair, or a
+     * report without the full 50-char block, falls back to the plain row. */
+    if(dlen>=47u){
+        char *p=addrstr(str,rec);
+        *p++=' ';
+        char *e=putdms(p,d+30u,3u,'E');
+        if(e) e=putdms(e,d+39u,2u,'N');
+        if(e){ *e='\0'; A->print_tiny(str,0,ROWY(5),false,true); }
+        else addrrow(rec,5);
+    } else addrrow(rec,5);
 #else
-        /* [C3] no coordinates row (compile option LBJ_COORDS, off by default):
-         * the address row takes its place so the page has no hole in it. */
-        (void)dlen;
-        addrrow(rec,4);
+    addrrow(rec,5);                           /* [C3] no coordinates row    */
 #endif
-    } else {
-        /* row0: train + direction + the BCH verdict. [C6] */
-        o=str; o=puttrain(o,b,s,rec->func,rec->len>=6u);
-        if(rec->flags&RF_ERR) *o++='!';
-        else if(rec->cor)     *o++='*';
-        *o='\0';
-        A->print_bold(str,0,0,0);
-        /* row1: SPEED xx km/h; an undecoded speed is a dash, not a 0. */
-        o=str; o=put(o,s+T_SPD); o=putspd(o,b+6u); o=put(o,s+T_KMH); *o='\0';
-        A->print_bold(str,0,0,1);
-        /* row2: KM xxxx.x. */
-        o=str; o=put(o,s+T_KM);
-        if(rec->len>=15u) o=putkm(o,b+10u); else o=put(o,"--");
-        *o='\0';
-        A->print_bold(str,0,0,2);
-        /* row3: the decoded address value. */
-        addrrow(rec,3);
-    }
 
     drawFooter(s);
 }
