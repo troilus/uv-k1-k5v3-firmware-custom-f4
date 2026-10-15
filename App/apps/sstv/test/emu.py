@@ -54,7 +54,7 @@ class Emu:
         self.logo = logo or bytes(1024)
         self.T = 0
         self.writes = []        # (T, reg, value)
-        self.cfg = b"\xff\xff\xff"
+        self.cfg = b"\xff\xff\xff\xff"   # erased: no saved picture
         self.saved = None
         self.assets = open(BUILD + "/sstv_assets.bin", "rb").read()
         self.blits = 0

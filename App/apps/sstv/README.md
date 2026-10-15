@@ -11,7 +11,9 @@ boot logo in any of them (key 1).
 | Modes (`test/modes.py`, Dayton paper as MMSSTV / QSSTV / slowrx) | 14 modes; lengths = the published ones (PD120 126.1 s, Martin M1 114.3 s, ...) |
 | Model: TX schedule, radio channel, integer receiver (`test/model.py`) | **Done** (sweep below) |
 | TX sequence vs the PySSTV reference encoder (Robot36 class) | **Same** VIS and length (36.910 s); 0.8 % of the time differs, at pixel edges (128 vs 320 columns) |
-| Radio app (`sstv_app.c`) | v0.3, 3676 B of the 4 KiB overlay (GCC 13.3.1; last measured before the key remap was final: to be confirmed by the user's build) |
+| Radio app (`sstv_app.c`) | v0.5, 3872 B of the 4 KiB overlay (224 B free; the sync re-acquisition cost 8 B) |
+| Last picture kept across launches | v0.4, **works on the radio** (2026-10-13): needs a firmware with `APP_FLAG_SAVE_SCREEN` (older firmware runs the app without keeping the picture). The loader copies the screen left at exit over the `PIC` asset block (the last 1024 B) and updates the asset CRC; an update of the app erases it |
+| Sync re-acquisition | v0.5 (2026-10-13, issue #647): **not tested on the radio**, not run in `emu.py` yet. The reporter's QSSTV WAV (Robot 72) through the model, sender clock 0.5 % and 1 % fast: lost at line 20 before, whole picture after. Model, 25 ms of black between the VIS and the first line: Robot 36 lost at line 21 before, 0 px wrong after (14 modes: 0 px, 17 px in PD50 / PD90) |
 | The built app in Unicorn (`test/emu.py`) vs the model | REG_71 writes = the model's tones (Robot 36, Scottie S1, PD120); pictures identical pixel for pixel (Robot 36, Martin M1, Scottie S1, PD120), with the real LCD blit times |
 | On the radios | v0.1 (2026-10-03): a picture starts, then nothing (see below); **v0.2 works** (Robot 36, 2026-10-03); v0.3 (all modes) not tested yet |
 
@@ -45,6 +47,7 @@ fails there (919 wrong pixels), v0.2 matches the model.
 | F | Arm the next key's backward direction (1), as APRS TX; F icon in the status bar (x = 70) while armed; F again disarms |
 | 2 | Rendering: **1-bit** (threshold, sharp for the logo; default) / **dither** (4x4 Bayer, for photos), from the next row on; right capsule; saved |
 | 3 | Speaker on / off (off by default: the decoder does not need it); saved |
+| EXIT | Leaves a picture being received, then the picture view, then the app. On quitting, the last picture (even a partial one) is saved and is back under key 4 at the next launch, with its mode on the status line |
 | 4 | Picture / info screen, once a picture came (before: `No picture yet`) |
 | EXIT | From the info screen: quit. During a TX or while a picture is being received: abort it and return to the info screen. From the picture view: return to the info screen |
 
@@ -86,7 +89,8 @@ path on, mic off, 50 ms settle, level 66), then each tone is started by writing
 REG_71 at its time. REG_71 is written only when the frequency changes, in case
 a write resets the tone phase. The row inversion (one LCD page, ~1.5 ms) and
 the key scan are done in each sync (4.862 ms at least).
-VIS: 1900 Hz 300 ms, 1200 Hz 10 ms, 1900 Hz 300 ms, start bit 1200 Hz 30 ms,
+VIS: 1900 Hz 300 ms (1300 ms from v0.5: 1 s of lead-in, so that a receiver's
+squelch or CTCSS decoder, or a repeater's key-up, does not eat the VIS), 1200 Hz 10 ms, 1900 Hz 300 ms, start bit 1200 Hz 30 ms,
 7 bits LSB first + even parity (1100 Hz = 1, 1300 Hz = 0), stop 1200 Hz 30 ms.
 
 ## RX
@@ -109,7 +113,15 @@ ADC channel 4, 9.6 kHz, continuously.
   scaled to the tracked period. A late sync restarts the period; a sync near
   the *next* prediction cuts the current period short (a fast sender clock, or
   a period that ran on the prediction); no sync: the prediction (20 in a row:
-  lost). The period is tracked (1/8 of each error, ±6 %), and the pixel step
+  lost). After 3 periods on the prediction a sync **anywhere** restarts the
+  period (v0.5, issue #647: a sender whose first line is not where the VIS
+  says left every sync out of the window, a slanted picture lost after 20
+  lines); it does not clear the count, only a sync in the next window does, so
+  noise alone still ends as lost. The count starts at 3, so the first sync is
+  taken anywhere too: QSSTV sends no sync pulse after the VIS stop bit, its
+  first line starts 9 ms before the standard position (88 samples early for a
+  window of 96: lost as soon as the sender's clock is 0.5 % faster than the
+  radio's, measured on the reporter's WAV). The period is tracked (1/8 of each error, ±6 %), and the pixel step
   follows it.
 - Pixel: lum = 285 - 256 Σp / Σq over its samples, 0..255, times the scan's
   weight into the line buffer (sum 4). Periods are averaged per screen row,
@@ -153,6 +165,10 @@ Robot 36:
 | SNR 6 dB | 28 | 915 | -4..5 |
 
 Dither errors are the logo's 1-pixel strokes rendered grey: expected.
+
+At 6 dB the VIS itself is marginal: decoded in 4 of 12 noise seeds without the
+1 s lead-in, 3 of 12 with it (same noise luck). The table above is from before
+the lead-in; with it, the seed of the "SNR 6 dB" case falls on a missed VIS.
 
 ## Test plan
 
