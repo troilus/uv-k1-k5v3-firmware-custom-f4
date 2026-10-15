@@ -20,13 +20,24 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Two artifacts: the plain name hides the reports whose train number
-        # starts with 9, the "9" suffixed one shows everything. The overlay
-        # budget is tight, so a hide-variant overflow still lets the other
-        # artifact build (fail-fast is off).
+        # Two artifacts per build flavour: the plain name hides the reports
+        # whose train number starts with 9, a "9" in the suffix shows
+        # everything. The overlay budget is tight, so one variant overflowing
+        # still lets the others build (fail-fast is off).
+        #
+        # The English build is the default: "LINE " plus the pinyin initials of
+        # the route, the model abbreviation only, no key 5 and no coordinates
+        # row - the coordinates row does not fit in it. The Chinese build
+        # (LBJ_ROUTE_CN) keeps the GB2312 route, the key-5 language toggle and
+        # the footer hint, and it does have the room for the coordinates row
+        # (LBJ_COORDS), so that flavour is offered too.
         include:
-          - { hide9: '1', suffix: ''  }
-          - { hide9: '',  suffix: '9' }
+          - { hide9: '1', suffix: '',                }
+          - { hide9: '',  suffix: '9',               }
+          - { hide9: '1', suffix: '-cn',        cn: '1' }
+          - { hide9: '',  suffix: '-cn9',       cn: '1' }
+          - { hide9: '1', suffix: '-cn-coord',  cn: '1', coords: '1' }
+          - { hide9: '',  suffix: '-cn9-coord', cn: '1', coords: '1' }
 
     steps:
     - name: Checkout code
@@ -34,7 +45,9 @@ jobs:
 
     - name: Compile overlay apps${{ matrix.suffix }}
       env:
-        LBJ_HIDE9: ${{ matrix.hide9 }}
+        LBJ_HIDE9:    ${{ matrix.hide9 }}
+        LBJ_ROUTE_CN: ${{ matrix.cn }}
+        LBJ_COORDS:   ${{ matrix.coords }}
       run: |
         chmod +x compile-app.sh
         ./compile-app.sh All
