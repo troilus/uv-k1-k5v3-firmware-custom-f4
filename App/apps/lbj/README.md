@@ -17,8 +17,9 @@ POCSAG/LBJ decoder are validated in `test/model_rx.py` against synthetic frames
 ### 使用步骤
 
 1. 把 VFO 调到 LBJ 频率、**FM**（如 **821.2375 MHz**；BK4829 覆盖 760–1160 MHz）。
-   带 `LBJ_PIN_FREQ` 的工件（见下方"构建选项与体积"）不用手动调：进入时自动钉到
-   821.2375 MHz，退出后自动还原成你原来的频率、FM 与带宽不动 EEPROM。
+   带 `LBJ_PIN_FREQ` 的工件（见下方"构建选项与体积"）不用手动调：进入时自动钉频率、
+   钉 25 kHz 带宽并让芯片重新校准，退出后 loader 还原你原来的频率，EEPROM 不动。
+   也就是说那个 VFO 原来是 438.500 也没关系。
 2. 进入 **F4HWN APPS → LBJ RX**。
 3. 现在只有 SUM 一页（PDU 页因 4 KiB 容量停用，键 `3` 已无效）；扬声器默认关闭，按 `1` 开。
 
@@ -82,12 +83,17 @@ LINE JHX                            ← 第5行：线路 `LINE ` + 每个汉字�
 > 只编进英文版构建，车型行两个版本都只显示英文缩写）。中文版余量更大（332 /
 > 408 B），可自行搭配 `LBJ_COORDS`。
 >
-> 编译选项 `LBJ_PIN_FREQ` 在进入时把接收钉到 821.2375 MHz（写 BK4819 的
-> REG_38/39，就是 `BK4819_SetFrequency` 干的事）。退出时 loader 会用**没被 app
-> 碰过**的 `gRxVfo->pRX->Frequency` 重新调谐，所以还原是白送的，app 里没有一行
-> 恢复代码。FM 由 app 自己的 `set_af(APP_AF_FM)` 负责、带宽被 RAW 旁路，都不占
-> 字节。CI 里只有 `overlay-apps` 和 `overlay-apps-cn` 两个工件打开它——`9` 版与
-> 经纬度版不带，余量留给各自的功能。
+> 编译选项 `LBJ_PIN_FREQ` 在进入时把接收钉到 821.2375 MHz。写的是固件自己"运行中
+> 换频"用的那一套寄存器（`spectrum.c` 的 `SetF`、`chFrScanner.c` 的 `ScanFastTune`、
+> `epirb406` 的 `tune` 都一样）：频率对 REG_38/39、REG_43 = 25 kHz 带宽（RAW 只旁路
+> 音频域滤波，REG_43 才是信道滤波器——VFO 若是话音设置会带进来，所以像 AISRX 一样
+> 强制它），以及 **REG_30 清零再写回**：那一步让合成器按新频率重新校准、重新锁定
+> （`ENABLE_VCO_CALIB` 就在这个寄存器里）。app 外面这一步是白来的——省电每次唤醒
+> 都会 `BK4819_RX_TurnOn()`（`functions.c` 的 `FUNCTION_Select`）；而 overlay 占着
+> 前台循环时没有那次唤醒，必须自己补。退出时 loader 会用**没被 app 碰过**的
+> `gRxVfo->pRX->Frequency` 重新调谐，所以还原还是白送的，app 里没有一行恢复代码。
+> CI 里只有 `overlay-apps` 和 `overlay-apps-cn` 两个工件打开它——`9` 版与经纬度版
+> 不带，余量留给各自的功能。
 
 **车次前缀（K/T/D/C 等）**：取自详情块 `0-3` 的 2 个 ASCII 字符（每个字符 = 2 个
 BCD 半字节，与线路名同样的打包方式），去掉空格/不可打印字符后粘性记住（同
@@ -168,7 +174,7 @@ LBJ_Console 的 `lbjClass`），拼在车次号前面显示——所以只有短
 | `LBJ_ROUTE_CN` | 中文版：线路行改回 GB2312 汉字（英文模式该行留空）、键 `5` 恢复、底栏恢复 `5EN/ZH` 提示 | 关 |
 | `LBJ_COORDS` | 把经纬度并进地址行（英文版现在也装得下、只剩几十字节；CI 只出中文版的经纬度工件） | 关 |
 | `LBJ_HIDE9` | 车次整串首字符为 `9` 的记录整条不显示、不进历史 | 关 |
-| `LBJ_PIN_FREQ` | 进入时把接收钉到 821.2375 MHz，退出由 loader 还原成原频率 | 关 |
+| `LBJ_PIN_FREQ` | 进入时把接收钉到 821.2375 MHz（含 25 kHz 带宽与 VCO 重校准），退出由 loader 还原成原频率 | 关 |
 
 环境变量经 `build.sh`（`LBJ_HIDE9=1 LBJ_ROUTE_CN=1 ./build.sh`）打开，`compile-app.sh`
 会透传给 Docker。
@@ -185,18 +191,19 @@ CI（`.github/workflows/build-apps.yml`）一次出 **6 个工件**，下载后�
 | `overlay-apps-cn-coord` | 中文版 + 经纬度（并进地址行），隐藏9 |
 | `overlay-apps-cn9-coord` | 中文版 + 经纬度（并进地址行），不隐藏9 |
 
-余量（本地 GCC 10 `-Os` 实测，带 pin 的两个已计入 +24 B；CI 的 GCC 13 `-Oz`
-一般再小 40 B 左右）：英文版 232 / 308 B、中文版 332 / 408 B、中文版+经纬度
-**140 / 192 B**——与固件排版对齐的这一版把六档各省了 116～128 B，最紧的经纬度档
-也从"擦边"变成宽裕了。
+余量（本地 GCC 10 `-Os` 实测，带 pin 的两个已计入 +60 B——频率两行 24 B 加
+REG_43/REG_30 三步 36 B；CI 的 GCC 13 `-Oz` 一般再小 40 B 左右）：英文版
+196 / 308 B、中文版 296 / 408 B、中文版+经纬度 **140 / 192 B**——与固件排版对齐的
+这一版把六档各省了 116～128 B，最紧的经纬度档也从"擦边"变成宽裕了。
 
 ## Using the app
 
 1. Set the VFO to the LBJ frequency, **FM** (e.g. 821.2375 MHz). The BK4829
    covers 18–580 MHz and 760–1160 MHz, so 821 MHz is inside its range. In a
-   build with `LBJ_PIN_FREQ` (see below) this step is automatic: the receiver is
-   pinned to 821.2375 MHz on entry and the loader restores the previous
-   frequency on exit, without touching the EEPROM.
+   build with `LBJ_PIN_FREQ` (see below) this step is automatic: the app pins
+   the frequency, forces the 25 kHz IF filter and re-calibrates the synthesizer
+   on entry, and the loader restores the previous frequency on exit without
+   touching the EEPROM - the VFO can well have been on 438.500.
 2. Launch **LBJ RX**.
 3. The speaker is off by default (key `1`) and nothing is saved any more: every
    launch starts from the defaults (speaker off, English display).
@@ -345,7 +352,7 @@ decoder tolerates (about +2–3 dB).
 | `LBJ_ROUTE_CN` | Chinese build: the original GB2312 route row (blank in English mode - the pinyin row is compiled into the English builds only), key `5` and the `5EN/ZH` footer hint come back; the model row is English-only in every build | off |
 | `LBJ_COORDS` | The coordinates merged into the address row (`1234002 -120dB 104-16.1E30-35.1N`, tiny font); the English build fits them too now, with only tens of bytes left, so CI ships the coordinate flavour for the Chinese builds only | off |
 | `LBJ_HIDE9` | Records whose train string starts with `9` are dropped entirely (never shown, never stored) | off |
-| `LBJ_PIN_FREQ` | The receiver is pinned to 821.2375 MHz on entry (BK4819 REG_38/39, what `BK4819_SetFrequency` does); on exit the loader re-tunes from the untouched `gRxVfo->pRX->Frequency`, so the app carries no restore code at all. FM comes from the app's own `set_af(APP_AF_FM)` and the audio filter is bypassed in RAW, so those cost no extra bytes | off |
+| `LBJ_PIN_FREQ` | The receiver is pinned to 821.2375 MHz on entry, with the 25 kHz IF filter forced and the synthesizer re-calibrated - the register set the firmware's own run-time retunes use (`spectrum.c` `SetF`, `chFrScanner.c` `ScanFastTune`, `epirb406` `tune`): REG_38/39, REG_43 = `0x3628` and REG_30 to 0 and back (that last one is what makes the PLL relock; outside an app the power-save wake-up `BK4819_RX_TurnOn()` does it for free). On exit the loader re-tunes from the untouched `gRxVfo->pRX->Frequency`, so the app carries no restore code at all. FM comes from the app's own `set_af(APP_AF_FM)` | off |
 
 `LBJ_PIN_FREQ` is enabled for `overlay-apps` and `overlay-apps-cn` in CI; the
 `9` and coordinate variants stay as they are and keep their overlay budget.
@@ -364,9 +371,10 @@ download the one you want and take the `LBJRX.app` inside:
 | `overlay-apps-cn-coord` | Chinese + coordinates in the address row, hide-9 |
 | `overlay-apps-cn9-coord` | Chinese + coordinates in the address row, show all |
 
-Room left (local GCC 10 `-Os`, the two pinned builds including their +24 B;
-CI's GCC 13 `-Oz` is usually about 40 B smaller): English 232 / 308 B, Chinese
-332 / 408 B, Chinese + coordinates **140 / 192 B**. The row-for-row firmware
-layout bought every flavour 116-128 B, so the coordinate build is no longer the
-razor-edge one. Everything cut to buy that room back is tagged `[C1]`..`[C6]`
-in the source, so it can be put back one item at a time.
+Room left (local GCC 10 `-Os`, the two pinned builds including their +60 B - the
+two frequency writes are 24 B, forcing REG_43 and the REG_30 re-calibration is
+36 B more; CI's GCC 13 `-Oz` is usually about 40 B smaller): English 196 / 308 B,
+Chinese 296 / 408 B, Chinese + coordinates **140 / 192 B**. The row-for-row
+firmware layout bought every flavour 116-128 B, so the coordinate build is no
+longer the razor-edge one. Everything cut to buy that room back is tagged
+`[C1]`..`[C6]` in the source, so it can be put back one item at a time.
