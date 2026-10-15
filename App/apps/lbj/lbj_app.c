@@ -30,12 +30,15 @@
  * BCH(31,21) single-bit correction and the LBJ BCD layout.
  *
  * Keys: UP/DOWN pick the newer/older record (one step per press, no auto-repeat);
- * 1 speaker; 2 clear; 4 backlight always-on / timeout; 5 Chinese/English; EXIT
- * quit. SUM-only for now. The bottom status bar (tiny font) shows the key-state
- * hints (5 language, 4 backlight, 1 speaker) then x/y (selected record / total,
- * 1 = newest) and the live RSSI (-xx dBm), refreshed every 0.5 s and drawn from
- * launch (0/0). The PDU page and the M/S/W/F/B counter row are kept under #if 0
- * (they overflowed the 4 KiB overlay); restore them together.
+ * 1 speaker; 2 clear; 4 backlight always-on / timeout; 5 Chinese/English (the
+ * -DLBJ_ROUTE_CN build only); EXIT quit. SUM-only for now. The bottom status
+ * bar (tiny font) shows the key-state hints (4 backlight, 1 speaker) then x/y
+ * (selected record / total, 1 = newest), drawn from launch (0/0). The strength
+ * now sits on the address row as "-87dB" in the small (not bold) font, taken
+ * report was received rather than polled. Nothing is written to the app config
+ * any more, so every launch starts from the defaults (speaker off, English).
+ * The PDU page and the M/S/W/F/B counter row are kept under #if 0 (they
+ * overflowed the 4 KiB overlay); restore them together.
  *
  * For the new-generation LB alert the SUM page decodes the detail block:
  * 1234001/1234002 carry a standalone 30..64-char block, or a merged 65-char
@@ -48,9 +51,14 @@
  * pair hides the row. The train/speed/km come from
  * a merged report's own short prefix, or from the most recent 1233999/1234000
  * short report. A detail report and its 1233999/1234000 base alert stay as
- * separate history entries. The route and the model name use the radio's
- * built-in 8x8 Chinese font; key 5 switches to an ASCII fallback (English
- * abbreviations like DF4C/SS7E, route hidden) for radios without it.
+ * separate history entries. The model row always shows the English
+ * abbreviation (DF4C/SS7E...); the GB2312 name table is gone from the assets.
+ * The route row is a compile option: by default it reads "LINE " + the pinyin
+ * initial of each GB2312 route character (level-1 is sorted by pinyin, so a
+ * 23-entry boundary table in the assets is all it takes), while -DLBJ_ROUTE_CN
+ * keeps the original behaviour - the Chinese route itself and the key-5
+ * language toggle - for radios with the built-in 8x8 Chinese font. The
+ * coordinates row is another compile option (LBJ_COORDS), off by default.
  *
  * The train number is prefixed with the 2 ASCII train-class chars at [0:4]
  * (K/T/D/C...), each packed as 2 BCD nibbles like the route: they are sticky in
@@ -133,10 +141,12 @@ typedef struct {
 typedef struct {
     uint32_t addr;
     uint8_t  func, flags, len;
+    int8_t   rssi;             /* [C2] strength at the moment of reception     */
+    uint8_t  cor;              /* [C6] a codeword was repaired: show '*'       */
     char     bcd[BCDMAX];
 } rec_t;
-#define RF_ERR  1u             /* BCH could not correct the report */
-#define RF_LBJ  2u             /* address belongs to the LBJ set */
+#define RF_ERR  1u             /* [C6] not fully correctable: show '!'         */
+#define RF_LBJ  2u             /* address belongs to the LBJ set               */
 
 static struct {
     const app_api_t *A;
@@ -148,8 +158,12 @@ static struct {
     uint8_t  busyFor, ledPhase;   /* ledPhase: green-LED double-blink steps */
     char     sess[16];         /* last 1233999/1234000 short block (train/spd/km) */
     char     pref[3];          /* sticky 2-char train prefix from the last detail */
-    int32_t  rssi;
-    uint32_t tPrev, tCyc, rssiMs;
+    /* [C2] the live-RSSI state went with the footer RSSI (see house()); the
+     * per-report strength lives in rec_t.rssi now.
+    // int32_t  rssi;
+    // uint32_t rssiMs;
+     */
+    uint32_t tPrev, tCyc;
     uint32_t savedSqr3, savedSmpr3;
 } g;
 #define str g.text
@@ -188,6 +202,7 @@ static char *putkm(char *o,const char *p){
     return o;
 }
 
+#ifdef LBJ_COORDS   /* [C3] coordinates: a compile option, off by default */
 /* One DMS coordinate field, read exactly as the upstream Android receiver
  * reads the detail block: dg degree nibbles then MM MMMM minutes - all plain
  * decimal nibbles with no decimal point (lon [30:39], lat [39:47]). Writes
@@ -206,6 +221,26 @@ static char *putdms(char *o,const char *p,uint8_t dg,char hemi){
     *o++=hemi;
     return o;
 }
+#endif  /* LBJ_COORDS */
+
+#ifndef LBJ_ROUTE_CN  /* [C5 route] the pinyin-initial route row is EN-only */
+/* [C5 route] GB2312 level-1 (0xB0A1..0xD7F9) is sorted by pinyin, so the first
+ * letter of a route character is a range lookup in this 23-entry boundary
+ * table (Pinyin has no initial for I/U/V, hence 23 letters and not 26). The
+ * table itself lives in the assets blob, not in the overlay: asset_read() drops
+ * it into a stack buffer, so the 46 B never touch the 4 KiB code budget. */
+static char cn_initial(const uint16_t *bnd,uint8_t hi,uint8_t lo){
+    if(hi<0xB0u||hi>0xD7u)
+        return '?';                                   /* level-2 or symbol */
+    const uint16_t idx=(uint16_t)((uint16_t)(hi-0xB0u)*94u+(lo-0xA1u));
+    uint8_t k=0;
+    for(uint8_t i=1u;i<23u;i++){
+        if(idx<bnd[i]) break;
+        k=i;
+    }
+    return "ABCDEFGHJKLMNOPQRSTWXYZ"[k];
+}
+#endif  /* !LBJ_ROUTE_CN */
 
 #define ROWY(i) ((uint8_t)((i)*8u))
 
@@ -328,7 +363,12 @@ void lbj_emit_msg(const lbj_rx_t *r, const char *bcd, uint16_t len){
     g.hist[0]=rec;
     rec->addr=r->addr;
     rec->func=r->func;
-    /* rec->flags (RF_ERR/RF_LBJ) is only read by the #if 0 PDU page. */
+    /* [C6] the BCH verdict of this report: RF_ERR = not fully correctable (the
+     * row ends with '!'), rec->cor = a codeword was repaired (ends with '*'). */
+    rec->flags=(uint8_t)(r->err?RF_ERR:0u);
+    rec->cor=r->cor;
+    rec->rssi=(int8_t)g.A->rssi_dbm();      /* [C2] the strength right now */
+    /* rec->flags (RF_LBJ) is only read by the #if 0 PDU page. */
     /* rec->flags=(uint8_t)((r->err?RF_ERR:0u) | (is_lbj(r->addr)?RF_LBJ:0u)); */
     rec->len=(uint8_t)(len>BCDMAX?BCDMAX:len);
     for(uint8_t i=0;i<rec->len;i++) rec->bcd[i]=bcd[i];
@@ -389,24 +429,33 @@ static int type_index(uint16_t code){
     return -1;
 }
 
-/* Bottom status bar (tiny 3x5): key-state hints (5 language / 4 backlight /
- * 1 speaker), then x/y (selected / total, 1 = newest) and the live RSSI
- * (-xx dBm). Refreshed every 0.5 s in house(); drawn even before the first
- * message (0/0) so it is visible from launch. Worst case 32 chars = 128 px. */
+/* Bottom status bar (tiny 3x5): key-state hints (4 backlight / 1 speaker; the
+ * -DLBJ_ROUTE_CN build adds the 5 language hint), then x/y (selected / total,
+ * 1 = newest). [C1/C2] No language hint and no live RSSI in the EN build any
+ * more: the strength is on the address row. Drawn even before the first
+ * message (0/0) so it is visible from launch. Worst case 25 chars = 100 px. */
 static void drawFooter(const char *s){
+#ifdef LBJ_ROUTE_CN
     static const uint8_t LAB[3]={T_L5,T_BL,T_SPK};   /* key-state hint labels */
     uint8_t val[3];
     val[0]=g.en?T_EN:T_ZH; val[1]=g.blAlways?T_ON:T_OFF; val[2]=g.spk?T_ON:T_OFF;
     char *o=str;
     for(uint8_t i=0;i<3u;i++){ if(i) *o++=' '; o=put(o,s+LAB[i]); o=put(o,s+val[i]); }
     *o++=' ';
+#else
+    /* [C1/C2] the EN build has no language toggle, so no "5EN/ZH" hint, and
+     * there is no live RSSI either: the strength now sits on the address row,
+     * captured once at reception. */
+    static const uint8_t LAB[2]={T_BL,T_SPK};
+    uint8_t val[2];
+    val[0]=g.blAlways?T_ON:T_OFF; val[1]=g.spk?T_ON:T_OFF;
+    char *o=str;
+    for(uint8_t i=0;i<2u;i++){ if(i) *o++=' '; o=put(o,s+LAB[i]); o=put(o,s+val[i]); }
+    *o++=' ';
+#endif
     o=putu(o, g.count ? (uint32_t)g.cur+1u : 0u);
     *o++='/';
     o=putu(o,g.count);
-    *o++=' ';
-    int32_t r=g.rssi;
-    if(r<0){ *o++='-'; r=-r; }
-    o=putu(o,(uint32_t)r);
     *o='\0';
     g.A->print_tiny(str,0,ROWY(6),false,true);
 }
@@ -421,6 +470,19 @@ static char *puttrain(char *o,const char *sb,const char *s,uint8_t func,bool hav
     else for(uint8_t i=0;i<6u;i++) if(sb[i]!=' ') *o++=sb[i];
     *o++=' ';
     return put(o,(func==1u)?s+T_DN:((func==3u)?s+T_UP:s+T_UNK));
+}
+
+/* [C2] "<addr> -87dB" on the given row, in the small (not bold) font, left
+ * aligned like every other row: the strength is the one captured when the
+ * report was received, not a live reading. */
+static void addrrow(const rec_t *rec,uint8_t row){
+    char *o=str;
+    o=putu(o,rec->addr); *o++=' '; *o++='-';
+    int32_t r=rec->rssi;
+    if(r<0){ *o++='-'; r=-r; }
+    o=putu(o,(uint32_t)r);
+    *o++='d'; *o++='B'; *o='\0';
+    g.A->print_normal(str,0,0,row);
 }
 
 /* SUM page. 1233999/1234000 (short): train/dir, SPEED, KM, address value.
@@ -447,21 +509,27 @@ static void drawSummary(char *s){
 
         decode_pref(d);                        /* sticky train prefix, [0:4] */
 
-        /* row0: train + direction. */
-        o=str; o=puttrain(o,sb,s,rec->func,have); *o='\0';
+        /* row0: train + direction, then the BCH verdict: nothing when the
+         * report arrived clean, '*' when a codeword was repaired, '!' when it
+         * could not be repaired at all. [C6] */
+        o=str; o=puttrain(o,sb,s,rec->func,have);
+        if(rec->flags&RF_ERR) *o++='!';
+        else if(rec->cor)     *o++='*';
+        *o='\0';
         A->print_bold(str,0,0,0);
 
-        /* row1: model name (CN) / abbreviation (EN) + registration number.
+        /* row1: model abbreviation + registration number.
          * The 3-digit model code is [4:7] (the 2 ASCII prefix chars are at
          * [0:4]); [4:12] as a whole is the 8-char code+number registration. */
         o=str;
         {
-            char nb[TY_NAME_STRIDE];
+            char nb[TY_EN_STRIDE];
             int idx=type_index((uint16_t)digv(d+4u,3u));
             if(idx<0) o=put(o,"--");
             else {
-                if(g.en) A->asset_read((uint16_t)(TY_EN+(uint16_t)idx*TY_EN_STRIDE),nb,TY_EN_STRIDE);
-                else     A->asset_read((uint16_t)(TY_NAME+(uint16_t)idx*TY_NAME_STRIDE),nb,TY_NAME_STRIDE);
+                /* [C5] the English abbreviation only: the GB2312 name table is
+                 * gone from the assets (a.table("TY_NAME", ...) in gen_assets). */
+                A->asset_read((uint16_t)(TY_EN+(uint16_t)idx*TY_EN_STRIDE),nb,TY_EN_STRIDE);
                 o=put(o,nb);
             }
         }
@@ -470,6 +538,7 @@ static void drawSummary(char *s){
         *o='\0';
         A->print_bold(str,0,0,1);
 
+#ifdef LBJ_ROUTE_CN
         /* row2: route (GB2312), no label; hidden in English mode. */
         if(!g.en){
             o=str;
@@ -477,6 +546,24 @@ static void drawSummary(char *s){
             *o='\0';
             A->print_bold(str,0,0,2);
         }
+#else
+        /* row2: [C5 route] "LINE " + the pinyin initial of each GB2312 route
+         * character, read from the boundary table in the assets. */
+        {
+            uint16_t bnd[23];
+            A->asset_read(INIT_BOUND,bnd,sizeof bnd);
+            o=str; o=put(o,s+T_LINE);
+            for(uint8_t m=0;m<4u;m++){
+                const uint8_t k=(uint8_t)(14u+4u*m);
+                const uint8_t hi=(uint8_t)((nib(d[k])<<4)|nib(d[k+1u]));
+                const uint8_t lo=(uint8_t)((nib(d[k+2u])<<4)|nib(d[k+3u]));
+                if(!hi||!lo) break;
+                *o++=cn_initial(bnd,hi,lo);
+            }
+            *o='\0';
+            A->print_bold(str,0,0,2);
+        }
+#endif
 
         /* row3: speed and position km (from the short prefix / last report).
          * A speed that was not decoded is a dash, never a fake 0. */
@@ -489,6 +576,7 @@ static void drawSummary(char *s){
         *o='\0';
         A->print_bold(str,0,0,3);
 
+#ifdef LBJ_COORDS
         /* row4: the coordinates, DMS exactly as the upstream Android receiver
          * shows them (the 3x5 tiny font has no degree/minute glyphs, so the
          * separator is a '-'). A rejected pair hides the whole row instead of
@@ -501,11 +589,19 @@ static void drawSummary(char *s){
         }
 
         /* row5: the decoded address value. */
-        o=str; o=putu(o,rec->addr); *o='\0';
-        A->print_bold(str,0,0,5);
+        addrrow(rec,5);
+#else
+        /* [C3] no coordinates row (compile option LBJ_COORDS, off by default):
+         * the address row takes its place so the page has no hole in it. */
+        (void)dlen;
+        addrrow(rec,4);
+#endif
     } else {
-        /* row0: train + direction. */
-        o=str; o=puttrain(o,b,s,rec->func,rec->len>=6u); *o='\0';
+        /* row0: train + direction + the BCH verdict. [C6] */
+        o=str; o=puttrain(o,b,s,rec->func,rec->len>=6u);
+        if(rec->flags&RF_ERR) *o++='!';
+        else if(rec->cor)     *o++='*';
+        *o='\0';
         A->print_bold(str,0,0,0);
         /* row1: SPEED xx km/h; an undecoded speed is a dash, not a 0. */
         o=str; o=put(o,s+T_SPD); o=putspd(o,b+6u); o=put(o,s+T_KMH); *o='\0';
@@ -516,8 +612,7 @@ static void drawSummary(char *s){
         *o='\0';
         A->print_bold(str,0,0,2);
         /* row3: the decoded address value. */
-        o=str; o=putu(o,rec->addr); *o='\0';
-        A->print_bold(str,0,0,3);
+        addrrow(rec,3);
     }
 
     drawFooter(s);
@@ -598,7 +693,9 @@ static void handleKeys(void){
         case APP_KEY_4:    g.blAlways=!g.blAlways;
                            A->backlight_on();   /* re-arm now; house() holds it on when ON */
                            break;
+#ifdef LBJ_ROUTE_CN
         case APP_KEY_5:    g.en=!g.en; break;   /* Chinese / English display */
+#endif
         default: break;
     }
 }
@@ -608,9 +705,13 @@ static void house(void){
     const app_api_t *A=g.A;
     handleKeys();
     if(!g.running) return;
-    g.rssi=A->rssi_dbm();
-    uint32_t now=A->ticks_ms();
-    if((uint32_t)(now-g.rssiMs)>=500u){ g.rssiMs=now; g.redraw=1u; }  /* RSSI every 0.5 s */
+    /* [C2] no live RSSI any more: the strength is captured once, when a report
+     * is received, and drawn on the address row. This also drops the 0.5 s full
+     * screen redraw that the live value used to trigger.
+    // g.rssi=A->rssi_dbm();
+    // uint32_t now=A->ticks_ms();
+    // if((uint32_t)(now-g.rssiMs)>=500u){ g.rssiMs=now; g.redraw=1u; }
+     */
     if(g.blAlways) A->backlight_on();   /* re-arm BLTime every slot so it never expires */
     /* The fade only advances inside BACKLIGHT_Update(), which this service
      * drives: without it a dark panel would never light up after key 4 or a
@@ -671,10 +772,16 @@ void app_main(const app_api_t *api){
     biasOn(savedModer,savedRcc);
     api->backlight_on();
 
-    uint8_t cfg=0;
-    api->cfg_load(&cfg,1);
-    g.spk=(cfg&1u)!=0u;
-    g.en =(cfg&2u)!=0u;       /* bit1 set = ASCII fallback (no Chinese font) */
+    /* [C1] the speaker/display settings are no longer saved or loaded: the
+     * overlay used to keep {bit0 speaker, bit1 English} in its app config
+     * bytes. Every launch now starts from the defaults below - speaker off,
+     * English display - and nothing is written back on exit. */
+    // uint8_t cfg=0;
+    // api->cfg_load(&cfg,1);
+    // g.spk=(cfg&1u)!=0u;
+    // g.en =(cfg&2u)!=0u;       /* bit1 set = ASCII fallback (no Chinese font) */
+    g.spk=false;
+    g.en =true;                 /* [C1] default: English display */
     g.page=0;
 
     /* RAW RX: HPF/LPF, de-emphasis and AFC off (EPIRB 406); the loader restores
@@ -692,6 +799,7 @@ void app_main(const app_api_t *api){
     api->led(false);           /* do not leave the green LED stuck mid-blink */
     api->set_af(APP_AF_MUTE);
     api->audio_path(false);
-    cfg=(uint8_t)((g.spk?1u:0u)|(g.en?2u:0u));
-    api->cfg_save(&cfg,1);
+    /* [C1] cfg_save removed together with cfg_load. */
+    // cfg=(uint8_t)((g.spk?1u:0u)|(g.en?2u:0u));
+    // api->cfg_save(&cfg,1);
 }

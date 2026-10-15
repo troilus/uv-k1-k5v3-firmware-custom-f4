@@ -18,7 +18,7 @@ POCSAG/LBJ decoder are validated in `test/model_rx.py` against synthetic frames
 
 1. 把 VFO 调到 LBJ 频率、**FM**（如 **821.2375 MHz**；BK4829 覆盖 760–1160 MHz）。
 2. 进入 **F4HWN APPS → LBJ RX**。
-3. 按 `3` 在 SUM / PDU 两页间切换；扬声器默认关闭，按 `1` 开。
+3. 现在只有 SUM 一页（PDU 页因 4 KiB 容量停用，键 `3` 已无效）；扬声器默认关闭，按 `1` 开。
 
 ### 屏幕说明
 
@@ -30,14 +30,17 @@ POCSAG/LBJ decoder are validated in `test/model_rx.py` against synthetic frames
 **SUM 页（解析摘要）**
 
 ```
-██████████████████████████████  ← 顶栏：固件 UI_DisplayStatus() 原样（电池等）
-K412 DN                             ← 第1行：车次前缀 + 车次 + 方向（DN 下行 / UP 上行 / ?? 未知，粗体）
+```
+███████████████████████████████  ← 顶栏：固件 UI_DisplayStatus() 原样（电池等）
+K412 DN                             ← 第1行：车次前缀 + 车次 + 方向（DN 下行 / UP 上行 /
+                                      ?? 未知，粗体），末尾跟 BCH 标记：干净无字符、
+                                      修复过加 `*`、修不好加 `!`（`!` 优先）
 SPEED 87 km/h                       ← 第2行：速度
 KM 0344.7                           ← 第3行：公里标
-1234000                             ← 第4行：解出的地址值
-5ZH 4BL:OFF 1SPK:ON 1/3 -95         ← 底部状态栏：5=语言(EN/ZH)、4=背光常亮(ON/OFF)、
-                                      1=扬声器(ON/OFF)、x/y、RSSI(dBm)；每 0.5s 刷新，
-                                      进入即显示 0/0
+1234000 -95dB                       ← 第4行：解出的地址值 + 接收瞬间的信号强度
+                                      （小字、不加粗；不是实时值）
+4BL:OFF 1SPK:ON 1/3                 ← 底部状态栏：4=背光常亮(ON/OFF)、1=扬声器(ON/OFF)、
+                                      x/y；进入即显示 0/0（不再显示 RSSI、不再每 0.5s 刷新）
 ```
 
 > PDU 页（报文 + 地址/功能/LBJ/BCH + 原始 BCD）与 `M/S/W/F/B` 计数行、
@@ -55,14 +58,26 @@ KM 0344.7                           ← 第3行：公里标
 
 ```
 ██████████████████████████████  ← 顶栏：固件 UI_DisplayStatus() 原样
-K412 DN                             ← 第1行：车次前缀 + 车次 + 方向（合并报文取自身短前缀；独立详情取最近一条 1234000）
-HXD1C 23900050                      ← 第2行：车型(中文) + 8位机车登记号（3位车型码 + 5位车号）
-京沪线                               ← 第3行：GB2312 线路名（中文模式，不带"线路"标签）
-SPD 87 KM 00344.7                   ← 第4行：速度 + 公里标
-104-16.1280E 30-35.0780N            ← 第5行：经纬度（小字体、DMS 原样显示，与上游安卓一致）
-1234002                             ← 第6行：解出的地址值
-5ZH 4BL:OFF 1SPK:ON 1/3 -95         ← 底部状态栏（同前）
 ```
+███████████████████████████████  ← 顶栏：固件 UI_DisplayStatus() 原样
+K412 DN*                            ← 第1行：车次前缀 + 车次 + 方向 + BCH 标记（合并报文取
+                                      自身短前缀；独立详情取最近一条 1234000）
+HXD1C 23900050                      ← 第2行：车型**英文缩写** + 8位机车登记号
+                                      （3位车型码 + 5位车号）
+LINE JHX                            ← 第3行：线路，默认英文 `LINE ` + 每个汉字的拼音首字母
+                                      （例：京沪线 → JHX；非一级汉字显示 `?`）
+SPD 87 KM 00344.7                   ← 第4行：速度 + 公里标
+1234002 -87dB                       ← 第5行：解出的地址值 + 接收瞬间的信号强度
+                                      （小字、不加粗）
+4BL:OFF 1SPK:ON 1/3                 ← 底部状态栏（同前）
+```
+
+> 经纬度行默认**关闭**（4 KiB 容量装不下；编译选项 `LBJ_COORDS` 打开）。打开后
+> 经纬度占第 5 行、地址行退到第 6 行。
+>
+> 中文版另有构建选项 `LBJ_ROUTE_CN`：线路行改回原样的 GB2312 汉字（不带"线路"
+> 标签）、车型行恢复中文/英文切换、键 `5` 恢复、底栏恢复 `5EN/ZH` 提示。中文版
+> 余量更大（约 228 B），可自行搭配 `LBJ_COORDS`。
 
 **车次前缀（K/T/D/C 等）**：取自详情块 `0-3` 的 2 个 ASCII 字符（每个字符 = 2 个
 BCD 半字节，与线路名同样的打包方式），去掉空格/不可打印字符后粘性记住（同
@@ -77,8 +92,12 @@ LBJ_Console 的 `lbjClass`），拼在车次号前面显示——所以只有短
 `104-16.1280E 30-35.0780N`（小字体里没有度/分字形，用 `-` 分隔度与分），并套用
 它的合法性校验：9/8 个数字必须全是 0-9、分钟 <60、经度首位 ≤1。校验不通过、
 或独立详情不足 47 字符时**整行不显示** —— 不会把坏数据印成一个“看着挺像”的
-十进制数。车型名/线路用设备内置 8×8 中文字库；按 `5` 切到英文时线路隐藏、车型
-显示英文缩写（如 东风4C→DF4C、韶山7E→SS7E、东方红21→DFH21）。
+十进制数（整行为编译选项 `LBJ_COORDS`，默认关闭）。车型行**只显示英文缩写**
+（如 东风4C→DF4C、韶山7E→SS7E、东方红21→DFH21）——中文名表已从资源里删掉。
+线路行默认显示 `LINE ` + 每个汉字的拼音首字母：GB2312 一级字库本身按拼音排序，
+所以首字母就是 23 项边界码表的一次区间查找（拼音没有 I/U/V 三个声母，所以是
+23 个字母）；二级字库/符号显示 `?`。中文版（`LBJ_ROUTE_CN`）恢复原样的汉字
+线路名和键 `5` 切换。
 
 详情卡与它的 `1233999/1234000` 基础预警卡**各留一条**，历史里不做自动合并或
 删除（独立详情块里没有完整车次，无法安全判定它属于哪趟车）。
@@ -89,10 +108,10 @@ LBJ_Console 的 `lbjClass`），拼在车次号前面显示——所以只有短
 | 键 | 作用 |
 |---|---|
 | UP / DOWN | SUM：选更新/更旧的记录（UV-K1 用左右，`nav_dir`）。每次按键只走一步，按住不放不会连发 |
-| `1` | 扬声器开/关（默认关，退出保存） |
+| `1` | 扬声器开/关（默认关；设置不再保存，每次进入都是默认值） |
 | `2` | 清空报文历史（含最近一条短报文会话） |
 | `4` | 背光常亮 / 自动熄灭。ON 时每个屏刷新槽都重新武装 BLTime，所以解码唤醒后一直亮着不灭；OFF 时按收音机的 `BLTime` 自动熄灭（等效收音机 F+8 的常亮功能；仅本次运行有效，退出后恢复系统 BLTime） |
-| `5` | 中文 / 英文显示切换（无字库设备用英文缩写，退出保存） |
+| `5` | 中文 / 英文显示切换（仅中文版 `LBJ_ROUTE_CN` 有此键；默认英文，不再保存） |
 | EXIT | 退出（回 Apps 菜单） |
 
 ### 计数行 `M S W F B`（暂时停用）
@@ -126,15 +145,32 @@ LBJ_Console 的 `lbjClass`），拼在车次号前面显示——所以只有短
 | `A<addr>` | POCSAG 地址（RIC） |
 | `F<func>` | 功能字（本例 `1`=下行 `3`=上行） |
 | `LBJ` / `--` | 是否属于 SUM 页认识的地址（1233999/1234000/1234001/1234002） |
-| `+` / `!` | 该条报文 BCH 正常 / 不可纠正 |
+| `+` / `!` | 该条报文 BCH 正常 / 不可纠正（PDU 页停用中） |
+| `*` / `!` | **SUM 页车次行末尾的 BCH 标记**：干净无字符、修复过加 `*`、修不好加 `!`（`!` 优先） |
 | `DN` / `UP` / `??` | 方向：下行 / 上行 / 未知 |
+
+### 构建选项与体积
+
+| 选项 | 作用 | 默认 |
+|---|---|---|
+| （无选项） | 英文版：线路行 `LINE `+拼音首字母、车型只显示英文缩写、没有键 `5`、没有经纬度行 | 默认 |
+| `LBJ_ROUTE_CN` | 中文版：线路行改回 GB2312 汉字、车型恢复中/英切换、键 `5` 恢复、底栏恢复 `5EN/ZH` 提示 | 关 |
+| `LBJ_COORDS` | 打开经纬度行（英文版装不下会溢出 4 KiB，中文版可以） | 关 |
+| `LBJ_HIDE9` | 车次整串首字符为 `9` 的记录整条不显示、不进历史 | 关 |
+
+环境变量经 `build.sh`（`LBJ_HIDE9=1 LBJ_ROUTE_CN=1 ./build.sh`）打开，`compile-app.sh`
+会透传给 Docker。CI 每次出两个 overlay 工件：默认名（隐藏9）与名含 `9`（不隐藏9）。
+
+余量（本地 GCC 10 `-Os` 实测，CI 的 GCC 13 `-Oz` 差几字节）：英文版约 128 B、
+不隐藏9 约 180 B、中文版约 228 B。
 
 ## Using the app
 
 1. Set the VFO to the LBJ frequency, **FM** (e.g. 821.2375 MHz). The BK4829
    covers 18–580 MHz and 760–1160 MHz, so 821 MHz is inside its range.
 2. Launch **LBJ RX**.
-3. The speaker is off by default (key `1`); key `5` toggles Chinese/English.
+3. The speaker is off by default (key `1`) and nothing is saved any more: every
+   launch starts from the defaults (speaker off, English display).
 
 ## Receive path
 
@@ -178,9 +214,12 @@ train `[0:6]`, speed `[6:9]`, position km `[10:15]`. A detail block sits at
 loco number `7:12`, end flag `12:14`, GB2312 route `14:30`, longitude `30:39`,
 latitude `39:47` (`DDDMM.MMMM` / `DDMM.MMMM`, shown as decimal degrees).
 
-The model name and route are GB2312 and are drawn with the radio's built-in 8x8
-Chinese font; key `5` switches to ASCII abbreviations (DF4C/SS7E/DFH21) and
-hides the route for radios without it.
+The model row always shows the English abbreviation (DF4C/SS7E/DFH21); the GB2312
+name table is gone from the assets. The route row is a compile option: by default
+it reads `LINE ` + the pinyin initial of each GB2312 route character (level-1 of
+the font is sorted by pinyin, so a 23-entry boundary table in the assets is all
+it takes), while `-DLBJ_ROUTE_CN` keeps the original Chinese route and the key-5
+language toggle for radios with the built-in 8x8 font.
 
 ## Pages
 
@@ -193,12 +232,14 @@ only LBJ-family messages reach it nowadays.
 
 | Page | Content |
 |---|---|
-| **SUM** | Newest/selected record. The status bar is left exactly as the firmware's `UI_DisplayStatus()` draws it (battery and icons; the app draws no title and no frequency). Short report (1233999/1234000): train + direction, `SPEED xx km/h`, `KM xxxx.x`, the decoded address value. New-gen alert (1234001/1234002, standalone or merged; 1233999/1234000 merged): train + direction, model (Chinese; ASCII abbreviation with key `5`) + 8-digit registration number, GB2312 route, `SPD xx KM xxxx.x`, `104-16.1280E 30-35.0780N` DMS coordinates, shown as the upstream Android receiver shows them, with its validity check (tiny font, merged blocks only; the row is hidden when the pair is rejected or the block is short), the decoded address value; a merged report uses its own short prefix, a standalone one the last short report. The train number is prefixed with the train-class letter (K/T/D/C...) decoded from the detail block's `[0:4]` — the two ASCII chars the radio actually transmits, sticky like LBJ_Console's `lbjClass` so a short report still carries the last prefix seen. The bottom bar shows the key hints (`5` language, `4` backlight, `1` speaker) then `x/y` (selected/count, 1 = newest) and the live `-xx` dBm RSSI (every 0.5 s; shown from launch as `0/0`) |
+| **SUM** | Newest/selected record. The status bar is left exactly as the firmware's `UI_DisplayStatus()` draws it (battery and icons; the app draws no title and no frequency). The train line ends with the BCH verdict: nothing when the report arrived clean, `*` when a codeword was repaired, `!` when it could not be repaired at all (`!` wins). Short report (1233999/1234000): train + direction, `SPEED xx km/h`, `KM xxxx.x`, then the decoded address value plus the strength captured at reception (`1234000 -87dB`, small font, not bold). New-gen alert (1234001/1234002, standalone or merged; 1233999/1234000 merged): train + direction, model abbreviation + 8-digit registration number, the `LINE xxx` route row, `SPD xx KM xxxx.x`, then the address value + strength; the DMS coordinates row (`104-16.1280E 30-35.0780N`, drawn as the upstream Android receiver draws them, with its validity check, tiny font, merged blocks only, hidden when the pair is rejected or the block is short) is a compile option (`LBJ_COORDS`, off by default). A merged report uses its own short prefix, a standalone one the last short report. The train number is prefixed with the train-class letter (K/T/D/C...) decoded from the detail block's `[0:4]` — the two ASCII chars the radio actually transmits, sticky like LBJ_Console's `lbjClass` so a short report still carries the last prefix seen. The bottom bar shows the key hints (`4` backlight, `1` speaker) then `x/y` (selected/count, 1 = newest), drawn from launch as `0/0`; it is not polled for RSSI any more |
 
 Keys: UP/DOWN pick the newer/older record (`nav_dir`: UV-K1 LEFT/RIGHT; one step
 per press — holding does not auto-repeat) · `1` speaker · `2` clear history +
 counters · `4` backlight always-on / auto-off (the radio's F+8 always-on;
-session-only) · `5` Chinese/English display (saved) · EXIT quit.
+session-only) · `5` Chinese/English display (`-DLBJ_ROUTE_CN` build only) ·
+EXIT quit. Nothing is written to the app config any more (no `cfg_load` /
+`cfg_save`), so every launch starts from the defaults: speaker off, English.
 
 ## Tests (`test/`)
 
@@ -262,3 +303,22 @@ decoder tolerates (about +2–3 dB).
 - 4 KiB overlay: texts are read-only assets (`gen_assets.py`), as in APRS RX.
 - Built with `./compile-app.sh lbj` (Docker), `APP_NAME = "LBJ RX"`, blob
   `LBJRX.app`.
+
+### Compile options and sizes
+
+| Option | Effect | Default |
+|---|---|---|
+| (none) | English build: `LINE ` + pinyin-initial route row, model row shows the English abbreviation only, no key `5`, no coordinates row | default |
+| `LBJ_ROUTE_CN` | Chinese build: the original GB2312 route row, the model-row CN/EN toggle, key `5` and the `5EN/ZH` footer hint all come back | off |
+| `LBJ_COORDS` | The DMS coordinates row (it overflows the 4 KiB overlay in the English build; it fits in the Chinese one) | off |
+| `LBJ_HIDE9` | Records whose train string starts with `9` are dropped entirely (never shown, never stored) | off |
+
+They are environment variables for `build.sh` (`LBJ_HIDE9=1 LBJ_ROUTE_CN=1
+./build.sh`), which `compile-app.sh` passes through to Docker. CI ships two
+overlay artifacts per run: the default name (hide-9) and one whose name contains
+`9` (no hiding).
+
+Room left (local GCC 10 `-Os`; CI's GCC 13 `-Oz` differs by a few bytes):
+English build about 128 B, the no-hide-9 variant about 180 B, the Chinese build
+about 228 B. Everything cut to buy that room back is tagged `[C1]`..`[C6]` in the
+source, so it can be put back one item at a time.
