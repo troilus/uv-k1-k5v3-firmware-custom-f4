@@ -127,8 +127,10 @@ void SETTINGS_InitEEPROM(void)
                 }
             }
 
-            if (needsWrite) {
-                for (uint8_t i = 0; i < 7; i++)
+            // Bands 1 and 2 both at 0 were left by an old settings save that
+            // overwrote them on every write: restore their defaults too.
+            if (needsWrite || (buf[0] == 0 && buf[1] == 0)) {
+                for (uint8_t i = 0; i < (needsWrite ? 7 : 2); i++)
                     buf[i] = dBmCorrTable[i];
                 PY25Q16_WriteBuffer(0x00A0B9, buf, 7, false);
             }
@@ -1014,10 +1016,7 @@ void SETTINGS_SaveSettings(void)
 #ifdef ENABLE_VOICE
     State[0] = gEeprom.VOICE_PROMPT;
 #endif
-#ifdef ENABLE_RSSI_BAR
-    State[1] = gEeprom.S0_LEVEL;
-    State[2] = gEeprom.S9_LEVEL;
-#endif
+    // State[1..7] hold dBmCorrTable (0x00A0B9..0x00A0BF): kept as read from flash
 
     // 0x0EA8
     State = SecBuf + 0x18;
