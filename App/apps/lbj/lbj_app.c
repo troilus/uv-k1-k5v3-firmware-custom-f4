@@ -110,11 +110,16 @@ static inline volatile uint32_t *hw(uint32_t a){
 
 #define REG_2B  0x2Bu          /* RX HPF/LPF + de-emphasis + AFC (EPIRB 406 RAW) */
 #define REG_73  0x73u
-/* [C7] The BK4819 frequency pair: BK4819_SetFrequency is nothing but these two
- * writes, so the app can pin the receiver itself. 82123750 = 821.2375 MHz in
- * 10 Hz units, the same channel as the resident LBJ dual-watch. */
+/* [C7] Pin registers: the frequency pair (BK4819_SetFrequency is nothing but
+ * these two writes), the channel filter and the RX control register. 82123750 =
+ * 821.2375 MHz in 10 Hz units, the same channel as the resident LBJ dual-watch. */
+#define REG_30  0x30u          /* RX/TX control: VCO calib + PLL VCO + RX link */
 #define REG_38  0x38u
 #define REG_39  0x39u
+#define REG_43  0x43u          /* RF/IF filter bandwidth (the VFO's CHANNEL_BANDWIDTH) */
+/* BK4819_SetFilterBandwidth(BK4819_FILTER_BW_WIDE, true): 25 kHz and the same
+ * width for weak signals (driver/bk4819.c, driver/bk4829.c). */
+#define REG43_WIDE 0x3628u
 #define LBJ_FREQ_HZ10 82123750u
 
 /* ---- demodulator (test/model_rx.py, class DemodInt; the C is a transcription) */
@@ -801,10 +806,26 @@ void app_main(const app_api_t *api){
     /* [C7] Pin the receiver to the LBJ channel. The loader left RX on the user's
      * VFO, and the hardware comes back from the untouched gRxVfo->pRX->Frequency
      * through RADIO_SetupRegisters on exit - the same contract the RAW writes
-     * above rely on, so there is nothing to restore here. FM is set by
-     * set_af(APP_AF_FM) below and the audio filter is bypassed in RAW. */
+     * above rely on, so there is nothing to restore here.
+     *
+     * This is the register set the firmware's own "change frequency while
+     * running" code uses (app/spectrum.c SetF, app/chFrScanner.c ScanFastTune,
+     * apps/epirb406 tune): the frequency pair, the 25 kHz IF filter, and REG_30
+     * to 0 and back. The RAW bits above only bypass the audio-domain filters,
+     * REG_43 keeps whatever the VFO menu asked for - which is a voice setting
+     * when the VFO was not prepared for LBJ, so force it like AISRX does.
+     * REG_30 is the important one: 0 and back makes the synthesizer recalibrate
+     * and relock on the new frequency (ENABLE_VCO_CALIB lives in that register).
+     * Outside an app that happens on every power-save wake-up (functions.c
+     * FUNCTION_Select -> BK4819_Conditional_RX_TurnOn_and_GPIO6_Enable ->
+     * BK4819_RX_TurnOn), so the resident receiver gets it for free - while an
+     * overlay owns the foreground loop there is no wake-up to ride on. */
     api->bk_write(REG_38,(uint16_t)(LBJ_FREQ_HZ10 & 0xFFFFu));
     api->bk_write(REG_39,(uint16_t)(LBJ_FREQ_HZ10 >> 16));
+    api->bk_write(REG_43,REG43_WIDE);
+    const uint16_t r30 = api->bk_read(REG_30);
+    api->bk_write(REG_30,0);
+    api->bk_write(REG_30,r30);
 #endif
     api->audio_path(g.spk);
     api->set_af(APP_AF_FM);
