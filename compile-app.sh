@@ -81,6 +81,7 @@ for app in "${TARGETS[@]}"; do
             -e LBJ_HIDE9="${LBJ_HIDE9:-}" \
             -e LBJ_COORDS="${LBJ_COORDS:-}" \
             -e LBJ_ROUTE_CN="${LBJ_ROUTE_CN:-}" \
+            -e LBJ_PIN_FREQ="${LBJ_PIN_FREQ:-}" \
             "$IMAGE" bash -c "set -eo pipefail; rm -f -- \"\$1\"; sed 's/\r$//' ./build.sh | bash" \
             bash "$app.map"; then
         appfile=$(ls -1 "$APPS_DIR/$app"/*.app 2>/dev/null | head -1)

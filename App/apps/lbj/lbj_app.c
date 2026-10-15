@@ -110,6 +110,12 @@ static inline volatile uint32_t *hw(uint32_t a){
 
 #define REG_2B  0x2Bu          /* RX HPF/LPF + de-emphasis + AFC (EPIRB 406 RAW) */
 #define REG_73  0x73u
+/* [C7] The BK4819 frequency pair: BK4819_SetFrequency is nothing but these two
+ * writes, so the app can pin the receiver itself. 82123750 = 821.2375 MHz in
+ * 10 Hz units, the same channel as the resident LBJ dual-watch. */
+#define REG_38  0x38u
+#define REG_39  0x39u
+#define LBJ_FREQ_HZ10 82123750u
 
 /* ---- demodulator (test/model_rx.py, class DemodInt; the C is a transcription) */
 #define DC_SHIFT   7
@@ -788,6 +794,15 @@ void app_main(const app_api_t *api){
      * the registers through RADIO_SetupRegisters on exit. */
     api->bk_write(REG_2B,(uint16_t)((api->bk_read(REG_2B)|0x0700u)&~0x0007u));
     api->bk_write(REG_73,(uint16_t)(api->bk_read(REG_73)|0x0010u));
+#ifdef LBJ_PIN_FREQ
+    /* [C7] Pin the receiver to the LBJ channel. The loader left RX on the user's
+     * VFO, and the hardware comes back from the untouched gRxVfo->pRX->Frequency
+     * through RADIO_SetupRegisters on exit - the same contract the RAW writes
+     * above rely on, so there is nothing to restore here. FM is set by
+     * set_af(APP_AF_FM) below and the audio filter is bypassed in RAW. */
+    api->bk_write(REG_38,(uint16_t)(LBJ_FREQ_HZ10 & 0xFFFFu));
+    api->bk_write(REG_39,(uint16_t)(LBJ_FREQ_HZ10 >> 16));
+#endif
     api->audio_path(g.spk);
     api->set_af(APP_AF_FM);
     api->delay_ms(50);
