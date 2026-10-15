@@ -30,5 +30,8 @@ void PY25Q16_InvalidateCache(void);
 
 /* The 4 KiB sector cache, reused as the overlay-app execution workspace. */
 uint8_t *PY25Q16_OverlayBuffer(void);
+/* Erase the sector at Address and program the workspace back as its content
+ * (overlay loader: patched header sector written back with a single erase). */
+void PY25Q16_OverlayWriteSector(uint32_t Address);
 
 #endif
