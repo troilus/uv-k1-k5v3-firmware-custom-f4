@@ -32,10 +32,14 @@ jobs:
         # the footer hint, and it does have the room for the coordinates row
         # (LBJ_COORDS), so that flavour is offered too.
         include:
-          - { hide9: '1', suffix: '',                }
-          - { hide9: '',  suffix: '9',               }
-          - { hide9: '1', suffix: '-cn',        cn: '1' }
-          - { hide9: '',  suffix: '-cn9',       cn: '1' }
+          # LBJ_PIN_FREQ pins the receiver to 821.2375 MHz when the app opens
+          # (the loader restores the user's VFO on exit). Only the two plain
+          # flavours carry it: the "9" variants and the coordinate variants
+          # keep their overlay budget untouched.
+          - { hide9: '1', suffix: '',                pin: '1' }
+          - { hide9: '',  suffix: '9',                            }
+          - { hide9: '1', suffix: '-cn',        cn: '1', pin: '1' }
+          - { hide9: '',  suffix: '-cn9',       cn: '1'           }
           - { hide9: '1', suffix: '-cn-coord',  cn: '1', coords: '1' }
           - { hide9: '',  suffix: '-cn9-coord', cn: '1', coords: '1' }
 
@@ -48,6 +52,7 @@ jobs:
         LBJ_HIDE9:    ${{ matrix.hide9 }}
         LBJ_ROUTE_CN: ${{ matrix.cn }}
         LBJ_COORDS:   ${{ matrix.coords }}
+        LBJ_PIN_FREQ: ${{ matrix.pin }}
       run: |
         chmod +x compile-app.sh
         ./compile-app.sh All

@@ -36,6 +36,12 @@ fi
 if [ -n "${LBJ_ROUTE_CN:-}" ]; then
   CFLAGS="$CFLAGS -DLBJ_ROUTE_CN"
 fi
+# [C7] LBJ_PIN_FREQ: pin the receiver to 821.2375 MHz when the app starts (the
+# loader restores the user's VFO on exit). Only the variants with room for it
+# enable this - see .github/workflows/build-apps.yml.
+if [ -n "${LBJ_PIN_FREQ:-}" ]; then
+  CFLAGS="$CFLAGS -DLBJ_PIN_FREQ"
+fi
 LDFLAGS="-nostdlib -nostartfiles -T app.ld -Wl,--defsym,APP_VMA=${APP_VMA} \
   -Wl,--gc-sections -Wl,-Map=${APP}.map -Wl,--build-id=none -Wl,--no-warn-rwx-segments"
 
