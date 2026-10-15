@@ -27,10 +27,14 @@ cd "$(dirname "$0")"
 export MSYS_NO_PATHCONV=1
 
 # --- discover apps (any App/apps/<name>/build.sh) ---
-# cwdecode is pulled from upstream but cannot build here: its gen_assets.py
-# parses gFontSmallPacked out of App/font.c, which this fork's optimised font
-# table does not define. Keep the sources and skip it in every build.
-SKIP_APPS=(cwdecode)
+# These are pulled from upstream but their gen_assets.py parses a resident
+# source file this fork has rewritten, so the assets step aborts and the whole
+# app workflow goes red. Keep the sources and skip them in every build:
+#   cwdecode - reads gFontSmallPacked from App/font.c (fork font table only has
+#              gFontBig / gFontSmall)
+#   tonecall - reads the DCS_OptionsLow table from App/dcs.c (fork layout
+#              differs, the regex finds no match)
+SKIP_APPS=(cwdecode tonecall)
 ALL_APPS=()
 for d in "$APPS_DIR"/*/; do
     [ -f "${d}build.sh" ] || continue
