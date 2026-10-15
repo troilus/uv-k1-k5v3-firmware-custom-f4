@@ -48,6 +48,10 @@
 #ifdef ENABLE_FEAT_F4HWN_BEAM
     #include "app/beam.h"
 #endif
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
+    #include "apps/app_overlay.h"
+    static void ACTION_ToneCall(void);
+#endif
 
 #if defined(ENABLE_FMRADIO)
 static void ACTION_Scan_FM(bool bRestart);
@@ -137,6 +141,9 @@ void (*action_opt_table[])(void) = {
 #endif
 #ifdef ENABLE_FEAT_F4HWN_BEAM
     [ACTION_OPT_BEAM] = &ACTION_Beam,
+#endif
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
+    [ACTION_OPT_TONECALL] = &ACTION_ToneCall,
 #endif
 };
 
@@ -395,6 +402,20 @@ void ACTION_Handle(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
 
     action_opt_table[func]();
 }
+
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
+/* Open the overlay app holding a shortcut; double beep when none is installed. */
+static void ACTION_LaunchApp(uint8_t shortcut)
+{
+    if (APP_LaunchOverlayShortcut(shortcut) != APP_OK)
+        gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
+}
+
+static void ACTION_ToneCall(void)
+{
+    ACTION_LaunchApp(APP_SHORTCUT_TONECALL);
+}
+#endif
 
 
 #ifdef ENABLE_FMRADIO
