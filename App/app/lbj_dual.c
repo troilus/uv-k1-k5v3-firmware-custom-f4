@@ -188,6 +188,10 @@ static struct {
     int16_t  dst;                 /* distance of the report being formatted   */
     char     trn[7];              /* train digits of the report being formatted */
     char     loc[9];              /* registration of the report being formatted */
+    bool     shEmpty;             /* the short block decoded no digit at all  */
+    bool     pendValid;           /* a hidden short block is waiting below    */
+    uint16_t pendSec;             /* when that short block arrived            */
+    char     pendL0[14], pendL1[18], pendL2[14];   /* its three rows, held back */
     char     l0[14], l1[18], l2[14], l3[20];
 
     lbj_rec_t rec[LBJ_HISTORY];   /* history, newest first                    */
@@ -290,6 +294,16 @@ static char cn_initial(uint8_t hi, uint8_t lo){
         k = i;
     }
     return "ABCDEFGHJKLMNOPQRSTWXYZ"[k];
+}
+
+/* True when none of the n characters is a decimal digit: the short block was
+ * received (its direction came with the frame) but carries no train number, no
+ * speed and no km post at all. */
+static bool no_digit(const char *p, uint8_t n){
+    for (uint8_t i = 0; i < n; i++)
+        if (p[i] >= '0' && p[i] <= '9')
+            return false;
+    return true;
 }
 
 /* True when the n characters are digits plus the blanks a transmitter leaves
@@ -742,6 +756,7 @@ static void format(uint32_t addr, uint8_t func, const char *b, uint16_t len){
      * are only this report's when it owns the short block, not when they were
      * borrowed from the last one heard. */
     g.trn[0] = '\0';
+    g.shEmpty = own_short && no_digit(sb, 15u);
     if (own_short){
         uint8_t k = 0;
         for (uint8_t i = 0; i < 6u; i++){
@@ -813,7 +828,7 @@ static void format(uint32_t addr, uint8_t func, const char *b, uint16_t len){
 /* ---- decoder callbacks (main-loop context, from lbj_process; the ISR only
  * queues raw words) ---------------------------------------------------------- */
 static void sanitize(char *s);
-static void history_merge(uint32_t addr, uint8_t func, uint16_t len, uint8_t err, uint8_t cor);
+static bool history_merge(uint32_t addr, uint8_t func, uint16_t len, uint8_t err, uint8_t cor);
 
 /* Commit the held page to the history: the merge window closed. */
 static void page_commit(void)
@@ -858,8 +873,7 @@ static void page_commit(void)
         return;
 #endif
 
-    history_merge(g.pgAddr, g.pgFunc, g.pgLen, g.pgErr, g.pgCor);
-    if (!g.dismissed){
+    if (history_merge(g.pgAddr, g.pgFunc, g.pgLen, g.pgErr, g.pgCor) && !g.dismissed){
         g.popup = true;
         g.dirty = true;
     }
@@ -944,12 +958,20 @@ static bool key_eq(const char *a, const char *b){
     return *a == *b;
 }
 
-/* Refresh the entry this page belongs to, or start a new one. The short block
- * owns row0/row1/row2 and the train key, the detail block owns row3, the route,
- * the distance and the registration key, so an update only takes over the rows
- * its own half supplies - a detail never overwrites the speed of the entry it
- * completes with the last short block heard from somebody else. */
-static void history_merge(uint32_t addr, uint8_t func, uint16_t len, uint8_t err, uint8_t cor){
+/* Refresh the entry this page belongs to, or start a new one, and say whether
+ * anything the operator should see came of it. The short block owns
+ * row0/row1/row2 and the train key, the detail block owns row3, the route, the
+ * distance and the registration key, so an update only takes over the rows its
+ * own half supplies - a detail never overwrites the speed of the entry it
+ * completes with the last short block heard from somebody else.
+ *
+ * A short block that decoded no digit at all says only "a train is going down /
+ * up" - the direction rides on the frame, not on the payload. It is held back
+ * in g.pend instead of being filed, so a detail arriving right behind it still
+ * completes it into one full record, while on its own it never reaches the
+ * history or the popup: nothing to show stands for a train we know nothing
+ * about. */
+static bool history_merge(uint32_t addr, uint8_t func, uint16_t len, uint8_t err, uint8_t cor){
     const bool merged   = (len >= 65u);
     const bool own_sh   = page_has_short(addr, len);
     const bool det_at   = page_has_detail(addr, len);
@@ -988,6 +1010,16 @@ static void history_merge(uint32_t addr, uint8_t func, uint16_t len, uint8_t err
     }
 
     if (hit == LBJ_HISTORY){               /* a train not seen yet */
+        if (own_sh && !det_at && g.shEmpty){
+            /* nothing but the direction: hold the three rows back for the detail
+             * that is sent right behind this page, and file nothing now */
+            copyline(g.pendL0, (uint8_t)sizeof g.pendL0, g.l0);
+            copyline(g.pendL1, (uint8_t)sizeof g.pendL1, g.l1);
+            copyline(g.pendL2, (uint8_t)sizeof g.pendL2, g.l2);
+            g.pendSec   = g.sec;
+            g.pendValid = true;
+            return false;
+        }
         if (g.count < LBJ_HISTORY)
             g.count++;
         for (uint8_t k = (uint8_t)(g.count - 1u); k > 0u; k--)
@@ -997,14 +1029,25 @@ static void history_merge(uint32_t addr, uint8_t func, uint16_t len, uint8_t err
         g.rec[0].dst    = LBJ_DST_NODET;
         g.rec[0].sh     = 0u;
         if (!own_sh && det_at){
-            /* a detail that found no short block to complete: the train number,
-             * speed and km post are simply not known, so say so instead of
-             * leaving the three rows blank */
-            char *o = g.rec[0].l0;
-            o = puttrain(o, g.sess, func, false);
-            *o = '\0';
-            copyline(g.rec[0].l1, (uint8_t)sizeof g.rec[0].l1, "SPD - km/h");
-            copyline(g.rec[0].l2, (uint8_t)sizeof g.rec[0].l2, "KM -");
+            if (g.pendValid && (int16_t)(g.sec - g.pendSec) <= (int16_t)LBJ_MERGE_SECS){
+                /* the short block it belongs to was held back a moment ago: this
+                 * detail is what makes it a record, so take its rows and let the
+                 * pair appear as one */
+                copyline(g.rec[0].l0, (uint8_t)sizeof g.rec[0].l0, g.pendL0);
+                copyline(g.rec[0].l1, (uint8_t)sizeof g.rec[0].l1, g.pendL1);
+                copyline(g.rec[0].l2, (uint8_t)sizeof g.rec[0].l2, g.pendL2);
+                g.rec[0].sh = 1u;
+                g.pendValid = false;
+            } else {
+                /* a detail that found no short block to complete: the train
+                 * number, speed and km post are simply not known, so say so
+                 * instead of leaving the three rows blank */
+                char *o = g.rec[0].l0;
+                o = puttrain(o, g.sess, func, false);
+                *o = '\0';
+                copyline(g.rec[0].l1, (uint8_t)sizeof g.rec[0].l1, "SPD - km/h");
+                copyline(g.rec[0].l2, (uint8_t)sizeof g.rec[0].l2, "KM -");
+            }
         }
     } else if (hit != 0u){
         /* the refreshed entry goes back on top, so the list stays newest first */
@@ -1033,6 +1076,7 @@ static void history_merge(uint32_t addr, uint8_t func, uint16_t len, uint8_t err
         g.rec[0].dst = g.dst;
     }
     g.cur = 0;                       /* a fresh report always shows the newest */
+    return true;
 }
 
 /* ---- popup ---- */
