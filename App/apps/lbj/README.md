@@ -8,7 +8,7 @@ Reference: [Sdr-Is-Fun/RTL_SDR_LBJ_RECEIVER](https://github.com/Sdr-Is-Fun/RTL_S
 (the Python chain this app is modelled on) and the APRS RX app of this firmware
 (PA4 sampling, DPLL, overlay-app conventions).
 
-Status: **v0.4, decoding confirmed on-air.** The demodulator and the
+Status: **v0.5, decoding confirmed on-air.** The demodulator and the
 POCSAG/LBJ decoder are validated in `test/model_rx.py` against synthetic frames
 (clean / noise / ±1 % clock / AC-coupled / high-passed); see the tables below.
 
@@ -60,6 +60,31 @@ channel's modulation to LBJ) and adds the item the overlay had no room for:
 The overlay app itself is **unchanged** in v0.4 - there is no room in 4 KiB.
 The shared model gained `class Slicer`, `merge_pages()` and `hpsweep()`.
 
+v0.5 adds the **distance from the receiver to the decoded train** to the resident
+popup (again resident-only: the overlay app and its 4 KiB budget are untouched):
+
+- **Row 0, right-aligned**: `123.4km` (one decimal), `>999km` past 999.9 km,
+  `--km` when it cannot be worked out. Only a report that carries the detail
+  block has a fix of its own, so only those pages show anything - a page without
+  one draws nothing there at all. The train number is cut to 11 characters so
+  the readout always fits the 128 px row.
+- **The receiver's position is not entered in the firmware.** It is the beacon
+  position of the **APRS TX** overlay app, which the **APRS Edit** app maintains
+  through the configuration proxy. One copy means the readout always agrees with
+  what is actually being beaconed, and no menu item and no private flash block
+  were added. APRS TX must therefore be installed with a valid north/east
+  position; otherwise every detail page shows `--km`. Its slot is found by
+  itself (`APP_ValidateSlot` + the profile's `APC6` magic), cached and
+  re-validated, so an edit made in APRS Edit shows up without a relaunch and a
+  reinstall into another slot is picked up too.
+- **The train's fix comes from the detail block** (`[30:39)` longitude,
+  `[39:47)` latitude - the same two fields the overlay reads for `LBJ_COORDS`,
+  except that here the trailing digits are minutes and not tenths of a minute),
+  and the distance is an equirectangular approximation: a 0.0001 degree of
+  latitude is 0.011132 km anywhere, longitude is scaled by the cosine of the mean
+  latitude (a 19-entry Q15 table, 5 degree steps, linear in between). Integer
+  only - no 64-bit product, no floating point, so no libgcc.
+
 ## 中文说明
 
 **v0.4**:解码改进落到了**常驻固件的 LBJ 双守模式**上（`App/app/lbj_dec.c`、
@@ -70,6 +95,22 @@ BCH、软擦除 `?`、同步 ≤2、去积分 DPLL），并实现 overlay 放不
 三个切片各自解出的字符互补合并）。同时把 **BCH 从 19.2 kHz 采样中断搬到主循环**
 （中断只对齐码位、把 32-bit 原始码字入队，10 ms 节拍里跑 `lbj_process()` 做 BCH 与
 字状态机）——单次纠错最长 ~160 µs，远大于 52 µs 采样周期，三个切片在中断里跑必然丢采样。
+
+**v0.5**：常驻弹窗加上**到列车的距离**（仍然只动常驻固件，overlay app 和它那 4 KiB
+预算没碰）：
+
+- **第 1 行右上角**：`123.4km`（1 位小数），超过 999.9 km 显示 `>999km`，算不出来显示
+  `--km`。只有带详情块的报文才自带坐标，所以只有这类页显示；没有详情块的页这一格
+  **什么都不画**。车次号截断到 11 字符，保证读数挤得下 128 px 那一行。
+- **本机位置不用固件输入**：直接用 **APRS TX** 的信标坐标（由 **APRS Edit** 经
+  configuration proxy 写入）。只存一份，读数永远和实际信标一致，也就没加菜单项、
+  没占私有 flash 块。代价是必须装了 APRS TX 且坐标是有效的北纬/东经，否则详情页一律
+  `--km`。它所在槽位由 `APP_ValidateSlot` + profile 的 `APC6` magic 自动找到并缓存、
+  每次复核，所以在 APRS Edit 里改完立即生效，重装到别的槽位也能自己认回来。
+- **列车坐标取自详情块**（`[30:39)` 经度、`[39:47)` 纬度——和 overlay 的 `LBJ_COORDS`
+  是同两个字段，只是这里的尾数是"分"而不是十分之一分），距离用等距投影近似：纬度
+  0.0001° 恒为 0.011132 km，经度按平均纬度的余弦缩放（19 项 Q15 表、5° 一档、档间线性
+  插值）。全程整数运算——没有 64 位乘积、没有浮点，所以不会拉进 libgcc。
 
 ### 使用步骤
 
@@ -261,6 +302,9 @@ CI（`.github/workflows/build-apps.yml`）一次出 **6 个工件**，下载后�
 | 中文版 + 经纬度，隐藏9 + pin | **4080 B** | **16 B** |
 
 最紧的一档重新变成「中文版 + 经纬度 + 隐藏9 + pin」，只剩 16 B。
+
+v0.5 的距离显示全在常驻固件里（`App/app/lbj_dual.c`），overlay 一个字节都没动，
+所以上表的余量不变；常驻固件的增量体现在 CI 出的固件工件体积上。
 
 教训（v0.3）：Cortex-M0+ 没有除法指令，遇到常数的 `/`、`%` 会引入 libgcc 的除法
 例程。把 `putu` 从查表改成 `%10` / `/10` 反而让 overlay **涨了 264 B**
