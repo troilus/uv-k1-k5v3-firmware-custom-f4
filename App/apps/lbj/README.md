@@ -8,7 +8,7 @@ Reference: [Sdr-Is-Fun/RTL_SDR_LBJ_RECEIVER](https://github.com/Sdr-Is-Fun/RTL_S
 (the Python chain this app is modelled on) and the APRS RX app of this firmware
 (PA4 sampling, DPLL, overlay-app conventions).
 
-Status: **v0.2, decoding confirmed on-air.** The demodulator and the
+Status: **v0.3, decoding confirmed on-air.** The demodulator and the
 POCSAG/LBJ decoder are validated in `test/model_rx.py` against synthetic frames
 (clean / noise / ±1 % clock / AC-coupled); see the table below.
 
@@ -26,6 +26,16 @@ What v0.2 changed (all mirrored in `test/model_rx.py`):
   measurable change).
 - **Absolute sample clock** (`ticks_ms * 48000 + SysTick position`) and the
   **skip compensation** over the samples the key/screen slot took.
+
+v0.3 is **size-only, no behaviour change**: the decimal formatter no longer
+carries its 28-byte powers-of-ten table and the subtractor it needed (`putu` is
+now a plain `%10` / `/10` loop, the compiler's constant multiply), and the two
+single-call helpers it shared the file with (`putdash`, the generic `digv`) are
+inlined or specialised. The model output is identical.
+
+The overlay size of every flavour is reported by the CI build as a check-run
+annotation (`::notice … N B used, M B free of 4096`), which is where the
+"room left" figures below come from.
 
 ## 中文说明
 

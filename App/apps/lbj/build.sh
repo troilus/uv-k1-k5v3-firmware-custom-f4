@@ -8,7 +8,7 @@ set -euo pipefail
 
 APP="$(basename "$PWD")"            # breakout, foxhunt, beacon, fm, ...
 APP_NAME="LBJ RX"                   # <-- the only per-app line
-APP_VER="0.2"
+APP_VER="0.3"
 APP_API_MIN=2
 APP_VMA=${APP_VMA:-0x20000280}      # pinned overlay VMA (Core/py32f071xb.ld)
 OUT="${APP_NAME// /}"               # blob basename ("LBJ RX" -> LBJRX)
@@ -71,3 +71,8 @@ if [ "$BYTES" -gt 4096 ]; then
 fi
 printf '\r  ✅ %-13s %4d B  (%d%% of 4 KiB)  ->  %s.app   \n' \
        "$APP_NAME" "$BYTES" "$(( BYTES * 100 / 4096 ))" "$OUT"
+# Report the exact size as an annotation. The job log needs admin rights to be
+# read, but a check-run's annotations are public, so every flavour's size (and
+# free room) can be seen from the API - which is how the README's "room left"
+# figures are kept true instead of guessed.
+echo "::notice title=${APP_NAME} overlay size::${BYTES} B used, $(( 4096 - BYTES )) B free of 4096"
