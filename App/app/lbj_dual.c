@@ -159,6 +159,7 @@ typedef struct {
     int16_t  dbm;                 /* signal strength at receive time         */
     int16_t  dst;                 /* distance to the receiver, tenths of km   */
     uint8_t  err, cor;            /* BCH verdict of the page that last filled it */
+    uint8_t  sh;                  /* a short block has been seen for this entry */
     char     trn[7];              /* train digits   (short block), "" if unknown */
     char     loc[9];              /* 8-digit registration (detail), "" if unknown */
     char     rt[5];               /* route name initials, e.g. "JGX"         */
@@ -748,7 +749,7 @@ static void format(uint32_t addr, uint8_t func, const char *b, uint16_t len){
 /* ---- decoder callbacks (main-loop context, from lbj_process; the ISR only
  * queues raw words) ---------------------------------------------------------- */
 static void sanitize(char *s);
-static void history_merge(uint32_t addr, uint16_t len, uint8_t err, uint8_t cor);
+static void history_merge(uint32_t addr, uint8_t func, uint16_t len, uint8_t err, uint8_t cor);
 
 /* Commit the held page to the history: the merge window closed. */
 static void page_commit(void)
@@ -784,7 +785,7 @@ static void page_commit(void)
         return;
 #endif
 
-    history_merge(g.pgAddr, g.pgLen, g.pgErr, g.pgCor);
+    history_merge(g.pgAddr, g.pgFunc, g.pgLen, g.pgErr, g.pgCor);
     if (!g.dismissed){
         g.popup = true;
         g.dirty = true;
@@ -872,7 +873,7 @@ static bool key_eq(const char *a, const char *b){
  * the distance and the registration key, so an update only takes over the rows
  * its own half supplies - a detail never overwrites the speed of the entry it
  * completes with the last short block heard from somebody else. */
-static void history_merge(uint32_t addr, uint16_t len, uint8_t err, uint8_t cor){
+static void history_merge(uint32_t addr, uint8_t func, uint16_t len, uint8_t err, uint8_t cor){
     const bool merged   = (len >= 65u);
     const bool own_sh   = merged || (addr < 1234001u && len >= 15u);
     const bool det_at   = merged || (addr >= 1234001u && len >= 30u);
@@ -890,10 +891,13 @@ static void history_merge(uint32_t addr, uint16_t len, uint8_t err, uint8_t cor)
         /* the first detail of a train: the two blocks share no field, so this
          * detail cannot be matched by anything it carries - take the newest
          * entry that is still waiting for its detail and arrived right before
-         * it, which is the order the two are transmitted in. A merged page
-         * carries its own short block, so it never borrows. */
+         * it, which is the order the two are transmitted in. Waiting means a
+         * short block was seen for it and no detail yet, not that the block
+         * decoded: the train number is often lost and the pairing must not
+         * depend on it. A merged page carries its own short block, so it never
+         * borrows. */
         for (uint8_t k = 0; k < g.count; k++)
-            if (g.rec[k].trn[0] && !g.rec[k].loc[0] &&
+            if (g.rec[k].sh && !g.rec[k].loc[0] &&
                 (int16_t)(g.sec - g.rec[k].sec) <= (int16_t)LBJ_MERGE_SECS){ hit = k; break; }
     }
 
@@ -905,6 +909,17 @@ static void history_merge(uint32_t addr, uint16_t len, uint8_t err, uint8_t cor)
         g.rec[0].trn[0] = g.rec[0].loc[0] = g.rec[0].rt[0] = '\0';
         g.rec[0].l0[0]  = g.rec[0].l1[0]  = g.rec[0].l2[0]  = g.rec[0].l3[0] = '\0';
         g.rec[0].dst    = LBJ_DST_NODET;
+        g.rec[0].sh     = 0u;
+        if (!own_sh && det_at){
+            /* a detail that found no short block to complete: the train number,
+             * speed and km post are simply not known, so say so instead of
+             * leaving the three rows blank */
+            char *o = g.rec[0].l0;
+            o = puttrain(o, g.sess, func, false);
+            *o = '\0';
+            copyline(g.rec[0].l1, (uint8_t)sizeof g.rec[0].l1, "SPD - km/h");
+            copyline(g.rec[0].l2, (uint8_t)sizeof g.rec[0].l2, "KM -");
+        }
     } else if (hit != 0u){
         /* the refreshed entry goes back on top, so the list stays newest first */
         const lbj_rec_t t = g.rec[hit];
@@ -919,6 +934,7 @@ static void history_merge(uint32_t addr, uint16_t len, uint8_t err, uint8_t cor)
     g.rec[0].err  = err;
     g.rec[0].cor  = cor;
     if (own_sh){                     /* the short half, only when it is this report's */
+        g.rec[0].sh = 1u;
         copyline(g.rec[0].trn, (uint8_t)sizeof g.rec[0].trn, g.trn);
         copyline(g.rec[0].l0, (uint8_t)sizeof g.rec[0].l0, g.l0);
         copyline(g.rec[0].l1, (uint8_t)sizeof g.rec[0].l1, g.l1);

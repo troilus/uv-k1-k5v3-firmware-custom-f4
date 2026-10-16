@@ -8,7 +8,7 @@ Reference: [Sdr-Is-Fun/RTL_SDR_LBJ_RECEIVER](https://github.com/Sdr-Is-Fun/RTL_S
 (the Python chain this app is modelled on) and the APRS RX app of this firmware
 (PA4 sampling, DPLL, overlay-app conventions).
 
-Status: **v0.7, decoding confirmed on-air.** The demodulator and the
+Status: **v0.8, decoding confirmed on-air.** The demodulator and the
 POCSAG/LBJ decoder are validated in `test/model_rx.py` against synthetic frames
 (clean / noise / ±1 % clock / AC-coupled / high-passed); see the tables below.
 
@@ -100,6 +100,39 @@ decoder is untouched, so it changes no decode rate):
   not repair) and an all-blank field still show a dash, so this can never
   invent a value: the "never a fake 0" rule is kept.
 
+v0.7 keeps **one history entry per train** in the resident popup instead of one
+per report (resident-only again; the overlay app and its 4 KiB budget are
+untouched):
+
+- **The short block and the detail block both refresh the entry they belong to.**
+  A train sends its train number/speed/km post (1233999/1234000) and its
+  model+number/route/fix (1234001/1234002) as separate pages; the popup now
+  shows one row per train, updated by whichever page arrived last, and the list
+  stays newest first. Nothing has to be deleted - the detail completes the entry
+  the short block opened.
+- **How a page finds its entry**: by registration (the detail block's 8-digit
+  model+number) first, then by train number (the short block's 6 digits), and -
+  for the first detail of a train, which carries no field the other block has -
+  by taking the newest entry that saw a short block, still has no detail, and
+  arrived within 5 s, which is the order the two are transmitted in. Every later
+  report of that train matches on a key, so the pairing is a guess only once.
+- **Each half owns its rows**: a detail never overwrites the speed of the entry
+  it completes with the last short block heard from somebody else, and the BCH
+  verdict on row 0 is the one of the page that filled the entry last.
+- The two blocks share no field, so two trains heard back to back can still be
+  cross-paired on their first detail; every report after that is matched on the
+  registration or the train number.
+
+v0.8 fixes that pairing rule (resident-only). v0.7 waited for an entry whose
+**train number had decoded**, but the train number is often the very field that
+is lost, so a detail right behind such a short block started a second entry
+instead of completing the first - the new one's train/speed/km rows were blank
+and only the BCH verdict showed. An entry now records that a short block was
+seen at all, and a detail pairs with that, decoded train number or not. A detail
+that still finds nothing to complete (no short block within 5 s, or a train that
+only ever sends details) fills those three rows with the placeholders used
+elsewhere (`--`, `SPD - km/h`, `KM -`) rather than leaving them blank.
+
 ## 中文说明
 
 **v0.4**:解码改进落到了**常驻固件的 LBJ 双守模式**上（`App/app/lbj_dec.c`、
@@ -147,9 +180,15 @@ BCH、软擦除 `?`、同步 ≤2、去积分 DPLL），并实现 overlay 放不
   命中键，所以"猜"只发生一次。
 - **两半各管各的行**：详情页不会用"别人最近一次的短报文"去覆盖它补全的那条记录的速度；
   行 0 的 BCH 标记取**最后填充该记录的页**。配不上（5 秒内没收到短报文）的详情会自建一条，
-  车次行留空，而不是借用别的车的车次/速度。
+  车次行留空（**v0.8 起改为占位行**），而不是借用别的车的车次/速度。
 - 两个块没有共同字段，所以**两台车背靠背发短报文时，第一对仍可能配错**；之后每条都按
   车号/车次命中，不会再错。
+
+**v0.8** 修上面那条配对规则（仅常驻固件）：v0.7 要求"那条还在等详情的记录**已经解出车次号**"，
+可车次号恰恰是最容易丢的字段——于是紧跟在"车次没解出来"的短报文后面的详情会**另起一条**，
+新那条的前三行是空的、只剩 BCH 标记。现在记录改记"**收到过短报文**"这个事实，详情按它对号
+入座，车次解没解出来都一样。仍然配不上的详情（5 秒内没有短报文，或该车只发详情）不再留空行，
+而是填上和别处一致的占位：`--` / `SPD - km/h` / `KM -`。
 
 ### 使用步骤
 
