@@ -14,6 +14,12 @@
  * touches the audio path, so the channel can still be monitored by ear (MONI).
  * Decoded reports pop up a small window that stays until EXIT or PTT.
  *
+ * Row0, at the right, also shows how far the train is from the receiver: the
+ * train's own GPS fix comes from the detail block, the receiver's position from
+ * the APRS TX profile that the APRS Edit overlay app maintains (see the block
+ * above format()). Only a report with a detail block has a fix, so only those
+ * pages show a distance.
+ *
  * The popup's row0 prefixes the train number with the 2 ASCII train-class chars
  * (K/T/D/C...) decoded from the detail block's [0:4] - each packed as 2 BCD
  * nibbles like a GB2312 route char. They are sticky in g.pref (as
@@ -34,11 +40,16 @@
 #include "lbj_dec.h"
 #include "lbj_dual.h"
 
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
+#include "apps/app_overlay.h"
+#include "apps/aprs_profile.h"
+#endif
 #include "audio.h"
 #include "driver/backlight.h"
 #include "driver/bk4819.h"
 #include "driver/gpio.h"
 #include "driver/keyboard.h"
+#include "driver/py25q16.h"
 #include "driver/st7565.h"
 #include "functions.h"
 #include "helper/battery.h"
@@ -142,9 +153,15 @@ typedef struct {
     uint32_t addr;                /* decoded address code (1233999..1234002) */
     uint16_t sec;                 /* receive time, seconds (age base)        */
     int16_t  dbm;                 /* signal strength at receive time         */
+    int16_t  dst;                 /* distance to the receiver, tenths of km   */
     char     rt[5];               /* route name initials, e.g. "JGX"         */
     char     l0[14], l1[18], l2[14], l3[20];
 } lbj_rec_t;
+
+/* g.dst / lbj_rec_t.dst values that are not a distance */
+#define LBJ_DST_NODET  (-1)       /* report has no detail block: draw nothing */
+#define LBJ_DST_UNK    (-2)       /* detail block, but no usable fix: "--km"  */
+#define LBJ_DST_MAX  9999         /* 999.9 km; anything further reads ">999km" */
 
 static struct {
     lbj_rx_t rx[LBJ_SLICERS];     /* one decoder per hysteresis slicer (#12)   */
@@ -155,6 +172,7 @@ static struct {
     bool     dismissed;           /* popup dismissed until the carrier drops  */
     char     pref[3];             /* sticky 2-char train prefix from the last detail */
     char     rt[5];               /* route initials of the report being formatted */
+    int16_t  dst;                 /* distance of the report being formatted   */
     char     l0[14], l1[18], l2[14], l3[20];
 
     lbj_rec_t rec[LBJ_HISTORY];   /* history, newest first                    */
@@ -437,6 +455,171 @@ static char *putage(char *o, uint16_t sec){
     return o;
 }
 
+/* ---- the receiver's own position -------------------------------------------
+ *
+ * The popup shows how far the decoded train is, which needs to know where the
+ * receiver is. That position is not entered here: it is the beacon position the
+ * APRS TX overlay app carries (apps/aprs_profile.h), which the standalone APRS
+ * Edit app writes through the configuration proxy (app_config_proxy.h). One copy
+ * means the readout always agrees with what is being transmitted, and neither a
+ * menu nor a private flash block is needed. The price is that APRS TX has to be
+ * installed with a valid position; without it a detail page shows "--km".
+ *
+ * The profile sits in the asset area of whichever slot APRS TX was installed
+ * into (APP_SLOT_BASE(s)), so the slot is looked up once and then re-validated:
+ * a reinstall into another slot is found again by itself (the Apps code bumps
+ * APP_SlotRevision()), and the position bytes are re-read every time, so an edit
+ * made in APRS Edit shows up without a relaunch. */
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
+
+static uint8_t pos_slot = 0xFFu;   /* slot holding the APRS TX profile, 0xFF = none */
+static uint8_t pos_rev  = 0xFFu;   /* APP_SlotRevision() when the miss was recorded */
+
+/* Read the profile's hemisphere byte and 13 position digits out of one slot.
+ * False when that slot does not hold the APRS TX profile. */
+static bool pos_slot_read(uint8_t slot, uint8_t *dig, uint8_t *hemi){
+    app_header_t h;
+    uint32_t     magic;
+
+    if (APP_ValidateSlot(slot, &h) != APP_OK)
+        return false;
+    if (h.asset_size < (uint16_t)(APRS_PROFILE_POS + APRS_POS_DIGITS))
+        return false;
+
+    const uint32_t base = APP_SLOT_BASE(slot) + APP_ASSET_OFFSET;
+    PY25Q16_ReadBuffer(base, &magic, sizeof magic);
+    if (magic != APRS_PROFILE_MAGIC)
+        return false;
+    PY25Q16_ReadBuffer(base + APRS_PROFILE_HEMI, hemi, 1u);
+    PY25Q16_ReadBuffer(base + APRS_PROFILE_POS, dig, APRS_POS_DIGITS);
+    return true;
+}
+
+/* The receiver's position in 1e-4 degree units, or false when there is none.
+ * North/east only: the profile carries a hemisphere and this readout is for the
+ * mainland railway, so a southern or western station is simply out of range. */
+static bool pos_get(uint32_t *plat, uint32_t *plon){
+    uint8_t dig[APRS_POS_DIGITS], hemi;
+
+    if (pos_slot >= APP_SLOT_COUNT){
+        /* Nothing found yet: one sweep over the slots, and none again until an
+         * app is installed or erased (its revision changes). */
+        const uint8_t rev = APP_SlotRevision();
+        if (pos_rev == rev)
+            return false;
+        pos_rev = rev;
+        for (uint8_t s = 0; s < APP_SLOT_COUNT; s++){
+            if (pos_slot_read(s, dig, &hemi)){
+                pos_slot = s;
+                break;
+            }
+        }
+        if (pos_slot >= APP_SLOT_COUNT)
+            return false;
+    } else if (!pos_slot_read(pos_slot, dig, &hemi)){
+        pos_slot = 0xFFu;              /* erased or replaced: look again next time */
+        return false;
+    }
+
+    if (hemi & 3u)                     /* not north/east */
+        return false;
+    for (uint8_t i = 0; i < APRS_POS_DIGITS; i++)
+        if (dig[i] > 9u)               /* the field was never filled in */
+            return false;
+
+    /* DD MM.hh over DDD MM.hh: degrees, minutes and hundredths of a minute of
+     * decimal digits. 1e-4 degrees = degrees * 10000 + (MMhh * 10000) / 6000. */
+    const uint32_t lat = (uint32_t)(dig[0] * 10u + dig[1]) * 10000u +
+                         ((uint32_t)((dig[2] * 10u + dig[3]) * 100u + dig[4] * 10u + dig[5])
+                          * 10000u) / 6000u;
+    const uint32_t lon = (uint32_t)(dig[6] * 100u + dig[7] * 10u + dig[8]) * 10000u +
+                         ((uint32_t)((dig[9] * 10u + dig[10]) * 100u + dig[11] * 10u + dig[12])
+                          * 10000u) / 6000u;
+    if (lat > 900000u || lon > 1800000u)
+        return false;
+
+    *plat = lat;
+    *plon = lon;
+    return true;
+}
+
+/* The reporting station's own fix, out of the detail block: [30:39) is the
+ * longitude as DDD MM MMMM and [39:47) the latitude as DD MM MMMM, plain
+ * decimal digits - the same two fields the overlay's LBJ_COORDS reads (the
+ * decimals here are minutes, not degrees). Returns 1e-4 degree units. */
+static bool lbj_fix(const char *d, uint8_t dlen, uint32_t *plat, uint32_t *plon){
+    if (dlen < 47u)
+        return false;
+    for (uint8_t i = 0; i < 17u; i++)
+        if (d[i + 30u] < '0' || d[i + 30u] > '9')
+            return false;
+    if (d[30u] > '1' || d[33u] > '5' || d[41u] > '5')
+        return false;                            /* < 200 deg, minutes < 60 */
+
+    const uint32_t lon = (uint32_t)digv(d + 30u, 3u) * 10000u +
+                         ((uint32_t)digv(d + 33u, 2u) * 10000u +
+                          (uint32_t)digv(d + 35u, 4u)) / 60u;
+    const uint32_t lat = (uint32_t)digv(d + 39u, 2u) * 10000u +
+                         ((uint32_t)digv(d + 41u, 2u) * 10000u +
+                          (uint32_t)digv(d + 43u, 4u)) / 60u;
+    if (lat > 900000u || lon > 1800000u)
+        return false;
+
+    *plat = lat;
+    *plon = lon;
+    return true;
+}
+
+/* cos(latitude) * 32768 for 0..90 degrees in 5 degree steps (linear between). */
+static const uint16_t COS5[19] = {
+    32767u, 32642u, 32269u, 31650u, 30791u, 29697u, 28377u, 26841u, 25101u,
+    23170u, 21062u, 18794u, 16384u, 13848u, 11207u,  8481u,  5690u,  2856u, 0u
+};
+
+/* Distance between two 1e-4 degree positions in tenths of a kilometre, or
+ * LBJ_DST_UNK when they are too far apart to matter. Equirectangular: a 1e-4
+ * degree of latitude is 0.011132 km everywhere, and a degree of longitude
+ * shrinks with the cosine of the latitude. Both axes are rejected beyond 20
+ * degrees, which keeps every product inside 32 bits - no 64-bit or floating
+ * point maths, and so none of libgcc. */
+static int16_t lbj_dist(uint32_t lat, uint32_t lon, uint32_t rlat, uint32_t rlon){
+    const uint32_t dy = (lat > rlat) ? (lat - rlat) : (rlat - lat);
+    const uint32_t dx = (lon > rlon) ? (lon - rlon) : (rlon - lon);
+    if (dy > 200000u || dx > 200000u)
+        return LBJ_DST_UNK;
+
+    /* cosine of the mean latitude, interpolated on the 5 degree grid */
+    const uint32_t mean = (lat + rlat) >> 1;         /* <= 900000: 90.0000 deg */
+    const uint32_t dq   = (mean + 5000u) / 10000u;   /* whole degree, rounded  */
+    const uint32_t k    = dq / 5u;
+    const uint32_t f    = dq % 5u;
+    uint32_t       c    = COS5[k];
+    if (f)
+        c = (uint32_t)((int32_t)c +
+                       ((int32_t)COS5[k + 1u] - (int32_t)c) * (int32_t)f / 5);
+
+    /* tenths of a kilometre: 1e-4 degree = 1.1132 tenths, so (v * 114) >> 10.
+     * The cosine takes off 15 bits; (dx >> 2) first keeps the product inside
+     * 32 bits and costs at most 3e-4 degree of longitude precision. */
+    const uint32_t kx = ((((dx >> 2) * c) >> 13) * 114u) >> 10;
+    const uint32_t ky = ((dy * 114u) >> 10);
+
+    /* integer square root, bit by bit (the squares above stay below 2^31) */
+    uint32_t v = kx * kx + ky * ky;
+    uint32_t r = 0;
+    uint32_t b = 1u << 30;
+    while (b > v)
+        b >>= 2;
+    while (b){
+        if (v >= r + b){ v -= r + b; r = (r >> 1) + b; }
+        else            r >>= 1;
+        b >>= 2;
+    }
+    return (int16_t)r;
+}
+
+#endif /* ENABLE_FEAT_F4HWN_OVERLAY_APPS */
+
 /* One unified layout for every LBJ address; missing fields are dashes. The
  * address code and the signal strength are added by the popup itself. */
 static void format(uint32_t addr, uint8_t func, const char *b, uint16_t len,
@@ -456,6 +639,20 @@ static void format(uint32_t addr, uint8_t func, const char *b, uint16_t len,
     const uint8_t dlen = merged ? 50u : (uint8_t)(len < 50u ? len : 50u);
 
     if (has_detail) decode_pref(d);   /* sticky train prefix, [0:4] */
+
+    /* distance to the receiver position: only a report carrying the detail
+     * block says where the train itself is */
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
+    g.dst = LBJ_DST_NODET;
+    if (has_detail){
+        uint32_t flat, flon, rlat, rlon;
+        g.dst = LBJ_DST_UNK;
+        if (lbj_fix(d, dlen, &flat, &flon) && pos_get(&rlat, &rlon))
+            g.dst = lbj_dist(flat, flon, rlat, rlon);
+    }
+#else
+    g.dst = LBJ_DST_NODET;            /* no overlay app: nothing holds a position */
+#endif
 
     /* row0: train + direction, then the BCH verdict: nothing when the report
      * arrived clean, '*' when a codeword was repaired, '!' when it could not be
@@ -614,6 +811,7 @@ static void history_push(uint32_t addr){
     g.rec[0].addr = addr;
     g.rec[0].sec  = g.sec;
     g.rec[0].dbm  = lbj_dbm();
+    g.rec[0].dst  = g.dst;
     copyline(g.rec[0].rt, (uint8_t)sizeof g.rec[0].rt, g.rt);
     copyline(g.rec[0].l0, (uint8_t)sizeof g.rec[0].l0, g.l0);
     copyline(g.rec[0].l1, (uint8_t)sizeof g.rec[0].l1, g.l1);
@@ -690,7 +888,28 @@ void LBJ_DrawPopup(void){
 
     UI_DisplayClear();
 
-    UI_PrintStringSmallBold(r->l0, 0, 0, 0);
+    /* row0: the train number, and at the right the distance from the receiver
+     * position set in APRS Edit. The train number is cut to 11 characters
+     * (77 px) so that the readout - up to 7 - always fits on the 128 px row.
+     * A report without the detail block has no fix and shows nothing. */
+    {
+        char l0[12];
+        copyline(l0, (uint8_t)sizeof l0, r->l0);
+        UI_PrintStringSmallBold(l0, 0, 0, 0);
+    }
+    if (r->dst != LBJ_DST_NODET){
+        char *o = s;
+        if (r->dst == LBJ_DST_UNK)          o = put(o, "--km");
+        else if (r->dst > LBJ_DST_MAX)      o = put(o, ">999km");
+        else {
+            o = putu(o, (uint32_t)r->dst / 10u);
+            *o++ = '.';
+            *o++ = (char)('0' + (unsigned)(r->dst % 10));
+            o = put(o, "km");
+        }
+        *o = '\0';
+        UI_PrintStringSmallBold(s, (uint8_t)(128u - (uint8_t)(o - s) * 7u), 0, 0);
+    }
     UI_PrintStringSmallBold(r->l1, 0, 0, 1);
     UI_PrintStringSmallBold(r->l2, 0, 0, 2);
     UI_PrintStringSmallBold(r->l3, 0, 0, 3);

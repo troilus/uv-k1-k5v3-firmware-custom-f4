@@ -7,6 +7,11 @@
  * 19.2 kHz timer interrupt, so the main loop never blocks: idle dual-watch and
  * the whole UI stay smooth. When the squelch closes the sampler stops.
  *
+ * The popup's row 0 shows the distance from the receiver to the decoded train
+ * at the right. The train's fix comes from the report's detail block; the
+ * receiver's position is the beacon position of the APRS TX overlay app, edited
+ * with APRS Edit - so that app must be installed for a distance to appear.
+ *
  * Guarded by ENABLE_FEAT_F4HWN_LBJ so the stock firmwares are unaffected.
  */
 #ifndef APP_LBJ_DUAL_H
