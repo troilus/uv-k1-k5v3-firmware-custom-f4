@@ -12,7 +12,11 @@
  * only while the selected RX VFO is in LBJ mode and its squelch is open (a
  * report is on air); when the squelch closes it stops. The sampler never
  * touches the audio path, so the channel can still be monitored by ear (MONI).
- * Decoded reports pop up a small window that stays until EXIT or PTT.
+ * Decoded reports pop up a small window that stays until EXIT or PTT. The
+ * history it pages through holds one entry per train, not one per report: a
+ * train's short block and its detail block arrive as separate pages and each
+ * refreshes the entry the other opened, so a later report of the same train
+ * updates the row instead of filing a second one (see history_merge()).
  *
  * Row0, at the right, also shows how far the train is from the receiver: the
  * train's own GPS fix comes from the detail block, the receiver's position from
@@ -154,6 +158,9 @@ typedef struct {
     uint16_t sec;                 /* receive time, seconds (age base)        */
     int16_t  dbm;                 /* signal strength at receive time         */
     int16_t  dst;                 /* distance to the receiver, tenths of km   */
+    uint8_t  err, cor;            /* BCH verdict of the page that last filled it */
+    char     trn[7];              /* train digits   (short block), "" if unknown */
+    char     loc[9];              /* 8-digit registration (detail), "" if unknown */
     char     rt[5];               /* route name initials, e.g. "JGX"         */
     char     l0[14], l1[18], l2[14], l3[20];
 } lbj_rec_t;
@@ -173,6 +180,8 @@ static struct {
     char     pref[3];             /* sticky 2-char train prefix from the last detail */
     char     rt[5];               /* route initials of the report being formatted */
     int16_t  dst;                 /* distance of the report being formatted   */
+    char     trn[7];              /* train digits of the report being formatted */
+    char     loc[9];              /* registration of the report being formatted */
     char     l0[14], l1[18], l2[14], l3[20];
 
     lbj_rec_t rec[LBJ_HISTORY];   /* history, newest first                    */
@@ -631,18 +640,17 @@ static int16_t lbj_dist(uint32_t lat, uint32_t lon, uint32_t rlat, uint32_t rlon
 
 /* One unified layout for every LBJ address; missing fields are dashes. The
  * address code and the signal strength are added by the popup itself. */
-static void format(uint32_t addr, uint8_t func, const char *b, uint16_t len,
-                   uint8_t err, uint8_t cor){
+static void format(uint32_t addr, uint8_t func, const char *b, uint16_t len){
     char *o;
     const bool merged     = (len >= 65u);
     const bool det_addr   = (addr >= 1234001u);
     const bool has_detail = merged || (det_addr && len >= 30u);
 
     const char *sb;
-    bool have_short;
-    if (merged)                       { sb = b;      have_short = true; }
-    else if (!det_addr && len >= 15u) { sb = b;      have_short = true; }
-    else                              { sb = g.sess; have_short = g.sessValid; }
+    bool have_short, own_short;
+    if (merged)                       { sb = b;      have_short = own_short = true;  }
+    else if (!det_addr && len >= 15u) { sb = b;      have_short = own_short = true;  }
+    else                              { sb = g.sess; have_short = g.sessValid; own_short = false; }
 
     const char *d = merged ? (b + (uint16_t)(len - 50u)) : b;
     const uint8_t dlen = merged ? 50u : (uint8_t)(len < 50u ? len : 50u);
@@ -663,12 +671,37 @@ static void format(uint32_t addr, uint8_t func, const char *b, uint16_t len,
     g.dst = LBJ_DST_NODET;            /* no overlay app: nothing holds a position */
 #endif
 
-    /* row0: train + direction, then the BCH verdict: nothing when the report
-     * arrived clean, '*' when a codeword was repaired, '!' when it could not be
-     * repaired at all. */
+    /* the history merge keys: the 6 train digits the short block carries, and
+     * the detail block's 8-digit model+number. Each stays empty (and so matches
+     * no entry) when that field did not decode cleanly, and the train digits
+     * are only this report's when it owns the short block, not when they were
+     * borrowed from the last one heard. */
+    g.trn[0] = '\0';
+    if (own_short){
+        uint8_t k = 0;
+        for (uint8_t i = 0; i < 6u; i++){
+            const char c = sb[i];
+            if (c == ' ') continue;
+            if (c < '0' || c > '9' || k >= 6u){ k = 0; break; }
+            g.trn[k++] = c;
+        }
+        g.trn[k] = '\0';
+    }
+    g.loc[0] = '\0';
+    if (has_detail && dlen >= 12u){
+        uint8_t i = 0;
+        for (; i < 8u; i++)
+            if (d[4u + i] < '0' || d[4u + i] > '9') break;
+        if (i == 8u){
+            for (i = 0; i < 8u; i++) g.loc[i] = d[4u + i];
+            g.loc[8] = '\0';
+        }
+    }
+
+    /* row0: train + direction. The BCH verdict of the page is not part of the
+     * line: a later page refreshes this entry, so the popup adds the verdict of
+     * whichever page filled it last when it draws the row. */
     o = g.l0; o = puttrain(o, sb, func, have_short);
-    if (err)      *o++ = '!';
-    else if (cor) *o++ = '*';
     *o = '\0';
 
     /* route name initials (the popup draws them as "LINE xxx") */
@@ -715,7 +748,7 @@ static void format(uint32_t addr, uint8_t func, const char *b, uint16_t len,
 /* ---- decoder callbacks (main-loop context, from lbj_process; the ISR only
  * queues raw words) ---------------------------------------------------------- */
 static void sanitize(char *s);
-static void history_push(uint32_t addr);
+static void history_merge(uint32_t addr, uint16_t len, uint8_t err, uint8_t cor);
 
 /* Commit the held page to the history: the merge window closed. */
 static void page_commit(void)
@@ -738,7 +771,7 @@ static void page_commit(void)
         for (uint8_t i = 0; i < 15u; i++) g.sess[i] = g.pgBcd[i];
         g.sessValid = true;
     }
-    format(g.pgAddr, g.pgFunc, g.pgBcd, g.pgLen, g.pgErr, g.pgCor);
+    format(g.pgAddr, g.pgFunc, g.pgBcd, g.pgLen);
     sanitize(g.l0); sanitize(g.l1); sanitize(g.l2); sanitize(g.l3);
 
 #ifdef ENABLE_LBJ_HIDE9
@@ -751,7 +784,7 @@ static void page_commit(void)
         return;
 #endif
 
-    history_push(g.pgAddr);
+    history_merge(g.pgAddr, g.pgLen, g.pgErr, g.pgCor);
     if (!g.dismissed){
         g.popup = true;
         g.dirty = true;
@@ -810,24 +843,94 @@ static int16_t lbj_dbm(void){
     return (int16_t)(BK4819_GetRSSI_dBm() + dBmCorrTable[gRxVfo->Band]);
 }
 
-/* Store the freshly formatted report (newest first) together with the time
- * and the signal strength it was received at, then make it the current one. */
-static void history_push(uint32_t addr){
-    if (g.count < LBJ_HISTORY)
-        g.count++;
-    for (uint8_t k = (uint8_t)(g.count - 1u); k > 0u; k--)
-        g.rec[k] = g.rec[k - 1u];
+/* ---- history -------------------------------------------------------------
+ *
+ * One entry per train, not one per report. A train sends its short block
+ * (1233999/1234000: train number, speed, km post) and its detail block
+ * (1234001/1234002: model+number, route, fix) as separate pages, so a page
+ * refreshes the entry it belongs to instead of filing a second one, and a later
+ * report of the same train carries the newer values.
+ *
+ * The two blocks do not share a field: the short one has the 6 train digits but
+ * no registration, the detail one the 8-digit registration but only a
+ * 2-character train prefix. So the entry is found by registration when the page
+ * carries one, by train number when it does, and - for the first detail of a
+ * train, which finds nothing to match - by taking the newest entry that is
+ * still waiting for its detail and arrived right before it, which is the order
+ * the two are transmitted in. */
+#define LBJ_MERGE_SECS 5u         /* short block -> detail block arrival gap   */
+
+static bool key_eq(const char *a, const char *b){
+    if (!a[0] || !b[0])
+        return false;             /* an unknown key matches nothing */
+    while (*a && *a == *b){ a++; b++; }
+    return *a == *b;
+}
+
+/* Refresh the entry this page belongs to, or start a new one. The short block
+ * owns row0/row1/row2 and the train key, the detail block owns row3, the route,
+ * the distance and the registration key, so an update only takes over the rows
+ * its own half supplies - a detail never overwrites the speed of the entry it
+ * completes with the last short block heard from somebody else. */
+static void history_merge(uint32_t addr, uint16_t len, uint8_t err, uint8_t cor){
+    const bool merged   = (len >= 65u);
+    const bool own_sh   = merged || (addr < 1234001u && len >= 15u);
+    const bool det_at   = merged || (addr >= 1234001u && len >= 30u);
+
+    uint8_t hit = LBJ_HISTORY;             /* no entry yet */
+    if (det_at && g.loc[0]){
+        for (uint8_t k = 0; k < g.count; k++)
+            if (key_eq(g.rec[k].loc, g.loc)){ hit = k; break; }
+    }
+    if (hit == LBJ_HISTORY && own_sh && g.trn[0]){
+        for (uint8_t k = 0; k < g.count; k++)
+            if (key_eq(g.rec[k].trn, g.trn)){ hit = k; break; }
+    }
+    if (hit == LBJ_HISTORY && det_at && !merged){
+        /* the first detail of a train: the two blocks share no field, so this
+         * detail cannot be matched by anything it carries - take the newest
+         * entry that is still waiting for its detail and arrived right before
+         * it, which is the order the two are transmitted in. A merged page
+         * carries its own short block, so it never borrows. */
+        for (uint8_t k = 0; k < g.count; k++)
+            if (g.rec[k].trn[0] && !g.rec[k].loc[0] &&
+                (int16_t)(g.sec - g.rec[k].sec) <= (int16_t)LBJ_MERGE_SECS){ hit = k; break; }
+    }
+
+    if (hit == LBJ_HISTORY){               /* a train not seen yet */
+        if (g.count < LBJ_HISTORY)
+            g.count++;
+        for (uint8_t k = (uint8_t)(g.count - 1u); k > 0u; k--)
+            g.rec[k] = g.rec[k - 1u];
+        g.rec[0].trn[0] = g.rec[0].loc[0] = g.rec[0].rt[0] = '\0';
+        g.rec[0].l0[0]  = g.rec[0].l1[0]  = g.rec[0].l2[0]  = g.rec[0].l3[0] = '\0';
+        g.rec[0].dst    = LBJ_DST_NODET;
+    } else if (hit != 0u){
+        /* the refreshed entry goes back on top, so the list stays newest first */
+        const lbj_rec_t t = g.rec[hit];
+        for (uint8_t k = hit; k > 0u; k--)
+            g.rec[k] = g.rec[k - 1u];
+        g.rec[0] = t;
+    }
 
     g.rec[0].addr = addr;
     g.rec[0].sec  = g.sec;
     g.rec[0].dbm  = lbj_dbm();
-    g.rec[0].dst  = g.dst;
-    copyline(g.rec[0].rt, (uint8_t)sizeof g.rec[0].rt, g.rt);
-    copyline(g.rec[0].l0, (uint8_t)sizeof g.rec[0].l0, g.l0);
-    copyline(g.rec[0].l1, (uint8_t)sizeof g.rec[0].l1, g.l1);
-    copyline(g.rec[0].l2, (uint8_t)sizeof g.rec[0].l2, g.l2);
-    copyline(g.rec[0].l3, (uint8_t)sizeof g.rec[0].l3, g.l3);
-    g.cur = 0;                       /* a new report always shows the newest */
+    g.rec[0].err  = err;
+    g.rec[0].cor  = cor;
+    if (own_sh){                     /* the short half, only when it is this report's */
+        copyline(g.rec[0].trn, (uint8_t)sizeof g.rec[0].trn, g.trn);
+        copyline(g.rec[0].l0, (uint8_t)sizeof g.rec[0].l0, g.l0);
+        copyline(g.rec[0].l1, (uint8_t)sizeof g.rec[0].l1, g.l1);
+        copyline(g.rec[0].l2, (uint8_t)sizeof g.rec[0].l2, g.l2);
+    }
+    if (det_at){
+        copyline(g.rec[0].loc, (uint8_t)sizeof g.rec[0].loc, g.loc);
+        copyline(g.rec[0].l3, (uint8_t)sizeof g.rec[0].l3, g.l3);
+        copyline(g.rec[0].rt, (uint8_t)sizeof g.rec[0].rt, g.rt);
+        g.rec[0].dst = g.dst;
+    }
+    g.cur = 0;                       /* a fresh report always shows the newest */
 }
 
 /* ---- popup ---- */
@@ -898,13 +1001,20 @@ void LBJ_DrawPopup(void){
 
     UI_DisplayClear();
 
-    /* row0: the train number, and at the right the distance from the receiver
-     * position set in APRS Edit. The train number is cut to 11 characters
-     * (77 px) so that the readout - up to 7 - always fits on the 128 px row.
-     * A report without the detail block has no fix and shows nothing. */
+    /* row0: the train number, the BCH verdict of whichever page filled this
+     * entry last (nothing when it arrived clean, '*' when a codeword was
+     * repaired, '!' when it could not be repaired at all), and at the right the
+     * distance from the receiver position set in APRS Edit. The number is cut
+     * to 10 characters when a verdict follows - 11 otherwise - so the verdict
+     * and the readout (up to 7) always fit the 128 px row. */
     {
-        char l0[12];
-        copyline(l0, (uint8_t)sizeof l0, r->l0);
+        char l0[13];
+        copyline(l0, (uint8_t)((r->err || r->cor) ? 11u : 12u), r->l0);
+        uint8_t n = 0;
+        while (l0[n]) n++;
+        if (r->err)      l0[n++] = '!';
+        else if (r->cor) l0[n++] = '*';
+        l0[n] = '\0';
         UI_PrintStringSmallBold(l0, 0, 0, 0);
     }
     if (r->dst != LBJ_DST_NODET){
