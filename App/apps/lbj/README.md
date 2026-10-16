@@ -8,7 +8,7 @@ Reference: [Sdr-Is-Fun/RTL_SDR_LBJ_RECEIVER](https://github.com/Sdr-Is-Fun/RTL_S
 (the Python chain this app is modelled on) and the APRS RX app of this firmware
 (PA4 sampling, DPLL, overlay-app conventions).
 
-Status: **v0.9, decoding confirmed on-air.** The demodulator and the
+Status: **v0.10, decoding confirmed on-air.** The demodulator and the
 POCSAG/LBJ decoder are validated in `test/model_rx.py` against synthetic frames
 (clean / noise / ±1 % clock / AC-coupled / high-passed); see the tables below.
 
@@ -152,6 +152,17 @@ what is not a report (resident-only):
   An unpaired detail shows the placeholders above, and a short page shows its own
   characters even when they decoded to padding codes (`U`, `*`, a blank).
 
+v0.10 makes that pairing two-way and tightens its window (resident-only). A train
+sends its short block and its detail block almost together, and which one the
+radio decodes first is up to the signal, so neither order may be privileged: a
+detail completes the entry a short block opened, and a short block now completes
+the entry a detail opened (its placeholder rows are replaced by the real ones).
+The window in both directions drops from 5 s to 2 s - the two are sent back to
+back, so a loose window only widened the chance of crossing two trains that were
+heard interleaved. Without it, a detail that arrived first left its train split
+over two entries for good: the detail kept matching by registration and the short
+block by train number, so the two never met again.
+
 ## 中文说明
 
 **v0.4**:解码改进落到了**常驻固件的 LBJ 双守模式**上（`App/app/lbj_dec.c`、
@@ -220,6 +231,13 @@ BCH、软擦除 `?`、同步 ≤2、去积分 DPLL），并实现 overlay 放不
   为它留一行 `--`/`-`/`-` 占位。
 - 结果：**历史里再也不会出现整行空白的记录**。配不上的详情照旧显示占位，短页即使解出来的是
   "填充码"（`U`/`*`/空格）也显示它自己的字符。
+
+**v0.10** 把配对做成**双向**并收紧窗口（仅常驻固件）：一辆车的短报文与详情几乎同时发出，
+先解出哪一个取决于信号，所以两个方向都不能偏心 —— 详情照旧补全短报文开的记录，
+**短报文现在也会补全详情开的记录**（那几条占位行会被真实数据覆盖）；窗口同时从 5 s 收到
+**2 s**。不修的话，详情先到会让那趟车**永久裂成两条**：详情那条按车号自我刷新、短报文那条
+按车次号刷新，两者再也不会相遇。窗口放太宽则只会增加"两台车交错时配错"的机会 —— 两条本来
+就是背靠背发出来的。
 
 ### 使用步骤
 

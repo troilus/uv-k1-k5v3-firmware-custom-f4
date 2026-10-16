@@ -870,18 +870,21 @@ static int16_t lbj_dbm(void){
  *
  * One entry per train, not one per report. A train sends its short block
  * (1233999/1234000: train number, speed, km post) and its detail block
- * (1234001/1234002: model+number, route, fix) as separate pages, so a page
- * refreshes the entry it belongs to instead of filing a second one, and a later
- * report of the same train carries the newer values.
+ * (1234001/1234002: model+number, route, fix) as two pages sent almost
+ * together, so a page refreshes the entry its partner opened instead of filing
+ * a second one, and a later report of the same train carries the newer values.
  *
  * The two blocks do not share a field: the short one has the 6 train digits but
  * no registration, the detail one the 8-digit registration but only a
  * 2-character train prefix. So the entry is found by registration when the page
- * carries one, by train number when it does, and - for the first detail of a
- * train, which finds nothing to match - by taking the newest entry that is
- * still waiting for its detail and arrived right before it, which is the order
- * the two are transmitted in. */
-#define LBJ_MERGE_SECS 5u         /* short block -> detail block arrival gap   */
+ * carries one, by train number when it does, and otherwise by the entry that is
+ * waiting for this very half and arrived a moment ago - which half is decoded
+ * first is up to the radio, so neither order is privileged.
+ *
+ * That last match is a guess: with no field in common it can only rest on the
+ * two being sent back to back, so it is confined to LBJ_MERGE_SECS. Two trains
+ * heard interleaved within that window can still be crossed. */
+#define LBJ_MERGE_SECS 2u         /* the pair is sent back to back           */
 
 static bool key_eq(const char *a, const char *b){
     if (!a[0] || !b[0])
@@ -920,6 +923,16 @@ static void history_merge(uint32_t addr, uint8_t func, uint16_t len, uint8_t err
          * borrows. */
         for (uint8_t k = 0; k < g.count; k++)
             if (g.rec[k].sh && !g.rec[k].loc[0] &&
+                (int16_t)(g.sec - g.rec[k].sec) <= (int16_t)LBJ_MERGE_SECS){ hit = k; break; }
+    }
+    if (hit == LBJ_HISTORY && own_sh && !det_at){
+        /* the other order: the radio handed over a train's detail first and its
+         * short block only now. The entry waiting for a short block is the one
+         * that has a registration and never saw one, and its placeholder rows
+         * are replaced by the real ones by the update below. A merged page has
+         * both halves already, so it never adopts anything. */
+        for (uint8_t k = 0; k < g.count; k++)
+            if (g.rec[k].loc[0] && !g.rec[k].sh &&
                 (int16_t)(g.sec - g.rec[k].sec) <= (int16_t)LBJ_MERGE_SECS){ hit = k; break; }
     }
 
