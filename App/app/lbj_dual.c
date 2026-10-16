@@ -12,11 +12,13 @@
  * only while the selected RX VFO is in LBJ mode and its squelch is open (a
  * report is on air); when the squelch closes it stops. The sampler never
  * touches the audio path, so the channel can still be monitored by ear (MONI).
- * Decoded reports pop up a small window that stays until EXIT or PTT. The
- * history it pages through holds one entry per train, not one per report: a
- * train's short block and its detail block arrive as separate pages and each
- * refreshes the entry the other opened, so a later report of the same train
- * updates the row instead of filing a second one (see history_merge()).
+ * Decoded reports pop up a small window that stays until EXIT or PTT. A page
+ * that carries neither half of a report (the 5-character status page the short
+ * addresses send) is not a report at all and is dropped. The history it pages
+ * through holds one entry per train, not one per report: a train's short block
+ * and its detail block arrive as separate pages and each refreshes the entry the
+ * other opened, so a later report of the same train updates the row instead of
+ * filing a second one (see history_merge()).
  *
  * Row0, at the right, also shows how far the train is from the receiver: the
  * train's own GPS fix comes from the detail block, the receiver's position from
@@ -639,19 +641,30 @@ static int16_t lbj_dist(uint32_t lat, uint32_t lon, uint32_t rlat, uint32_t rlon
 
 #endif /* ENABLE_FEAT_F4HWN_OVERLAY_APPS */
 
+/* What a page carries. This is exactly the overlay's own hasdet(), so both
+ * versions split the same traffic the same way: a detail block needs at least
+ * 30 characters on the detail addresses (1234001/1234002) and only the 65
+ * character merged report has one on the short addresses. Anything else of at
+ * least 15 characters is a short block; below that the page is neither (the
+ * 5-character status page the short addresses send, which the upstream receiver
+ * drops as well) and is not a report at all. */
+static bool page_has_detail(uint32_t addr, uint16_t len){
+    return (addr >= 1234001u) ? (len >= 30u) : (len >= 65u);
+}
+static bool page_has_short(uint32_t addr, uint16_t len){
+    return (len >= 65u) || (!page_has_detail(addr, len) && len >= 15u);
+}
+
 /* One unified layout for every LBJ address; missing fields are dashes. The
  * address code and the signal strength are added by the popup itself. */
 static void format(uint32_t addr, uint8_t func, const char *b, uint16_t len){
     char *o;
     const bool merged     = (len >= 65u);
-    const bool det_addr   = (addr >= 1234001u);
-    const bool has_detail = merged || (det_addr && len >= 30u);
+    const bool has_detail = page_has_detail(addr, len);
+    const bool own_short  = page_has_short(addr, len);
 
-    const char *sb;
-    bool have_short, own_short;
-    if (merged)                       { sb = b;      have_short = own_short = true;  }
-    else if (!det_addr && len >= 15u) { sb = b;      have_short = own_short = true;  }
-    else                              { sb = g.sess; have_short = g.sessValid; own_short = false; }
+    const char *sb = own_short ? b : g.sess;
+    const bool have_short = own_short || g.sessValid;
 
     const char *d = merged ? (b + (uint16_t)(len - 50u)) : b;
     const uint8_t dlen = merged ? 50u : (uint8_t)(len < 50u ? len : 50u);
@@ -768,6 +781,15 @@ static void page_commit(void)
     if (2u * lost > g.pgLen)
         return;
 
+    /* A page that carries neither half is not a report: too short to be a short
+     * block and too short to be a detail block. It is the 5-character status
+     * page the short addresses send, and letting it through used to file an
+     * entry with every row empty. Nothing about it belongs in the history, and
+     * the upstream receiver drops it too (it returns on that same page, and on
+     * 1234008). */
+    if (!page_has_short(g.pgAddr, g.pgLen) && !page_has_detail(g.pgAddr, g.pgLen))
+        return;
+
     if ((g.pgAddr == 1233999u || g.pgAddr == 1234000u) && g.pgLen >= 15u){
         for (uint8_t i = 0; i < 15u; i++) g.sess[i] = g.pgBcd[i];
         g.sessValid = true;
@@ -875,8 +897,8 @@ static bool key_eq(const char *a, const char *b){
  * completes with the last short block heard from somebody else. */
 static void history_merge(uint32_t addr, uint8_t func, uint16_t len, uint8_t err, uint8_t cor){
     const bool merged   = (len >= 65u);
-    const bool own_sh   = merged || (addr < 1234001u && len >= 15u);
-    const bool det_at   = merged || (addr >= 1234001u && len >= 30u);
+    const bool own_sh   = page_has_short(addr, len);
+    const bool det_at   = page_has_detail(addr, len);
 
     uint8_t hit = LBJ_HISTORY;             /* no entry yet */
     if (det_at && g.loc[0]){
