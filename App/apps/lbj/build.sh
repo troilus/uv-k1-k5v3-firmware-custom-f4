@@ -67,7 +67,9 @@ trap - ERR
 
 BYTES=$(wc -c < "${APP}.bin")
 if [ "$BYTES" -gt 4096 ]; then
-  printf '\r  🚨 %-13s OVERFLOWS 4 KiB (%d B)     \n' "$APP_NAME" "$BYTES"; exit 1
+  printf '\r  🚨 %-13s OVERFLOWS 4 KiB (%d B)     \n' "$APP_NAME" "$BYTES"
+  echo "::error title=${APP_NAME} overflow::${BYTES} B used, $(( BYTES - 4096 )) B over 4096"
+  exit 1
 fi
 printf '\r  ✅ %-13s %4d B  (%d%% of 4 KiB)  ->  %s.app   \n' \
        "$APP_NAME" "$BYTES" "$(( BYTES * 100 / 4096 ))" "$OUT"

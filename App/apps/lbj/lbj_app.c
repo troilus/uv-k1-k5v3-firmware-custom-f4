@@ -190,19 +190,19 @@ void *memcpy(void *d, const void *s, size_t n){ uint8_t *p=d; const uint8_t *q=s
 
 /* ---- formatting (repeated subtraction: no division) ---- */
 static char *put(char *o,const char *s){ while(*s)*o++=*s++; return o; }
-/* Decimal, no leading zeros. The /10 and %10 become the compiler's constant
- * multiply, which is smaller than the 28-byte powers-of-ten table and the
- * subtractor it needed. */
+static unsigned sub(uint32_t *v,uint32_t d){ unsigned q=0; while(*v>=d){ *v-=d; q++; } return q; }
+static const uint32_t P10U[]={1000000u,100000u,10000u,1000u,100u,10u,1u};
 static char *putu(char *o,uint32_t v){
-    char t[10];
-    uint8_t n=0;
-    do { t[n++]=(char)('0'+(v%10u)); v/=10u; } while(v);
-    while(n) *o++=t[--n];
+    bool lead=false;
+    for(uint8_t i=0;i<7u;i++){
+        unsigned c=sub(&v,P10U[i]);
+        if(c||lead||i==6u){ *o++=(char)('0'+c); lead=true; }
+    }
     return o;
 }
-/* decimal value of 3 chars (non-digits ignored) */static uint32_t dig3(const char *p){
+/* decimal value of up to n chars (non-digits ignored) */static uint32_t digv(const char *p,uint8_t n){
     uint32_t v=0;
-    for(uint8_t i=0;i<3u;i++){ char c=p[i]; if(c>='0'&&c<='9') v=v*10u+(uint32_t)(c-'0'); }
+    for(uint8_t i=0;i<n;i++){ char c=p[i]; if(c>='0'&&c<='9') v=v*10u+(uint32_t)(c-'0'); }
     return v;
 }
 /* True when all n chars are real BCD digits. A field that was not decoded must
@@ -215,7 +215,7 @@ static bool bcdnum(const char *p,uint8_t n){
 /* 3 BCD chars -> decimal, or a dash when the field was not decoded at all. */
 static char *putspd(char *o,const char *p){
     if(!bcdnum(p,3u)){ *o++='-'; return o; }
-    return putu(o,dig3(p));
+    return putu(o,digv(p,3u));
 }
 /* 5 BCD chars -> DDDD.D (blank / non-digit -> 0) */
 static char *putkm(char *o,const char *p){
@@ -224,6 +224,8 @@ static char *putkm(char *o,const char *p){
     char c=p[4]; *o++=(c>='0'&&c<='9')?c:'0';
     return o;
 }
+/* n dashes: the rows a report carries no data for (the firmware's putdash) */
+static char *putdash(char *o,uint8_t n){ while(n--) *o++='-'; return o; }
 
 #ifdef LBJ_COORDS   /* [C3] coordinates: a compile option, off by default */
 /* One DMS coordinate field, read exactly as the upstream Android receiver
@@ -588,7 +590,7 @@ static void drawSummary(char *s){
     o=str;
     if(det){
         char nb[TY_EN_STRIDE];
-        int idx=type_index((uint16_t)dig3(d+4u));
+        int idx=type_index((uint16_t)digv(d+4u,3u));
         if(idx<0) o=put(o,"--");
         else {
             /* [C5] the English abbreviation only: the GB2312 name table is
@@ -598,7 +600,7 @@ static void drawSummary(char *s){
         }
         *o++=' ';
         for(uint8_t i=4u;i<12u;i++) *o++=d[i];   /* the 8-char registration */
-    } else for(uint8_t i=0;i<7u;i++) *o++='-';   /* no detail block: dashes */
+    } else o=putdash(o,7u);
     *o='\0';
     A->print_bold(str,0,0,3);
 

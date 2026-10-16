@@ -27,15 +27,12 @@ What v0.2 changed (all mirrored in `test/model_rx.py`):
 - **Absolute sample clock** (`ticks_ms * 48000 + SysTick position`) and the
   **skip compensation** over the samples the key/screen slot took.
 
-v0.3 is **size-only, no behaviour change**: the decimal formatter no longer
-carries its 28-byte powers-of-ten table and the subtractor it needed (`putu` is
-now a plain `%10` / `/10` loop, the compiler's constant multiply), and the two
-single-call helpers it shared the file with (`putdash`, the generic `digv`) are
-inlined or specialised. The model output is identical.
-
-The overlay size of every flavour is reported by the CI build as a check-run
-annotation (`::notice … N B used, M B free of 4096`), which is where the
-"room left" figures below come from.
+v0.3 adds **machine-readable size reporting**: each flavour's exact overlay
+size (used and free) is emitted as a CI check-run annotation, which is where
+the "room left" figures below come from. A formatting slimming was tried here
+too (a `%10` / `/10` `putu` instead of the powers-of-ten table) and CI measured
+it **larger** on this Cortex-M0+ `-Oz` build, so it was reverted - on this
+target the table is the smaller form, and the compiler is the arbiter.
 
 ## 中文说明
 
