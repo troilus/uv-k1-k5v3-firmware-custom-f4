@@ -43,9 +43,11 @@
  *   1  v6.0.0 baseline: every service up to and including beam_draw
  *   2  ticks_ms, rand32, asset_read (+ app_header_t asset_size / asset_crc),
  *      idivmod, uidivmod (the resident division helpers), Labs system info,
- *      current and minimum-since-boot free stack/RAM margin */
+ *      current and minimum-since-boot free stack/RAM margin
+ *   3  the app's own config area is 96 bytes, not 16 (APP_CONFIG_LOCAL_MAX);
+ *      an app keeping more than 16 bytes of its own settings needs this level */
 #define APP_ABI_MAJOR  1u
-#define APP_API_LEVEL  2u
+#define APP_API_LEVEL  3u
 
 /* Minimum API level of an app that ships read-only assets (pack_app.py). */
 #define APP_API_ASSETS 2u

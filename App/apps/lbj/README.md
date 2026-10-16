@@ -8,7 +8,7 @@ Reference: [Sdr-Is-Fun/RTL_SDR_LBJ_RECEIVER](https://github.com/Sdr-Is-Fun/RTL_S
 (the Python chain this app is modelled on) and the APRS RX app of this firmware
 (PA4 sampling, DPLL, overlay-app conventions).
 
-Status: **v0.10, decoding confirmed on-air.** The demodulator and the
+Status: **v0.11, decoding confirmed on-air.** The demodulator and the
 POCSAG/LBJ decoder are validated in `test/model_rx.py` against synthetic frames
 (clean / noise / ±1 % clock / AC-coupled / high-passed); see the tables below.
 
@@ -70,13 +70,13 @@ popup (again resident-only: the overlay app and its 4 KiB budget are untouched):
   the readout always fits the 128 px row.
 - **The receiver's position is not entered in the firmware.** It is the beacon
   position of the **APRS TX** overlay app, which the **APRS Edit** app maintains
-  through the configuration proxy. One copy means the readout always agrees with
-  what is actually being beaconed, and no menu item and no private flash block
-  were added. APRS TX must therefore be installed with a valid north/east
-  position; otherwise every detail page shows `--km`. Its slot is found by
-  itself (`APP_ValidateSlot` + the profile's `APC6` magic), cached and
-  re-validated, so an edit made in APRS Edit shows up without a relaunch and a
-  reinstall into another slot is picked up too.
+  through the configuration proxy (v0.11 adds LBJ Edit ahead of it, see below).
+  One copy means the readout always agrees with what is actually being beaconed,
+  and no menu item and no private flash block were added. APRS TX must therefore
+  be installed with a valid north/east position; otherwise every detail page
+  shows `--km`. Its slot is found by itself (`APP_ValidateSlot` + the profile's
+  `APC6` magic), cached and re-validated, so an edit made in APRS Edit shows up
+  without a relaunch and a reinstall into another slot is picked up too.
 - **The train's fix comes from the detail block** (`[30:39)` longitude,
   `[39:47)` latitude - the same two fields the overlay reads for `LBJ_COORDS`,
   except that here the trailing digits are minutes and not tenths of a minute),
@@ -163,6 +163,24 @@ heard interleaved. Without it, a detail that arrived first left its train split
 over two entries for good: the detail kept matching by registration and the short
 block by train number, so the two never met again.
 
+v0.11 gives the receiver's position a dedicated source, the new **LBJ Edit**
+overlay app (see `apps/lbjedit/`):
+
+- **Five stored positions, one marked primary.** The popup measures from the
+  primary one whenever LBJ Edit is installed and has it set; the APRS TX profile
+  of v0.5 stays as the fallback, so a radio without LBJ Edit behaves exactly as
+  before and an unset primary hands the place back to the beacon position. The
+  five live in the app's own config area (`cfg_load`/`cfg_save`), which is why
+  that area grew from 16 to 96 bytes: an app whose settings need more than 16
+  must declare API level 3, and an older resident refuses such an app instead of
+  silently truncating its settings.
+- **The store** is `apps/lbjedit/lbjedit_pos.h` - `"LBJ1"`, a version, the primary
+  index and five slots of the same 13 digit `DD MM hh` / `DDD MM hh` fields APRS
+  Edit uses (north/east only, 0.01' steps). One sweep over the 48 slots records
+  where that store and the APRS TX profile live - a reinstall bumps
+  `APP_SlotRevision()` and they are looked for again - and the position bytes are
+  re-read every time, so an edit in either app shows up without a relaunch.
+
 ## 中文说明
 
 **v0.4**:解码改进落到了**常驻固件的 LBJ 双守模式**上（`App/app/lbj_dec.c`、
@@ -238,6 +256,18 @@ BCH、软擦除 `?`、同步 ≤2、去积分 DPLL），并实现 overlay 放不
 **2 s**。不修的话，详情先到会让那趟车**永久裂成两条**：详情那条按车号自我刷新、短报文那条
 按车次号刷新，两者再也不会相遇。窗口放太宽则只会增加"两台车交错时配错"的机会 —— 两条本来
 就是背靠背发出来的。
+
+**v0.11**：本机位置有了专用来源 —— 新的 **LBJ Edit** 应用（见 `apps/lbjedit/`）：
+
+- **存 5 个位置，指定其中一个为主地址**。装了 LBJ Edit 且设了主地址时，弹窗就用它算距离；
+  v0.5 的 APRS TX profile **仍保留为回退**——没装 LBJ Edit 的机器行为完全不变，主地址没设时
+  也会把手交回给信标位置。五个位置存在应用**自己的配置区**（`cfg_load`/`cfg_save`），所以那个区
+  从 **16 加宽到 96 字节**：设置超过 16 字节的应用要声明 **API level 3**，旧固件会**拒绝**这种
+  应用而不是悄悄截断它的设置。
+- **存储格式**见 `apps/lbjedit/lbjedit_pos.h`：`"LBJ1"` + 版本 + 主地址序号 + 5 个槽，每槽就是
+  APRS Edit 那套 13 位 `DD MM hh` / `DDD MM hh`（只支持北纬/东经，0.01′）。一次扫槽记下
+  "LBJ Edit 存储"和"APRS TX profile"各在哪（重装会 bump `APP_SlotRevision()`，届时重新找）；
+  位置字节每次重读，所以在哪个应用里改都立即生效、不用重启。
 
 ### 使用步骤
 

@@ -22,7 +22,8 @@
  *
  * Row0, at the right, also shows how far the train is from the receiver: the
  * train's own GPS fix comes from the detail block, the receiver's position from
- * the APRS TX profile that the APRS Edit overlay app maintains (see the block
+ * the LBJ Edit overlay app (the primary of its five stored positions) or, when
+ * that has none, from the APRS TX profile the APRS Edit app keeps (see the block
  * above format()). Only a report with a detail block has a fix, so only those
  * pages show a distance.
  *
@@ -47,8 +48,10 @@
 #include "lbj_dual.h"
 
 #ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
+#include "apps/app_config_proxy.h"
 #include "apps/app_overlay.h"
 #include "apps/aprs_profile.h"
+#include "apps/lbjedit/lbjedit_pos.h"
 #endif
 #include "audio.h"
 #include "driver/backlight.h"
@@ -479,25 +482,79 @@ static char *putage(char *o, uint16_t sec){
 /* ---- the receiver's own position -------------------------------------------
  *
  * The popup shows how far the decoded train is, which needs to know where the
- * receiver is. That position is not entered here: it is the beacon position the
- * APRS TX overlay app carries (apps/aprs_profile.h), which the standalone APRS
- * Edit app writes through the configuration proxy (app_config_proxy.h). One copy
- * means the readout always agrees with what is being transmitted, and neither a
- * menu nor a private flash block is needed. The price is that APRS TX has to be
- * installed with a valid position; without it a detail page shows "--km".
+ * receiver is. Two places can hold that, and the dedicated one wins:
  *
- * The profile sits in the asset area of whichever slot APRS TX was installed
- * into (APP_SLOT_BASE(s)), so the slot is looked up once and then re-validated:
- * a reinstall into another slot is found again by itself (the Apps code bumps
- * APP_SlotRevision()), and the position bytes are re-read every time, so an edit
- * made in APRS Edit shows up without a relaunch. */
+ *   1. the LBJ Edit overlay app, which keeps five positions in its own config
+ *      area and lets the user mark one of them the primary
+ *      (apps/lbjedit/lbjedit_pos.h);
+ *   2. the APRS TX profile (apps/aprs_profile.h), that is the beacon position
+ *      the APRS Edit app writes through the configuration proxy - the fallback
+ *      for a radio without LBJ Edit, and the only source before it was installed.
+ *
+ * Neither lives in the firmware, so there is no menu and no private flash block
+ * of its own, and nothing to keep in step: the readout follows whichever app the
+ * user edits, and an unset or invalid LBJ Edit primary simply hands the place
+ * back to the APRS TX position.
+ *
+ * Both stores sit in some app slot, so one sweep finds them and remembers where.
+ * A reinstall into another slot bumps APP_SlotRevision() and they are looked for
+ * again; the position bytes themselves are re-read every time, so an edit made
+ * in either app shows up without a relaunch. */
 #ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
 
-static uint8_t pos_slot = 0xFFu;   /* slot holding the APRS TX profile, 0xFF = none */
-static uint8_t pos_rev  = 0xFFu;   /* APP_SlotRevision() when the miss was recorded */
+_Static_assert(LBJ_POS_LEN <= APP_CONFIG_LOCAL_MAX,
+               "the LBJ Edit store must fit an app's own config area");
 
-/* Read the profile's hemisphere byte and 13 position digits out of one slot.
- * False when that slot does not hold the APRS TX profile. */
+static uint8_t pos_rev   = 0xFFu;  /* APP_SlotRevision() of the last sweep      */
+static uint8_t lbj_slot  = 0xFFu;  /* slot holding the LBJ Edit store, 0xFF none */
+static uint8_t aprs_slot = 0xFFu;  /* slot holding the APRS TX profile, 0xFF none */
+
+/* The 13 digits of one position in 1e-4 degree units, or false when the field
+ * was never filled in (erased flash) or is out of range. North/east only: this
+ * readout is for the mainland railway, so a southern or western station is out
+ * of its range anyway and the caller falls back. */
+static bool pos_digits(const uint8_t *dig, uint32_t *plat, uint32_t *plon){
+    for (uint8_t i = 0; i < LBJ_POS_DIGITS; i++)
+        if (dig[i] > 9u)
+            return false;
+
+    /* DD MM.hh over DDD MM.hh: degrees, minutes and hundredths of a minute of
+     * decimal digits. 1e-4 degrees = degrees * 10000 + (MMhh * 10000) / 6000. */
+    const uint32_t lat = (uint32_t)(dig[0] * 10u + dig[1]) * 10000u +
+                         ((uint32_t)((dig[2] * 10u + dig[3]) * 100u + dig[4] * 10u + dig[5])
+                          * 10000u) / 6000u;
+    const uint32_t lon = (uint32_t)(dig[6] * 100u + dig[7] * 10u + dig[8]) * 10000u +
+                         ((uint32_t)((dig[9] * 10u + dig[10]) * 100u + dig[11] * 10u + dig[12])
+                          * 10000u) / 6000u;
+    if (lat > 900000u || lon > 1800000u)
+        return false;
+
+    *plat = lat;
+    *plon = lon;
+    return true;
+}
+
+/* The primary position of the LBJ Edit store held by this slot. False when the
+ * slot holds no store, one of another version, or no usable primary entry. */
+static bool pos_lbj_read(uint8_t slot, uint32_t *plat, uint32_t *plon){
+    uint8_t  rec[LBJ_POS_LEN];
+    uint32_t magic;
+
+    if (!APP_ReadSlotConfig(slot, rec, (uint16_t)sizeof rec))
+        return false;
+    memcpy(&magic, rec, sizeof magic);
+    if (magic != LBJ_POS_MAGIC || rec[LBJ_POS_VER] != LBJ_POS_VERSION)
+        return false;
+
+    const uint8_t primary = rec[LBJ_POS_PRIMARY];
+    if (primary >= LBJ_POS_SLOTS)
+        return false;                  /* the store is there, none chosen yet */
+    return pos_digits(rec + LBJ_POS_FIRST + (uint16_t)primary * LBJ_POS_DIGITS,
+                      plat, plon);
+}
+
+/* Read the APRS TX profile's hemisphere byte and 13 position digits out of one
+ * slot. False when that slot does not hold the APRS TX profile. */
 static bool pos_slot_read(uint8_t slot, uint8_t *dig, uint8_t *hemi){
     app_header_t h;
     uint32_t     magic;
@@ -516,52 +573,46 @@ static bool pos_slot_read(uint8_t slot, uint8_t *dig, uint8_t *hemi){
     return true;
 }
 
-/* The receiver's position in 1e-4 degree units, or false when there is none.
- * North/east only: the profile carries a hemisphere and this readout is for the
- * mainland railway, so a southern or western station is simply out of range. */
-static bool pos_get(uint32_t *plat, uint32_t *plon){
-    uint8_t dig[APRS_POS_DIGITS], hemi;
+/* One sweep over the slots: where the LBJ Edit store and the APRS TX profile
+ * live, if either is installed at all. */
+static void pos_scan(void){
+    uint8_t dig[LBJ_POS_DIGITS], hemi, probe[4];
 
-    if (pos_slot >= APP_SLOT_COUNT){
-        /* Nothing found yet: one sweep over the slots, and none again until an
-         * app is installed or erased (its revision changes). */
-        const uint8_t rev = APP_SlotRevision();
-        if (pos_rev == rev)
-            return false;
-        pos_rev = rev;
-        for (uint8_t s = 0; s < APP_SLOT_COUNT; s++){
-            if (pos_slot_read(s, dig, &hemi)){
-                pos_slot = s;
-                break;
-            }
+    lbj_slot = aprs_slot = 0xFFu;
+    for (uint8_t s = 0; s < APP_SLOT_COUNT; s++){
+        uint32_t magic;
+        if (lbj_slot >= APP_SLOT_COUNT &&
+            APP_ReadSlotConfig(s, probe, (uint16_t)sizeof probe)){
+            memcpy(&magic, probe, sizeof magic);
+            if (magic == LBJ_POS_MAGIC)
+                lbj_slot = s;
         }
-        if (pos_slot >= APP_SLOT_COUNT)
-            return false;
-    } else if (!pos_slot_read(pos_slot, dig, &hemi)){
-        pos_slot = 0xFFu;              /* erased or replaced: look again next time */
-        return false;
+        if (aprs_slot >= APP_SLOT_COUNT && pos_slot_read(s, dig, &hemi))
+            aprs_slot = s;
+        if (lbj_slot < APP_SLOT_COUNT && aprs_slot < APP_SLOT_COUNT)
+            break;
+    }
+}
+
+/* The receiver's position in 1e-4 degree units, or false when there is none. */
+static bool pos_get(uint32_t *plat, uint32_t *plon){
+    if (pos_rev != APP_SlotRevision()){
+        /* An app was installed or erased: look for the two stores again. */
+        pos_rev = APP_SlotRevision();
+        pos_scan();
     }
 
-    if (hemi & 3u)                     /* not north/east */
-        return false;
-    for (uint8_t i = 0; i < APRS_POS_DIGITS; i++)
-        if (dig[i] > 9u)               /* the field was never filled in */
-            return false;
+    /* The position the user picked for this in LBJ Edit, when there is one */
+    if (lbj_slot < APP_SLOT_COUNT && pos_lbj_read(lbj_slot, plat, plon))
+        return true;
 
-    /* DD MM.hh over DDD MM.hh: degrees, minutes and hundredths of a minute of
-     * decimal digits. 1e-4 degrees = degrees * 10000 + (MMhh * 10000) / 6000. */
-    const uint32_t lat = (uint32_t)(dig[0] * 10u + dig[1]) * 10000u +
-                         ((uint32_t)((dig[2] * 10u + dig[3]) * 100u + dig[4] * 10u + dig[5])
-                          * 10000u) / 6000u;
-    const uint32_t lon = (uint32_t)(dig[6] * 100u + dig[7] * 10u + dig[8]) * 10000u +
-                         ((uint32_t)((dig[9] * 10u + dig[10]) * 100u + dig[11] * 10u + dig[12])
-                          * 10000u) / 6000u;
-    if (lat > 900000u || lon > 1800000u)
-        return false;
+    /* Otherwise the beacon position APRS Edit keeps for APRS TX */
+    uint8_t dig[LBJ_POS_DIGITS], hemi;
+    if (aprs_slot < APP_SLOT_COUNT && pos_slot_read(aprs_slot, dig, &hemi) &&
+        !(hemi & 3u) && pos_digits(dig, plat, plon))
+        return true;
 
-    *plat = lat;
-    *plon = lon;
-    return true;
+    return false;                      /* nothing to measure from: "--km" */
 }
 
 /* The reporting station's own fix, out of the detail block: [30:39) is the
