@@ -73,7 +73,8 @@ def build_c(blob, D, call=CALL, pos=None, hemi=None, ssid=None, path=None, sym=N
     f = bytearray(rd("F_DEST"))
     f += bytes(ord(call[i]) << 1 if i < len(call) else 0x40 for i in range(6))
     f.append(0x60 | (ssid << 1) | (0 if path else 1))
-    p = bytearray(rd("F_WIDE")[:7 * path])         # the first path WIDE entries
+    sel = rd("F_PATH")[path]                        # (first hop << 4) | hop count
+    p = bytearray(rd("F_HOPS")[7 * (sel >> 4):7 * ((sel >> 4) + (sel & 15))])
     if path: p[-1] |= 1                             # end of the address field
     f += p + b"\x03\xF0" + info.encode()
     c = 0xFFFF
@@ -144,10 +145,11 @@ def main():
     print("mutable APRS profile:", good, "(%d/%d comment chars)" % (profile[4], D["COMMENT_MAX"]))
     f = build_c(blob, D)
     ssid = default_ssid
-    WIDE = ["WIDE1-1", "WIDE2-1"]                                # gen_assets.py WIDE
+    HOPS = [[], ["WIDE1-1"], ["WIDE1-1", "WIDE2-1"],            # gen_assets.py HOPS
+            ["ARISS", "WIDE2-1"]]
     info = "!4850.90N/00216.25E[Portable, UV-K5/K1 F4HWN firmware (github.com/armel)"          # gen_assets.py defaults
     ref = build("%s-%d" % (CALL, ssid) if ssid else CALL, dst="APZK5",
-                path=WIDE[:default_path], info=info)
+                path=HOPS[default_path], info=info)
     print("frame  ", decode(f), "(%d bytes)" % len(f))
     ok &= f == ref
     print("frame == ax25.build:", f == ref)
@@ -158,7 +160,7 @@ def main():
         full_comment.encode()
     full_frame = build_c(full_blob, D)
     full_ref = build("%s-%d" % (CALL, ssid) if ssid else CALL, dst="APZK5",
-                     path=WIDE[:default_path],
+                     path=HOPS[default_path],
                      info="!4850.90N/00216.25E[" + full_comment)
     ok &= full_frame == full_ref
     print("%d-character comment frame:" % D["COMMENT_MAX"], full_frame == full_ref)
@@ -184,9 +186,9 @@ def main():
     ok &= f2 == want
     print("edited position frame:", f2 == want, decode(f2))
     # SSID and path edited: every path, SSID 0 (no suffix) and 15
-    for sid, path in ((0, 0), (15, 1), (9, 2)):
+    for sid, path in ((0, 0), (15, 1), (9, 2), (7, 3)):
         f3 = build_c(blob, D, ssid=sid, path=path)
-        want = build("F4HWN-%d" % sid if sid else "F4HWN", dst="APZK5", path=WIDE[:path], info=info)
+        want = build("F4HWN-%d" % sid if sid else "F4HWN", dst="APZK5", path=HOPS[path], info=info)
         ok &= f3 == want
         print("SSID %2d, path %d frame:" % (sid, path), f3 == want, decode(f3))
     f3 = build_c(blob, D, sym=0)

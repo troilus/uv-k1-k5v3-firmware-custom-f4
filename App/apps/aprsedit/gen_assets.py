@@ -37,7 +37,7 @@ UI = [
 ]
 
 MENU = ["Call", "SSID", "Lat", "Lon", "Path", "Symbol", "Comm."]
-PATHS = ["DIRECT", "WIDE1-1", "WIDE1-1,WIDE2-1"]
+PATHS = ["DIRECT", "WIDE1-1", "WIDE1-1,WIDE2-1", "ARISS,WIDE2-1"]
 PRESETS = [
     ("PORTABLE", "Portable, UV-K5/K1 F4HWN firmware (github.com/armel)"),
     ("MOBILE", "Mobile, UV-K5/K1 F4HWN firmware (github.com/armel)"),
@@ -56,9 +56,18 @@ for name, value in UI:
 menu_stride = 12
 a.table("T_MENU", MENU, stride=menu_stride)
 ui_size += len(MENU) * menu_stride
-path_stride = -(-(max(len(value) for value in PATHS) + 1) // 4) * 4
-a.table("T_PATHS", PATHS, stride=path_stride)
-ui_size += len(PATHS) * path_stride
+# The editor shows a path as its first hop (line 2) and, when it has one, its
+# second hop (line 3): the entries are stored pre-split at the comma, two slots
+# per path, so no path name has to be parsed on the radio.
+hop_max = max(len(hop) for value in PATHS for hop in value.split(","))
+hop_stride = -(-(hop_max + 1) // 4) * 4
+hops = []
+for value in PATHS:
+    first, _, second = value.partition(",")
+    hops += (first, second)
+a.table("T_PATH_HOPS", hops, stride=hop_stride)
+ui_size += len(hops) * hop_stride
+a.const("PATH_COUNT", len(PATHS))
 preset_name_stride = 12
 a.table("T_PRESET_NAMES", PRESET_NAMES, stride=preset_name_stride)
 ui_size += len(PRESET_NAMES) * preset_name_stride

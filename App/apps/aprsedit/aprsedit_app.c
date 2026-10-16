@@ -16,7 +16,8 @@
 #define LOOP_MS       10u
 #define EDIT_CHARS    11u    /* comment: normal-font characters per pane row   */
 #define EDIT_ROWS     6u     /* rows above the bottom capsules: no scrolling   */
-#define PATH_MAX      2u
+#define PATH_MAX      (PATH_COUNT - 1u)          /* path indexes: 0 = DIRECT */
+#define PATH_STRIDE   (2u * T_PATH_HOPS_STRIDE)  /* two hop slots per path   */
 #define LAT_DIGITS    6u
 #define INDEX_SEP_X   48u
 #define PANE_X        50u
@@ -171,15 +172,14 @@ static void draw_menu(const char *assets)
     for (uint8_t x = 0u; x < INDEX_SEP_X; x += 2u) g.A->fb[5][x] = 0x40u;
 }
 
-/* The path name, in bold while it is being edited (as the SSID and symbol). */
+/* The path name, in bold while it is being edited (as the SSID and symbol).
+ * The hops are stored pre-split at the comma: one per line, the second only
+ * when the selected path has one ("WIDE1-1" / "ARISS" + "WIDE2-1"). */
 static void draw_path(const char *assets, uint8_t path, bool bold)
 {
-    /* The first hop never moves: "DIRECT" or "WIDE1-1" on line 2. The longest
-     * path adds its second hop on the line below, read after the comma of its
-     * own name "WIDE1-1,WIDE2-1". */
-    const char *paths = assets + T_PATHS;
-    pane(paths + (path ? T_PATHS_STRIDE : 0u), 2u, bold);
-    if (path == PATH_MAX) pane(paths + PATH_MAX * T_PATHS_STRIDE + 8u, 3u, bold);
+    const char *hops = assets + T_PATH_HOPS + path * PATH_STRIDE;
+    pane(hops, 2u, bold);
+    if (hops[T_PATH_HOPS_STRIDE]) pane(hops + T_PATH_HOPS_STRIDE, 3u, bold);
 }
 
 /* The comment in rows of the normal font. */

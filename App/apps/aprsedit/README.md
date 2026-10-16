@@ -43,7 +43,8 @@ same right pane. A changed profile is saved when the app exits.
 - `SSID`: number keys set 0-9; `UP`/`DOWN` covers the complete 0-15 range.
 - `LATITUDE` / `LONGITUDE`: number keys replace and advance, `UP`/`DOWN` moves the digit
   cursor, and `*` toggles N/S or E/W. Invalid coordinates cannot be validated.
-- `PATH`: `UP`/`DOWN` selects `DIRECT`, `WIDE1-1` or `WIDE1-1,WIDE2-1`.
+- `PATH`: `UP`/`DOWN` selects `DIRECT`, `WIDE1-1`, `WIDE1-1,WIDE2-1` or
+  `ARISS,WIDE2-1` (the ISS relay: `ARISS` then a `WIDE2-1` repeat).
 - `SYMBOL`: `UP`/`DOWN` cycles through the 48 APRS table/code pairs with their
   20 × 20 pixel preview and table position; a number key jumps to symbol
   1, 6, 11 ... 46.

@@ -5,8 +5,9 @@
 # them in one asset_read into a word-aligned stack block, so every text costs a
 # 2-byte sp-relative add instead of a literal-pool load and a pool word.
 # The frame parts are AX.25-encoded here (addresses shifted left, SSID bytes):
-# the app adds the source (profile or boot-message callsign + SSID), the path (the first 0,
-# 1 or 2 entries of WIDE, end-of-address bit set by the app), the position and
+# the app adds the source (profile or boot-message callsign + SSID), the path
+# (the F_HOPS entries of the selected F_PATH, end-of-address bit set by the app),
+# the position and
 # the FCS. APRS Edit updates the mutable profile prefix. Edit the station
 # defaults below, then rebuild;
 # test/tx_model.py checks the resulting frame.
@@ -27,9 +28,12 @@ APRS_CALL_MAX = cdefine("aprs_profile.h", "APRS_CALL_MAX")
 # ---- station settings ----
 SSID = 7                                   # F4HWN-7 (0-15, 0 = no SSID)
 DEST = "APZK5"                             # APZ = experimental software
-PATH = 1                                   # index in PATHS below
-WIDE = ["WIDE1-1", "WIDE2-1"]              # path n = the first n entries
-PATHS = ["DIRECT", "WIDE1-1", "WIDE1-1,2-1"]   # shown on the radio, per path
+PATH = 1                                   # index in HOPS below
+# HOPS[n] is the nth path's repeaters, in order: DIRECT (none), one WIDE, the
+# usual two WIDE, and the ARISS relay (ARISS then a WIDE2-1). The profile stores
+# only the index; the app copies the hops from the flat F_HOPS table.
+HOPS = [[], ["WIDE1-1"], ["WIDE1-1", "WIDE2-1"], ["ARISS", "WIDE2-1"]]
+PATHS = ["DIRECT", "WIDE1-1", "WIDE1-1,2-1", "ARISS,2-1"]   # shown on the radio, per path
 LAT, LON = "4850.90N", "00216.25E"         # default position: DDMM.hhN, DDDMM.hhE
 SYMBOL = "/["                              # table, code: '[' = person
 COMMENT = "Portable, UV-K5/K1 F4HWN firmware (github.com/armel)"
@@ -59,8 +63,10 @@ def addr(call, last=False):
 
 if not 0 <= SSID <= 15:
     sys.exit("SSID must be 0-15")
-if len(WIDE) != 2 or len(PATHS) != len(WIDE) + 1 or not 0 <= PATH < len(PATHS):
-    sys.exit("PATHS lists DIRECT then 1 and 2 WIDE entries (frame buffer); PATH indexes it")
+if len(PATHS) != len(HOPS) or not 0 <= PATH < len(HOPS):
+    sys.exit("PATH indexes HOPS (DIRECT, then the path hop lists)")
+if max(len(entries) for entries in HOPS) > 15 or sum(len(entries) for entries in HOPS) > 15:
+    sys.exit("F_PATH packs up to 15 hops, and 15 per path")
 if any(len(s) > 18 - 5 for s in PATHS):
     sys.exit("a PATHS name does not fit the line after 'PATH '")
 if not (re.fullmatch(r"\d{4}\.\d{2}[NS]", LAT) and re.fullmatch(r"\d{5}\.\d{2}[EW]", LON)):
@@ -88,7 +94,14 @@ a.const("UI_SIZE", ui_size)                 # the UI block read by draw()
 a.const("T_TITLE_CHARS", len(TITLE))
 a.const("T_TX_CHARS", len(TX_CAPS))
 a.raw("F_DEST", addr(DEST))
-a.raw("F_WIDE", b"".join(addr(h) for h in WIDE))
+hops, index = [], bytearray()              # flat hop table + (first << 4 | count)
+for entries in HOPS:
+    index.append((len(hops) << 4) | len(entries))
+    hops += entries
+a.raw("F_HOPS", b"".join(addr(h) for h in hops))
+a.raw("F_PATH", bytes(index))
+a.const("PATH_COUNT", len(HOPS))
+a.const("HOP_MAX", max(len(entries) for entries in HOPS))
 a.raw("SYM_CODES", "".join(CODES).encode("ascii"))
 a.raw("SYM_BITMAPS", BITMAPS)
 a.const("SYM_COUNT", len(CODES))

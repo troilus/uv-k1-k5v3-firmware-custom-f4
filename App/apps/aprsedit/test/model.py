@@ -35,6 +35,8 @@ def main():
     blob, defs = assets()
     preset_names = [b"CUSTOM", b"PORTABLE", b"MOBILE", b"QRP", b"TEST"]
     menu_names = [b"Call", b"SSID", b"Lat", b"Lon", b"Path", b"Symbol", b"Comm."]
+    path_hops = [b"DIRECT", b"", b"WIDE1-1", b"", b"WIDE1-1", b"WIDE2-1",
+                 b"ARISS", b"WIDE2-1"]
     presets = [
         b"Portable, UV-K5/K1 F4HWN firmware (github.com/armel)",
         b"Mobile, UV-K5/K1 F4HWN firmware (github.com/armel)",
@@ -68,6 +70,11 @@ def main():
         all(blob[defs["T_PRESET_NAMES"] + i * defs["T_PRESET_NAMES_STRIDE"]:
                  defs["T_PRESET_NAMES"] + i * defs["T_PRESET_NAMES_STRIDE"] + len(name)] == name
             for i, name in enumerate(preset_names)),
+        defs["PATH_COUNT"] == 4,
+        all(blob[defs["T_PATH_HOPS"] + i * defs["T_PATH_HOPS_STRIDE"]:
+                 defs["T_PATH_HOPS"] + i * defs["T_PATH_HOPS_STRIDE"] + len(hop)] == hop and
+            blob[defs["T_PATH_HOPS"] + i * defs["T_PATH_HOPS_STRIDE"] + len(hop)] == 0
+            for i, hop in enumerate(path_hops)),
         defs["P_PRESET_LENGTHS"] == defs["SYM_BITMAPS"] + defs["SYM_BITMAPS_LEN"],
         defs["P_PRESETS"] == defs["P_PRESET_LENGTHS"] + defs["P_PRESET_LENGTHS_LEN"],
         all(blob[defs["P_PRESETS"] + i * 89:defs["P_PRESETS"] + i * 89 + len(message)] == message
