@@ -213,10 +213,24 @@ CI（`.github/workflows/build-apps.yml`）一次出 **6 个工件**，下载后�
 | `overlay-apps-cn-coord` | 中文版 + 经纬度（并进地址行），隐藏9 |
 | `overlay-apps-cn9-coord` | 中文版 + 经纬度（并进地址行），不隐藏9 |
 
-余量（本地 GCC 10 `-Os` 实测，带 pin 的两个已计入 +60 B——频率两行 24 B 加
-REG_43/REG_30 三步 36 B；CI 的 GCC 13 `-Oz` 一般再小 40 B 左右）：英文版
-196 / 308 B、中文版 296 / 408 B、中文版+经纬度 **140 / 192 B**——与固件排版对齐的
-这一版把六档各省了 116～128 B，最紧的经纬度档也从"擦边"变成宽裕了。
+余量（CI GCC 13 `-Oz` 实测，每次构建都会以 check-run 注解给出，可随时从 API 复核：
+`::notice … N B used, M B free of 4096`）：
+
+| 档 | 已用 | 剩余 |
+|---|---|---|
+| 英文版，不隐藏9 | 3900 B | 196 B |
+| 英文版，隐藏9 + pin | 4020 B | 76 B |
+| 中文版，不隐藏9 | 3808 B | 288 B |
+| 中文版，隐藏9 + pin | 3928 B | 168 B |
+| 中文版 + 经纬度，不隐藏9 | 4020 B | 76 B |
+| 中文版 + 经纬度，隐藏9 + pin | **4080 B** | **16 B** |
+
+最紧的一档重新变成「中文版 + 经纬度 + 隐藏9 + pin」，只剩 16 B。
+
+教训（v0.3）：Cortex-M0+ 没有除法指令，遇到常数的 `/`、`%` 会引入 libgcc 的除法
+例程。把 `putu` 从查表改成 `%10` / `/10` 反而让 overlay **涨了 264 B**
+（3808 → 4072），六个档里五个溢出。本目标下查表才是小形态——overlay 里基本应禁用
+除法。
 
 ## Using the app
 
@@ -417,10 +431,26 @@ download the one you want and take the `LBJRX.app` inside:
 | `overlay-apps-cn-coord` | Chinese + coordinates in the address row, hide-9 |
 | `overlay-apps-cn9-coord` | Chinese + coordinates in the address row, show all |
 
-Room left (local GCC 10 `-Os`, the two pinned builds including their +60 B - the
-two frequency writes are 24 B, forcing REG_43 and the REG_30 re-calibration is
-36 B more; CI's GCC 13 `-Oz` is usually about 40 B smaller): English 196 / 308 B,
-Chinese 296 / 408 B, Chinese + coordinates **140 / 192 B**. The row-for-row
-firmware layout bought every flavour 116-128 B, so the coordinate build is no
-longer the razor-edge one. Everything cut to buy that room back is tagged
-`[C1]`..`[C6]` in the source, so it can be put back one item at a time.
+Room left, **measured by CI** (GCC 13 `-Oz`). Every figure is a check-run
+annotation from the build itself (`::notice … N B used, M B free of 4096`), so
+it can be re-checked from the API at any time:
+
+| Flavour | Used | Free |
+|---|---|---|
+| English, show-all | 3900 B | 196 B |
+| English, hide-9 + pin | 4020 B | 76 B |
+| Chinese, show-all | 3808 B | 288 B |
+| Chinese, hide-9 + pin | 3928 B | 168 B |
+| Chinese + coordinates, show-all | 4020 B | 76 B |
+| Chinese + coordinates, hide-9 + pin | **4080 B** | **16 B** |
+
+The razor-edge build is now Chinese + coordinates with hide-9 and the pinned
+frequency, at 16 B. `[C1]`..`[C6]` in the source tag everything cut to buy room,
+so it can be put back one item at a time.
+
+**A caution learned the hard way (v0.3):** the Cortex-M0+ has no divide
+instruction, so a `/` or `%` by a constant pulls in libgcc's division helper. A
+`putu` rewritten to walk the digits with `%10` / `/10` instead of the
+powers-of-ten table grew the overlay by **264 B** (3808 -> 4072) and overflowed
+five of the six flavours. The table is the small form on this target; division
+is effectively banned from the overlay.
