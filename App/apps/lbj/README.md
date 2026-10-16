@@ -8,7 +8,7 @@ Reference: [Sdr-Is-Fun/RTL_SDR_LBJ_RECEIVER](https://github.com/Sdr-Is-Fun/RTL_S
 (the Python chain this app is modelled on) and the APRS RX app of this firmware
 (PA4 sampling, DPLL, overlay-app conventions).
 
-Status: **v0.11, decoding confirmed on-air.** The demodulator and the
+Status: **v0.12, decoding confirmed on-air.** The demodulator and the
 POCSAG/LBJ decoder are validated in `test/model_rx.py` against synthetic frames
 (clean / noise / ±1 % clock / AC-coupled / high-passed); see the tables below.
 
@@ -181,6 +181,14 @@ overlay app (see `apps/lbjedit/`):
   `APP_SlotRevision()` and they are looked for again - and the position bytes are
   re-read every time, so an edit in either app shows up without a relaunch.
 
+v0.12 hides a short block that decoded no digit at all (resident-only). The
+direction on row 0 comes from the frame header, not from the payload, so a base
+alert whose train number, speed and km post were all lost still arrived - and it
+used to be filed and popped up with nothing on it but ` DN`. It is now held back:
+a detail sent right behind it still completes it into one full record (same 2 s
+window), while on its own it never reaches the history or the window. Nothing is
+lost - the block stays the partner of that detail - and nothing is invented.
+
 ## 中文说明
 
 **v0.4**:解码改进落到了**常驻固件的 LBJ 双守模式**上（`App/app/lbj_dec.c`、
@@ -268,6 +276,14 @@ BCH、软擦除 `?`、同步 ≤2、去积分 DPLL），并实现 overlay 放不
   APRS Edit 那套 13 位 `DD MM hh` / `DDD MM hh`（只支持北纬/东经，0.01′）。一次扫槽记下
   "LBJ Edit 存储"和"APRS TX profile"各在哪（重装会 bump `APP_SlotRevision()`，届时重新找）；
   位置字节每次重读，所以在哪个应用里改都立即生效、不用重启。
+
+**v0.12** 把"一个数字都没解出来"的短报文**先按住**（仅常驻固件）：行 0 的方向来自**帧头**而不是
+payload，所以车次/速度/公里标全丢的基础预警照样会到达 —— 以前它照样进历史、弹窗，可整屏只有
+` DN`。现在它不落盘：紧随其后的详情（同一个 2 s 窗口内）仍能把它补成完整的一条，单独出现时
+既不进历史也不弹窗。信息没丢（它仍是那条详情的配对目标），也没有凭空编造。
+
+> 判据是"这一页 15 个字符里**没有任何一位是数字**"。若速度位还留着数字（例如车次空但速度有
+> `8`），那它不算空页，照旧显示 —— 有意的：收到过数字，只是字段不可用。
 
 ### 使用步骤
 
