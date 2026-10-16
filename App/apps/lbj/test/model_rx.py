@@ -185,7 +185,9 @@ class Demod:
 # -------------------------------------------------------------------- pocsag ---
 
 class Receiver:
-    def __init__(self):
+    def __init__(self, dm=None):
+        self.dm = dm                 # the DemodInt that owns us: its sample count
+        self.at = 0                  # sample the current address word arrived at
         self.state = 0
         self.sr = 0
         self.nb = 0
@@ -209,7 +211,8 @@ class Receiver:
         self.inmsg = False
         if not self.cws:
             return
-        self.msgs.append((self.addr, self.func, self.err, P.decode_bcd(self.cws), list(self.cws)))
+        self.msgs.append((self.addr, self.func, self.err,
+                          P.decode_bcd(self.cws), list(self.cws), self.at))
         self.cws = []
 
     def feed(self, bit):
@@ -250,6 +253,7 @@ class Receiver:
                 self.flush()
             self.func = (cor >> 11) & 3
             self.addr = ((cor >> 13) & 0x3FFFF) * 8 + (self.fp - 1) // 2
+            self.at = self.dm.n if self.dm else 0
             self.cws = []
             self.inmsg = True
             self.err = (st == 2)
@@ -275,56 +279,33 @@ def biquad_q14(fc=1500.0, fs=FS_ADC):
                   (1 - w / q + w * w) / a0))
 
 
-class DemodInt:
-    """Integer demodulator transliterated to the C app. 16 samples/bit at
-    19.2 kHz: phase 65536/bit, step 4096; a 16-sample boxcar (one-bit matched
-    filter, running sum) feeds the symmetric peak tracker with a hysteresis
-    slice; the level at the 0.5 crossing is the bit, and a level transition
-    pulls the phase toward the bit boundary (proportional only, as upstream)."""
+class Slicer:
+    """One hysteresis slicer over the shared front-end: its own band width
+    (h = (hi-lo) >> k), its own level and its own DPLL. The level at the 0.5
+    crossing is the bit, and a level transition pulls the phase toward the bit
+    boundary (proportional only, as upstream).
 
-    B0, B1, A1, A2 = biquad_q14()
-    DC_SHIFT = 9
-    PK_SHIFT = 8
+    #12: the single chain ran k = 6 and collapsed as soon as the radio audio
+    path high-passes the NRZ. Three bands over the same samples - one tighter,
+    one looser - read the marginal bits differently, and the page merge keeps
+    whichever read each character."""
+
+    PLL_SHIFT = 3
     STEP = 4096
-    PLL_SHIFT = 3        # proportional DPLL only, as upstream: phase -= err >> 3
-    BOX = 16             # 1-bit matched filter (samples per bit)
 
-    def __init__(self):
-        self.dc = BIAS
-        self.x1 = self.x2 = self.y1 = self.y2 = 0
-        self.hi = 200
-        self.lo = -200
-        self.ph = 0
+    def __init__(self, k):
+        self.k = k
         self.last = 0
-        self.buf = [0] * self.BOX
-        self.bi = 0
-        self.bsum = 0
+        self.ph = 0
         self.on_bit = None
 
-    def sample(self, x):
-        self.dc += (x - self.dc) >> self.DC_SHIFT
-        y = x - self.dc
-        o = (self.B0 * y + self.B1 * self.x1 + self.B0 * self.x2
-             - self.A1 * self.y1 - self.A2 * self.y2) >> 14
-        self.x2, self.x1, self.y2, self.y1 = self.x1, y, self.y1, o
-        self.bsum += o - self.buf[self.bi]
-        self.buf[self.bi] = o
-        self.bi = (self.bi + 1) % self.BOX
-        y = self.bsum
-        self.hi -= (self.hi - y) >> self.PK_SHIFT
-        if y > self.hi:
-            self.hi = y
-        self.lo += (y - self.lo) >> self.PK_SHIFT
-        if y < self.lo:
-            self.lo = y
-        mid = (self.hi + self.lo) >> 1
-        h = (self.hi - self.lo) >> 6
+    def step(self, y, mid, pp):
+        h = pp >> self.k
+        level = self.last
         if y > mid + h:
             level = 1
         elif y < mid - h:
             level = 0
-        else:
-            level = self.last
         if level != self.last:
             err = self.ph
             if err > 32768:
@@ -343,14 +324,117 @@ class DemodInt:
             self.ph -= 65536
 
 
-def run_demod(adc, integer=True, **kw):
-    d = DemodInt() if integer else Demod(**kw)
-    rx = Receiver()
-    d.on_bit = rx.feed
+class DemodInt:
+    """Integer demodulator transliterated to the C app. 16 samples/bit at
+    19.2 kHz: phase 65536/bit, step 4096; a 16-sample boxcar (one-bit matched
+    filter, running sum) feeds the symmetric peak tracker shared by every
+    hysteresis slicer. The front-end runs once, whatever the slicer count."""
+
+    B0, B1, A1, A2 = biquad_q14()
+    DC_SHIFT = 9
+    PK_SHIFT = 8
+    STEP = 4096
+    PLL_SHIFT = 3        # proportional DPLL only, as upstream: phase -= err >> 3
+    BOX = 16             # 1-bit matched filter (samples per bit)
+    HS = (6,)            # one slicer, as before #12
+    # #12: the shipped set. k = 3 reads the level through a wide band (it flips
+    # late but never on noise), k = 7 through a narrow one (it flips on the
+    # drooping edge), k = 5 in between; the page merge keeps whichever read each
+    # character. The sweep that chose them is in hpsweep().
+
+    def __init__(self, ks=HS):
+        self.dc = BIAS
+        self.x1 = self.x2 = self.y1 = self.y2 = 0
+        self.hi = 200
+        self.lo = -200
+        self.buf = [0] * self.BOX
+        self.bi = 0
+        self.bsum = 0
+        self.n = 0                          # samples seen (the page merge key)
+        self.sl = [Slicer(k) for k in ks]
+        self.rx = [Receiver(self) for _ in ks]
+        for s, r in zip(self.sl, self.rx):
+            s.on_bit = r.feed
+
+    def sample(self, x):
+        self.n += 1
+        self.dc += (x - self.dc) >> self.DC_SHIFT
+        y = x - self.dc
+        o = (self.B0 * y + self.B1 * self.x1 + self.B0 * self.x2
+             - self.A1 * self.y1 - self.A2 * self.y2) >> 14
+        self.x2, self.x1, self.y2, self.y1 = self.x1, y, self.y1, o
+        self.bsum += o - self.buf[self.bi]
+        self.buf[self.bi] = o
+        self.bi = (self.bi + 1) % self.BOX
+        y = self.bsum
+        self.hi -= (self.hi - y) >> self.PK_SHIFT
+        if y > self.hi:
+            self.hi = y
+        self.lo += (y - self.lo) >> self.PK_SHIFT
+        if y < self.lo:
+            self.lo = y
+        mid = (self.hi + self.lo) >> 1
+        pp = self.hi - self.lo
+        for s in self.sl:
+            s.step(y, mid, pp)
+
+    def flush(self):
+        for r in self.rx:
+            r.flush()
+
+
+def run_demod(adc, integer=True, ks=None, **kw):
+    """One slicer (k = 6 by default): the pre-#12 chain, kept so the sweeps can
+    compare a single chain with the merged three."""
+    if not integer:
+        d = Demod(**kw)
+        rx = Receiver()
+        d.on_bit = rx.feed
+        for x in adc:
+            d.sample(x)
+        rx.flush()
+        return rx
+    d = DemodInt(ks=ks or DemodInt.HS)
     for x in adc:
         d.sample(x)
-    rx.flush()
-    return rx
+    d.flush()
+    return d.rx[0]
+
+
+DUP_SAMPLES = 256       # half a codeword (32 bits * 16 samples) at 19.2 kHz
+
+
+def merge_pages(receivers, dup=DUP_SAMPLES):
+    """#12: the same page read by several slicers, merged. A character one
+    slicer lost ('?') is taken from another that read it, and the longer text
+    extends the shorter. What tells the same page from another is not the text
+    but where it sits: its address word arrived at the same sample, within half
+    a codeword, for every slicer that read it."""
+    pages = []                              # [addr, func, chars, at]
+    for r in receivers:
+        for (addr, func, err, bcd, cws, at) in r.msgs:
+            t = list(bcd)
+            for p in pages:
+                if p[0] != addr or p[1] != func or abs(at - p[3]) >= dup:
+                    continue
+                o = p[2]
+                for i in range(min(len(o), len(t))):
+                    if o[i] == '?':
+                        o[i] = t[i]
+                o.extend(t[len(o):])
+                break
+            else:
+                pages.append([addr, func, t, at])
+    return pages
+
+
+def run_demod_merged(adc, ks=(3, 5, 7)):
+    """The three-slicer chain of #12, with the page merge."""
+    d = DemodInt(ks=ks)
+    for x in adc:
+        d.sample(x)
+    d.flush()
+    return merge_pages(d.rx)
 
 
 # -------------------------------------------------------------------- LBJ -----
@@ -394,9 +478,10 @@ def sweep():
         ("std", dict(noise=1500.0, mode="std")),
         ("ac", dict(noise=1500.0, ac=True)),
     ]
-    print("%-8s | %-6s | %-9s | %s" % ("case", "sync", "words(+fix)", "decoded"))
+    print("%-8s | %-6s | %-9s | %-8s | %s" %
+          ("case", "sync", "words(+fix)", "single", "merged"))
     for name, kw in cases:
-        ok = 0
+        ok = mo = 0
         syncs = words = bad = 0
         for seed in range(3):
             s = synthetic(1234000, 3, P.lbj_short("412", 78, "01234"), seed=seed, **kw)
@@ -404,7 +489,24 @@ def sweep():
             hit = [m for m in rx.msgs if m[0] == 1234000 and not m[2]]
             ok += 1 if hit else 0
             syncs += rx.syncs; words += rx.bch_ok; bad += rx.bch_bad
-        print("%-8s | %-6d | %4d(%-4d) | %d/3" % (name, syncs, words, bad, ok))
+            mo += 1 if any(p[0] == 1234000 for p in run_demod_merged(s)) else 0
+        print("%-8s | %-6d | %4d(%-4d) | %d/3      | %d/3" % (name, syncs, words, bad, ok, mo))
+
+
+def hpsweep():
+    """The corner the model exists for: the radio audio path high-passes the
+    NRZ. A single slicer dives as soon as the corner passes ~30 Hz; #12 is the
+    answer - three bands over the same samples, merged page by page."""
+    print("%5s | %-8s | %s" % ("hp", "single", "merged"))
+    for hp in (0, 30, 50, 100, 300, 600, 1000, 1500):
+        s1 = sm = 0
+        for seed in range(8):
+            adc = synthetic(1234000, 3, P.lbj_short("412", 78, "01234"),
+                            noise=1500.0, seed=seed, hp=hp)
+            rx = run_demod(adc)
+            s1 += 1 if any(m[0] == 1234000 and not m[2] for m in rx.msgs) else 0
+            sm += 1 if any(p[0] == 1234000 for p in run_demod_merged(adc)) else 0
+        print("%5d | %d/8      | %d/8" % (hp, s1, sm))
 
 
 def from_wav(path):
@@ -437,12 +539,18 @@ def from_wav(path):
     print("wav: fs=%d ch=%d n=%d sync=%d words=%d bch_ok=%d fix=%d bad=%d msgs=%d" %
           (fs, ch, n, rx.syncs, rx.words, rx.bch_ok, rx.bch_fix, rx.bch_bad, len(rx.msgs)))
     for m in rx.msgs[:30]:
-        print("  addr=%d func=%d err=%s bcd[%d]=%r" % (m[0], m[1], m[2], len(m[3]), m[3]))
-        print("     lbj=%s" % (parse_lbj(m[0], m[1], m[3], m[2]),))
+        print("  [1] addr=%d func=%d err=%s bcd[%d]=%r" % (m[0], m[1], m[2], len(m[3]), m[3]))
+    print("  --- merged (#12) ---")
+    for p in run_demod_merged(out)[:30]:
+        bcd = "".join(p[2])
+        print("  [m] addr=%d func=%d bcd[%d]=%r lbj=%s" %
+              (p[0], p[1], len(bcd), bcd, parse_lbj(p[0], p[1], bcd, False)))
 
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1:
+    if len(sys.argv) > 1 and sys.argv[1] == "hp":
+        hpsweep()
+    elif len(sys.argv) > 1:
         from_wav(sys.argv[1])
     else:
         sweep()

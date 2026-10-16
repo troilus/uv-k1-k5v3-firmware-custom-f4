@@ -8,9 +8,9 @@ Reference: [Sdr-Is-Fun/RTL_SDR_LBJ_RECEIVER](https://github.com/Sdr-Is-Fun/RTL_S
 (the Python chain this app is modelled on) and the APRS RX app of this firmware
 (PA4 sampling, DPLL, overlay-app conventions).
 
-Status: **v0.3, decoding confirmed on-air.** The demodulator and the
+Status: **v0.4, decoding confirmed on-air.** The demodulator and the
 POCSAG/LBJ decoder are validated in `test/model_rx.py` against synthetic frames
-(clean / noise / ±1 % clock / AC-coupled); see the table below.
+(clean / noise / ±1 % clock / AC-coupled / high-passed); see the tables below.
 
 What v0.2 changed (all mirrored in `test/model_rx.py`):
 
@@ -34,7 +34,42 @@ too (a `%10` / `/10` `putu` instead of the powers-of-ten table) and CI measured
 it **larger** on this Cortex-M0+ `-Oz` build, so it was reverted - on this
 target the table is the smaller form, and the compiler is the arbiter.
 
+v0.4 carries the v0.2/v0.3 decode set into the **resident firmware feature**
+(`App/app/lbj_dec.c`, `App/app/lbj_dual.c` - the LBJ dual-watch mode: set a
+channel's modulation to LBJ) and adds the item the overlay had no room for:
+
+- **The resident decoder caught up with the overlay** (until v0.4 it ran the
+  *old* chain: baseline `DC_SHIFT` 7, syndrome-only BCH with no parity check, no
+  soft erasure, sync popcount ≤ 3, and the DPLL integral term). It now has the
+  slower baseline tracker, the parity-checked BCH, the soft erasure, sync ≤ 2
+  and the proportional-only DPLL - the same code, transcribed.
+- **#12: three hysteresis slicers + page merge.** One front-end (baseline
+  tracker, biquad, boxcar matched filter, symmetric peak tracker), three slicers
+  with band widths `(hi-lo)>>{3,5,7}` and their own DPLLs, and a page merge that
+  takes each character from whichever slicer read it (a `?` from one is filled
+  from another, and the longer text extends the shorter). A single slicer
+  collapses as soon as the radio's audio path high-passes the NRZ; the overlay
+  cannot hold it (16 B free in the tightest flavour), the resident feature can.
+- **BCH moved out of the 19.2 kHz sampler ISR into the main loop.** The ISR
+  (`lbj_rx_bit`) only aligns the bit stream and queues the raw 32-bit words
+  (8-deep ring per slicer); the 10 ms tick drains them through BCH and the word
+  state machine (`lbj_process`). A correction is up to ~160 µs against a 52 µs
+  sample period, so decoding three slicers inside the ISR would have dropped
+  samples (the single old slicer was already marginal on error words).
+
+The overlay app itself is **unchanged** in v0.4 - there is no room in 4 KiB.
+The shared model gained `class Slicer`, `merge_pages()` and `hpsweep()`.
+
 ## 中文说明
+
+**v0.4**:解码改进落到了**常驻固件的 LBJ 双守模式**上（`App/app/lbj_dec.c`、
+`App/app/lbj_dual.c`，把某信道调制设为 LBJ 即可），overlay app 本身没变（4 KiB
+装不下）：常驻解码器补上了 v0.2/v0.3 的全套（慢基线 `DC_SHIFT` 7→9、带奇偶校验的
+BCH、软擦除 `?`、同步 ≤2、去积分 DPLL），并实现 overlay 放不下的 **#12：三切点
+迟滞切片 + 页级合并**（一个前端 `(hi-lo)>>{3,5,7}` 三个切片各带独立 DPLL，同一页
+三个切片各自解出的字符互补合并）。同时把 **BCH 从 19.2 kHz 采样中断搬到主循环**
+（中断只对齐码位、把 32-bit 原始码字入队，10 ms 节拍里跑 `lbj_process()` 做 BCH 与
+字状态机）——单次纠错最长 ~160 µs，远大于 52 µs 采样周期，三个切片在中断里跑必然丢采样。
 
 ### 使用步骤
 
@@ -268,7 +303,10 @@ Per 19.2 kHz sample:
    is sliced — the peak tracker scales it, so no division is needed.
 4. Symmetric peak trackers (attack/decay 1/256) with a **hysteresis** slice
    (`±(hi-lo)/64`, as the reference `_d8`): noise near the threshold neither
-   flips the bit nor kicks the DPLL.
+   flips the bit nor kicks the DPLL. The resident firmware feature now runs
+   **three** such bands (`>>3`, `>>5`, `>>7`) over the same front-end and merges
+   their pages (#12, below) - `DemodInt` takes the band width as a parameter and
+   defaults to the single `>>6` band the overlay app runs.
 5. **DPLL**: 65536 per bit, 4096 per sample; each level transition pulls the
    phase toward the bit boundary (proportional only, as upstream); the bit is
    sampled at the 0.5 crossing.
@@ -335,7 +373,8 @@ EXIT quit. Nothing is written to the app config any more (no `cfg_load` /
 ```
 cd test
 python pocsag.py          # frame builder/decoder self-test
-python model_rx.py        # synthetic sweep (table below)
+python model_rx.py        # synthetic sweep (tables below)
+python model_rx.py hp     # the same sweep with a high-passed audio path (#12)
 python model_rx.py <file.wav>   # decode a discriminator recording
 ```
 
@@ -393,8 +432,39 @@ on the radio rather than a different number here.
 
 Note the model's `raw` path is a 5 kHz low-pass with no high-pass: give
 `audio_path(..., hp=…)` a corner to see how a high-passed RAW path droops, which
-is what a single-threshold slicer is weak against (upstream answers that with
-three hysteresis slicers).
+is what a single-threshold slicer is weak against. That corner is what #12
+answers: the same transmission read through three hysteresis bands and merged
+page by page (`python model_rx.py hp`, 8 seeds, noise 1500, address 1234000
+func 3):
+
+| hp corner | single slicer (k=6) | #12, three merged |
+|---|---|---|
+| 0 Hz (no high-pass) | 8/8 | 8/8 |
+| 30 Hz | 4/8 | **8/8** |
+| 50 Hz | 1/8 | **6/8** |
+| 100 Hz | 0/8 | 0/8 |
+| 300 Hz | 1/8 | **7/8** |
+| 600 Hz | 0/8 | **3/8** |
+| 1000 Hz | 0/8 | 0/8 |
+| 1500 Hz | 0/8 | 0/8 |
+
+The three bands are `h = (hi-lo) >> {3,5,7}`: `k=3` flips late but never on
+noise, `k=7` flips on the drooping edge, `k=5` in between. The set came out of
+that sweep (k-sets were tried one by one; `{3,5,7}` beat `{5,6,7}`, `{4,5,6}`,
+`{6,7,8}`, `{4,6,8}`, `{5,7,9}`, `{2,4,6}`). On the flat cases the merge is never
+worse than the single chain:
+
+| Case | single slicer | #12 merged |
+|---|---|---|
+| noise 4500 | 2/3 | **3/3** |
+| clean / 1500 / 3000 / ±1 % clock / AC-coupled | 3/3 | 3/3 |
+| STD audio path | 0/3 | 0/3 |
+
+Two honest caveats the firmware accepts as they are: at a 100 Hz corner *no*
+slicer finds the sync at all (the single chain is 0/8 there too - a resonance of
+that synthetic corner with the bit pattern, not something the merge can fix),
+and past ~1000 Hz the high-pass has left nothing to read. Upstream reaches the
+same design (`s2/s3/s4` over a shared front-end, one page merge).
 
 ## Notes
 
