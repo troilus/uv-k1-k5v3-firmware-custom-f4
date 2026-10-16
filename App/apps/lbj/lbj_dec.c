@@ -3,8 +3,9 @@
 #include "lbj_dec.h"
 
 #define POC_SYNC      0x7CD215D8u
-#define POC_SYNC_INV  2200824359u
 #define POC_IDLE      2055848343u
+#define SYNC_ERR      2u        /* wrong bits tolerated in a sync word (upstream);
+                                * the complement test is e >= 32 - SYNC_ERR */
 
 /* 32-bit popcount without a hardware instruction. */
 static uint8_t pc32(uint32_t x)
@@ -32,20 +33,33 @@ static uint16_t bch_syn(uint32_t d31)
  * single bit was corrected, 2 when it is uncorrectable. The verdict is what
  * the display's trailing '*' / '!' mark is made of (same as the resident LBJ
  * dual-watch popup); the 31 single-bit syndromes are recomputed on demand, so
- * there is no 62-byte table. */
+ * there is no 62-byte table.
+ *
+ * The syndrome only sees the 31-bit BCH word, never the trailing even-parity
+ * bit, so the parity is checked too (as upstream fix() does): a null syndrome
+ * with odd parity means the parity bit itself is the one in error, and a bit
+ * correction that still leaves the parity odd means a second bit was wrong -
+ * both are caught, where a syndrome-only decoder would keep a bad word. */
 static uint8_t bch_dec(uint32_t cw, uint32_t *out)
 {
     uint32_t d31 = (cw >> 1) & 0x7FFFFFFFu;
     uint16_t s = bch_syn(d31);
     if (!s) {
+        if (pc32(cw) & 1u) {           /* the parity bit is the error */
+            *out = cw ^ 1u;
+            return 1u;
+        }
         *out = cw;
         return 0u;
     }
     for (uint8_t p = 0; p < 31u; p++) {
         if (bch_syn(1u << p) == s) {
-            d31 ^= (1u << p);
-            *out = (d31 << 1) | (cw & 1u);
-            return 1u;
+            uint32_t c = ((d31 ^ (1u << p)) << 1) | (cw & 1u);
+            if ((pc32(c) & 1u) == 0u) {   /* even parity: the one bit was it */
+                *out = c;
+                return 1u;
+            }
+            break;                        /* odd: a second bit is wrong too */
         }
     }
     *out = cw;
@@ -61,6 +75,11 @@ static void lbj_flush(lbj_rx_t *r)
     if (!r->n)
         return;
     for (uint8_t i = 0; i < r->n; i++) {
+        if (!r->cws[i]) {                    /* a lost word: its 5 chars are '?' */
+            for (uint8_t n = 0; n < 5u; n++)
+                bcd[k++] = '?';
+            continue;
+        }
         uint32_t d20 = (r->cws[i] >> 11) & 0xFFFFFu;
         for (uint8_t n = 0; n < 5u; n++) {
             uint8_t v = (uint8_t)((d20 >> (16u - n * 4u)) & 0xFu);
@@ -79,11 +98,14 @@ void lbj_rx_bit(lbj_rx_t *r, uint8_t bit)
     r->sr = (r->sr << 1) | (bit & 1u);
 
     if (r->state == 0u) {
-        if (pc32(r->sr ^ POC_SYNC) <= 3u) {
+        /* The discriminator polarity is not known: the sync word may arrive
+         * inverted. One popcount of xor with the sync word answers both. */
+        uint8_t e = pc32(r->sr ^ POC_SYNC);
+        if (e <= SYNC_ERR) {
             r->pol = 1u; r->state = 1u; r->wc = r->fp = r->nb = 0u;
             r->hunt = 0u;
             /* r->syncs++; */
-        } else if (pc32(r->sr ^ POC_SYNC_INV) <= 3u) {
+        } else if (e >= 32u - SYNC_ERR) {
             r->pol = 0u; r->state = 1u; r->wc = r->fp = r->nb = 0u;
             r->hunt = 0u;
             /* r->syncs++; */
@@ -107,9 +129,9 @@ void lbj_rx_bit(lbj_rx_t *r, uint8_t bit)
     r->fp++;
     r->wc++;
 
-    if (pc32(cor ^ POC_SYNC) <= 3u) {
+    if (pc32(cor ^ POC_SYNC) <= SYNC_ERR) {
         r->wc = r->fp = 0u;
-    } else if (pc32(cor ^ POC_IDLE) <= 3u) {
+    } else if (pc32(cor ^ POC_IDLE) <= SYNC_ERR) {
         if (r->inmsg)
             lbj_flush(r);
     } else if (!(cor >> 31)) {
@@ -122,8 +144,12 @@ void lbj_rx_bit(lbj_rx_t *r, uint8_t bit)
         r->err = (st == 2u) ? 1u : 0u;      /* new report: the verdict starts here */
         r->cor = (st == 1u) ? 1u : 0u;
     } else if (r->inmsg) {
+        /* A word that cannot be corrected is kept as a 0 marker (no real
+         * message word has its id bit clear): its 20 bits are lost but the
+         * words that follow stay in place, and the display fills the gap with
+         * '?'. The '!' mark is still set. */
         if (r->n < LBJ_CWMAX)
-            r->cws[r->n++] = cor;
+            r->cws[r->n++] = (st == 2u) ? 0u : cor;
         if (st == 2u)
             r->err = 1u;                    /* '!' wins over '*' */
         else if (st == 1u)

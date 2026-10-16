@@ -24,10 +24,13 @@
  * is sampled on ADC channel 4 at 19.2 kHz (16 samples per 1200-baud bit), timed
  * from SysTick, continuously. The receiver is switched to RAW (RX HPF/LPF,
  * de-emphasis and AFC off): the de-emphasis would destroy the NRZ baseband.
- * Each sample goes through the model in test/model_rx.py: slow baseline tracker,
- * low-pass biquad, a one-bit matched-filter boxcar (weak-signal win), symmetric
- * peak tracker with hysteresis, DPLL (65536/bit), then POCSAG sync / batch /
- * BCH(31,21) single-bit correction and the LBJ BCD layout.
+ * Each sample goes through the model in test/model_rx.py: slow baseline tracker
+ * (512 samples, slower than a run of 13 equal bits), low-pass biquad, a one-bit
+ * matched-filter boxcar (weak-signal win), symmetric peak tracker with
+ * hysteresis, proportional DPLL (65536/bit), then POCSAG sync (popcount <= 2) /
+ * batch / BCH(31,21) with the parity bit checked / the LBJ BCD layout. A
+ * codeword the BCH cannot correct is not dropped: its 20 bits are lost in place
+ * and shown as '?', so the rest of the report survives (soft erasure, upstream).
  *
  * Keys: UP/DOWN pick the newer/older record (one step per press, no auto-repeat);
  * 1 speaker; 2 clear; 4 backlight always-on / timeout; 5 Chinese/English (the
@@ -123,12 +126,14 @@ static inline volatile uint32_t *hw(uint32_t a){
 #define LBJ_FREQ_HZ10 82123750u
 
 /* ---- demodulator (test/model_rx.py, class DemodInt; the C is a transcription) */
-#define DC_SHIFT   7
+#define DC_SHIFT   9          /* ~512 samples = 26.7 ms, as upstream's >>8 at
+                               * 9.6 kHz: slower than a run of 13 equal bits,
+                               * so the baseline never chases the droop */
 #define PK_SHIFT   8
 #define PLL_STEP   4096        /* 65536 per bit / 16 samples per bit */
-#define PLL_SHIFT  3
-#define INT_SHIFT  9
-#define INT_MAX    82          /* ~ PLL_STEP * 0.02 */
+#define PLL_SHIFT  3           /* proportional DPLL: phase -= err >> 3, as
+                                * upstream (no integral term: it only cost code
+                                * and RAM, the model is identical without it) */
 #define BOX        16u         /* 1-bit matched filter (samples per bit) */
 #define M_B0       725         /* low-pass biquad 1500 Hz @ 19.2 kHz, Q14 */
 #define M_B1       1451
@@ -139,7 +144,7 @@ typedef struct {
     int32_t dc;
     int32_t x1, x2, y1, y2;
     int32_t hi, lo;
-    int32_t ph, iint;
+    int32_t ph;
     int32_t bsum;                  /* running sum of the last BOX samples */
     int16_t box[BOX];
     uint8_t last, bi;
@@ -175,7 +180,6 @@ static struct {
     // int32_t  rssi;
     // uint32_t rssiMs;
      */
-    uint32_t tPrev, tCyc;
     uint32_t savedSqr3, savedSmpr3;
 } g;
 #define str g.text
@@ -288,13 +292,16 @@ static uint16_t adcRead(void){
     return (uint16_t)(ADC_DR&0x0FFFu);
 }
 
-/* ---- SysTick cycle counter (call at least every 10 ms) ---- */
-static void clkStart(void){ g.tPrev=SYST_VAL; g.tCyc=0; }
+/* ---- absolute cycle clock: ticks_ms * 48000 + position in the period ----
+ * As SSTV and upstream POCSAG RX do: a blocking service (a full LCD blit is
+ * ~11 ms) cannot lose a whole SysTick period the way a counter of SYST_VAL
+ * differences can. The double read keeps the pair consistent across a period
+ * wrap. Wraps every ~89 s (2^32 / 48 MHz) and the (int32_t)(now - next) gap
+ * stays far under 44 s, so the signed comparison below stays valid. */
 static uint32_t clkCyc(void){
-    uint32_t v=SYST_VAL;
-    g.tCyc += (v<=g.tPrev) ? g.tPrev-v : g.tPrev+(SYST_LOAD+1u-v);
-    g.tPrev=v;
-    return g.tCyc;
+    uint32_t t,v;
+    do { t=g.A->ticks_ms(); v=SYST_VAL; } while(t!=g.A->ticks_ms());
+    return t*48000u + (SYST_LOAD-v);
 }
 
 /* ---- one ADC sample through the model (DemodInt.sample) ---- */
@@ -325,15 +332,24 @@ static void dem_sample(dem_t *m,int32_t x){
     if(level != m->last){
         int32_t err = m->ph;
         if(err > 32768) err -= 65536;
-        m->iint += err >> INT_SHIFT;
-        if(m->iint > INT_MAX) m->iint = INT_MAX; else if(m->iint < -INT_MAX) m->iint = -INT_MAX;
-        m->ph -= (err >> PLL_SHIFT) + m->iint;
+        m->ph -= err >> PLL_SHIFT;
         if(m->ph < 0) m->ph += 65536; else if(m->ph >= 65536) m->ph -= 65536;
     }
     m->last = level;
     int32_t p0 = m->ph;
     m->ph += PLL_STEP;
     if(p0 < 32768 && m->ph >= 32768) lbj_rx_bit(&g.rx, level);
+    if(m->ph >= 65536) m->ph -= 65536;
+}
+
+/* One sample that was NOT read (the keys and the screen were served): the DPLL
+ * phase runs on and the missing bit is taken as a zero, so a codeword keeps
+ * its alignment across the slot (upstream Demod.skip). The filters and the
+ * slicer state are left untouched, there is no ADC value for them. */
+static void dem_skip(dem_t *m){
+    int32_t p0 = m->ph;
+    m->ph += PLL_STEP;
+    if(p0 < 32768 && m->ph >= 32768) lbj_rx_bit(&g.rx, 0u);
     if(m->ph >= 65536) m->ph -= 65536;
 }
 
@@ -754,8 +770,7 @@ static void listen(void){
     dm.dc=BIAS_CODE; dm.hi=200; dm.lo=-200;   /* bsum is DC-free */
 
     adcSelPA4();
-    clkStart();
-    uint32_t next=0;
+    uint32_t next=clkCyc();
     uint16_t cnt=0;
     uint16_t ledCnt=0;
     g.redraw=1u;
@@ -773,7 +788,13 @@ static void listen(void){
         if(g.rx.inmsg && ++g.busyFor<BUSY_MAX) continue;   /* keep sampling a message */
         g.busyFor=0;
         house();
-        next=clkCyc();
+        /* The samples the slot took were not read: run the bit clocks over them
+         * and read the missing bits as zeros, so a batch keeps its codeword
+         * alignment (upstream Demod.skip). */
+        while((int32_t)(clkCyc()-next)>=0){
+            next+=CYC_PER_SAMPLE;
+            dem_skip(&dm);
+        }
     }
     adcRestore();
 }

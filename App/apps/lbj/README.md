@@ -8,11 +8,68 @@ Reference: [Sdr-Is-Fun/RTL_SDR_LBJ_RECEIVER](https://github.com/Sdr-Is-Fun/RTL_S
 (the Python chain this app is modelled on) and the APRS RX app of this firmware
 (PA4 sampling, DPLL, overlay-app conventions).
 
-Status: **v0.1, decoding confirmed on-air.** The demodulator and the
+Status: **v0.4, decoding confirmed on-air.** The demodulator and the
 POCSAG/LBJ decoder are validated in `test/model_rx.py` against synthetic frames
-(clean / noise / ±1 % clock / AC-coupled); see the table below.
+(clean / noise / ±1 % clock / AC-coupled / high-passed); see the tables below.
+
+What v0.2 changed (all mirrored in `test/model_rx.py`):
+
+- **Slower baseline tracker** (`DC_SHIFT` 7→9, 512 samples ≈ 26.7 ms): the
+  tracker no longer follows the AC-coupled droop, which is where most of the
+  gain is (AC-coupled case 1/3 → 3/3, noise 4500 0/3 → 2/3).
+- **Parity-checked BCH**: the trailing even-parity bit is checked too, catching
+  a parity-bit-only error and rejecting a "correction" that is really two bits.
+- **Soft erasure**: an uncorrectable word keeps its place with `?` characters
+  instead of being dropped, so the rest of the report survives.
+- **Sync popcount ≤ 2** (was ≤ 3), matching the model and upstream.
+- **Proportional-only DPLL** (the integral term cost code and RAM for no
+  measurable change).
+- **Absolute sample clock** (`ticks_ms * 48000 + SysTick position`) and the
+  **skip compensation** over the samples the key/screen slot took.
+
+v0.3 adds **machine-readable size reporting**: each flavour's exact overlay
+size (used and free) is emitted as a CI check-run annotation, which is where
+the "room left" figures below come from. A formatting slimming was tried here
+too (a `%10` / `/10` `putu` instead of the powers-of-ten table) and CI measured
+it **larger** on this Cortex-M0+ `-Oz` build, so it was reverted - on this
+target the table is the smaller form, and the compiler is the arbiter.
+
+v0.4 carries the v0.2/v0.3 decode set into the **resident firmware feature**
+(`App/app/lbj_dec.c`, `App/app/lbj_dual.c` - the LBJ dual-watch mode: set a
+channel's modulation to LBJ) and adds the item the overlay had no room for:
+
+- **The resident decoder caught up with the overlay** (until v0.4 it ran the
+  *old* chain: baseline `DC_SHIFT` 7, syndrome-only BCH with no parity check, no
+  soft erasure, sync popcount ≤ 3, and the DPLL integral term). It now has the
+  slower baseline tracker, the parity-checked BCH, the soft erasure, sync ≤ 2
+  and the proportional-only DPLL - the same code, transcribed.
+- **#12: three hysteresis slicers + page merge.** One front-end (baseline
+  tracker, biquad, boxcar matched filter, symmetric peak tracker), three slicers
+  with band widths `(hi-lo)>>{3,5,7}` and their own DPLLs, and a page merge that
+  takes each character from whichever slicer read it (a `?` from one is filled
+  from another, and the longer text extends the shorter). A single slicer
+  collapses as soon as the radio's audio path high-passes the NRZ; the overlay
+  cannot hold it (16 B free in the tightest flavour), the resident feature can.
+- **BCH moved out of the 19.2 kHz sampler ISR into the main loop.** The ISR
+  (`lbj_rx_bit`) only aligns the bit stream and queues the raw 32-bit words
+  (8-deep ring per slicer); the 10 ms tick drains them through BCH and the word
+  state machine (`lbj_process`). A correction is up to ~160 µs against a 52 µs
+  sample period, so decoding three slicers inside the ISR would have dropped
+  samples (the single old slicer was already marginal on error words).
+
+The overlay app itself is **unchanged** in v0.4 - there is no room in 4 KiB.
+The shared model gained `class Slicer`, `merge_pages()` and `hpsweep()`.
 
 ## 中文说明
+
+**v0.4**:解码改进落到了**常驻固件的 LBJ 双守模式**上（`App/app/lbj_dec.c`、
+`App/app/lbj_dual.c`，把某信道调制设为 LBJ 即可），overlay app 本身没变（4 KiB
+装不下）：常驻解码器补上了 v0.2/v0.3 的全套（慢基线 `DC_SHIFT` 7→9、带奇偶校验的
+BCH、软擦除 `?`、同步 ≤2、去积分 DPLL），并实现 overlay 放不下的 **#12：三切点
+迟滞切片 + 页级合并**（一个前端 `(hi-lo)>>{3,5,7}` 三个切片各带独立 DPLL，同一页
+三个切片各自解出的字符互补合并）。同时把 **BCH 从 19.2 kHz 采样中断搬到主循环**
+（中断只对齐码位、把 32-bit 原始码字入队，10 ms 节拍里跑 `lbj_process()` 做 BCH 与
+字状态机）——单次纠错最长 ~160 µs，远大于 52 µs 采样周期，三个切片在中断里跑必然丢采样。
 
 ### 使用步骤
 
@@ -191,10 +248,24 @@ CI（`.github/workflows/build-apps.yml`）一次出 **6 个工件**，下载后�
 | `overlay-apps-cn-coord` | 中文版 + 经纬度（并进地址行），隐藏9 |
 | `overlay-apps-cn9-coord` | 中文版 + 经纬度（并进地址行），不隐藏9 |
 
-余量（本地 GCC 10 `-Os` 实测，带 pin 的两个已计入 +60 B——频率两行 24 B 加
-REG_43/REG_30 三步 36 B；CI 的 GCC 13 `-Oz` 一般再小 40 B 左右）：英文版
-196 / 308 B、中文版 296 / 408 B、中文版+经纬度 **140 / 192 B**——与固件排版对齐的
-这一版把六档各省了 116～128 B，最紧的经纬度档也从"擦边"变成宽裕了。
+余量（CI GCC 13 `-Oz` 实测，每次构建都会以 check-run 注解给出，可随时从 API 复核：
+`::notice … N B used, M B free of 4096`）：
+
+| 档 | 已用 | 剩余 |
+|---|---|---|
+| 英文版，不隐藏9 | 3900 B | 196 B |
+| 英文版，隐藏9 + pin | 4020 B | 76 B |
+| 中文版，不隐藏9 | 3808 B | 288 B |
+| 中文版，隐藏9 + pin | 3928 B | 168 B |
+| 中文版 + 经纬度，不隐藏9 | 4020 B | 76 B |
+| 中文版 + 经纬度，隐藏9 + pin | **4080 B** | **16 B** |
+
+最紧的一档重新变成「中文版 + 经纬度 + 隐藏9 + pin」，只剩 16 B。
+
+教训（v0.3）：Cortex-M0+ 没有除法指令，遇到常数的 `/`、`%` 会引入 libgcc 的除法
+例程。把 `putu` 从查表改成 `%10` / `/10` 反而让 overlay **涨了 264 B**
+（3808 → 4072），六个档里五个溢出。本目标下查表才是小形态——overlay 里基本应禁用
+除法。
 
 ## Using the app
 
@@ -221,22 +292,38 @@ the NRZ baseband. The loader restores the registers on exit.
 
 Per 19.2 kHz sample:
 
-1. Slow baseline tracker (1-pole, 128 samples ≈ 8 bits) — essential: the LBJ
-   baseband is AC-coupled and the baseline drifts over many bits.
+1. Slow baseline tracker (1-pole, 512 samples ≈ 26.7 ms) — essential: the LBJ
+   baseband is AC-coupled and the baseline drifts over many bits. Its time
+   constant is slower than a run of 13 equal bits (11 ms), so the baseline never
+   chases the signal down; it is the same corner upstream uses (`>>8` at 9.6 kHz,
+   `>>9` here at 19.2 kHz).
 2. Low-pass biquad 1500 Hz (Q14 fixed point).
 3. **One-bit matched filter**: a 16-sample running sum (16 samples = one bit;
    its null at 1200 Hz rejects the data-rate harmonics). The sum, not the mean,
    is sliced — the peak tracker scales it, so no division is needed.
 4. Symmetric peak trackers (attack/decay 1/256) with a **hysteresis** slice
    (`±(hi-lo)/64`, as the reference `_d8`): noise near the threshold neither
-   flips the bit nor kicks the DPLL.
+   flips the bit nor kicks the DPLL. The resident firmware feature now runs
+   **three** such bands (`>>3`, `>>5`, `>>7`) over the same front-end and merges
+   their pages (#12, below) - `DemodInt` takes the band width as a parameter and
+   defaults to the single `>>6` band the overlay app runs.
 5. **DPLL**: 65536 per bit, 4096 per sample; each level transition pulls the
-   phase toward the bit boundary (proportional + small integral); the bit is
+   phase toward the bit boundary (proportional only, as upstream); the bit is
    sampled at the 0.5 crossing.
-6. POCSAG: sync `0x7CD215D8` / its inverse (popcount ≤ 3, polarity auto),
+6. POCSAG: sync `0x7CD215D8` / its inverse (popcount ≤ 2, polarity auto),
    16 codewords per batch, idle word, address/message words, **BCH(31,21)**
-   single-bit correction (feedback 873, 31-entry syndrome table), then the LBJ
-   BCD layout: 5 bit-reversed nibbles per word, alphabet `0123456789*U -)(`.
+   correction (feedback 873) with the trailing **even-parity bit checked too**
+   (as upstream `fix()`: a null syndrome with odd parity is a parity-bit error,
+   and a correction that still leaves the parity odd is a second bit,
+   uncorrectable). A word the BCH cannot correct is not dropped: its 20 bits are
+   skipped and its 5 characters shown as `?`, so the words after it stay in
+   place and the rest of the report survives (**soft erasure**, upstream). Then
+   the LBJ BCD layout: 5 bit-reversed nibbles per word, alphabet `0123456789*U -)(`.
+7. The keys and the screen are served between frames; the samples the slot took
+   are not read, so the bit clocks run on over them and the missing bits are
+   taken as zeros, keeping a codeword's alignment (upstream `Demod.skip`). The
+   sampling clock is the absolute `ticks_ms * 48000 + position in the SysTick
+   period`, so a long LCD blit cannot lose a whole period.
 
 Only messages whose address falls in the LBJ family window `1233980..1234020`
 (matching the upstream receiver) reach the history; other POCSAG traffic is
@@ -286,7 +373,8 @@ EXIT quit. Nothing is written to the app config any more (no `cfg_load` /
 ```
 cd test
 python pocsag.py          # frame builder/decoder self-test
-python model_rx.py        # synthetic sweep (table below)
+python model_rx.py        # synthetic sweep (tables below)
+python model_rx.py hp     # the same sweep with a high-passed audio path (#12)
 python model_rx.py <file.wav>   # decode a discriminator recording
 ```
 
@@ -321,20 +409,62 @@ on-radio, DAC-biased RAW path is the real target.
 
 ### Model results (`model_rx.py`, 3 seeds, address 1234000 func 3)
 
-After the 19.2 kHz / matched-filter / hysteresis change (before → after):
+v0.2 (DC tracker 7→9, parity-checked BCH, sync ≤ 2, proportional DPLL), against
+the previous matched-filter build:
 
-| Case | Before | After |
+| Case | matched-filter build | v0.2 |
 |---|---|---|
 | clean | 3/3 | 3/3 |
 | noise 1500 | 3/3 | 3/3 |
-| noise 3000 | 0/3 | 3/3 |
-| noise 4500 | 0/3 | 0/3 (sync 2, words 23) |
+| noise 3000 | 3/3 | 3/3 |
+| noise 4500 | 0/3 | 2/3 |
 | ±1 % clock | 3/3 | 3/3 |
 | STD audio path (de-emphasis) | 0/3 (why RAW is used) | 0/3 |
-| AC-coupled (no DAC bias) | 2/3 | 1/3 |
+| AC-coupled (no DAC bias) | 1/3 | 3/3 |
 
 The one-bit matched filter is the main win: it roughly doubles the noise the
-decoder tolerates (about +2–3 dB).
+decoder tolerates (about +2–3 dB). The v0.2 gain is the slower baseline tracker
+(26.7 ms): it stops following the AC-coupled droop, which is what lifted the
+AC-coupled case from 1/3 to 3/3 and noise 4500 from 0/3 to 2/3. The other v0.2
+changes (parity-checked BCH, soft erasure, ≤ 2 sync, proportional DPLL, the
+absolute clock and the skip compensation) mostly buy correctness and robustness
+on the radio rather than a different number here.
+
+Note the model's `raw` path is a 5 kHz low-pass with no high-pass: give
+`audio_path(..., hp=…)` a corner to see how a high-passed RAW path droops, which
+is what a single-threshold slicer is weak against. That corner is what #12
+answers: the same transmission read through three hysteresis bands and merged
+page by page (`python model_rx.py hp`, 8 seeds, noise 1500, address 1234000
+func 3):
+
+| hp corner | single slicer (k=6) | #12, three merged |
+|---|---|---|
+| 0 Hz (no high-pass) | 8/8 | 8/8 |
+| 30 Hz | 4/8 | **8/8** |
+| 50 Hz | 1/8 | **6/8** |
+| 100 Hz | 0/8 | 0/8 |
+| 300 Hz | 1/8 | **7/8** |
+| 600 Hz | 0/8 | **3/8** |
+| 1000 Hz | 0/8 | 0/8 |
+| 1500 Hz | 0/8 | 0/8 |
+
+The three bands are `h = (hi-lo) >> {3,5,7}`: `k=3` flips late but never on
+noise, `k=7` flips on the drooping edge, `k=5` in between. The set came out of
+that sweep (k-sets were tried one by one; `{3,5,7}` beat `{5,6,7}`, `{4,5,6}`,
+`{6,7,8}`, `{4,6,8}`, `{5,7,9}`, `{2,4,6}`). On the flat cases the merge is never
+worse than the single chain:
+
+| Case | single slicer | #12 merged |
+|---|---|---|
+| noise 4500 | 2/3 | **3/3** |
+| clean / 1500 / 3000 / ±1 % clock / AC-coupled | 3/3 | 3/3 |
+| STD audio path | 0/3 | 0/3 |
+
+Two honest caveats the firmware accepts as they are: at a 100 Hz corner *no*
+slicer finds the sync at all (the single chain is 0/8 there too - a resonance of
+that synthetic corner with the bit pattern, not something the merge can fix),
+and past ~1000 Hz the high-pass has left nothing to read. Upstream reaches the
+same design (`s2/s3/s4` over a shared front-end, one page merge).
 
 ## Notes
 
@@ -371,10 +501,26 @@ download the one you want and take the `LBJRX.app` inside:
 | `overlay-apps-cn-coord` | Chinese + coordinates in the address row, hide-9 |
 | `overlay-apps-cn9-coord` | Chinese + coordinates in the address row, show all |
 
-Room left (local GCC 10 `-Os`, the two pinned builds including their +60 B - the
-two frequency writes are 24 B, forcing REG_43 and the REG_30 re-calibration is
-36 B more; CI's GCC 13 `-Oz` is usually about 40 B smaller): English 196 / 308 B,
-Chinese 296 / 408 B, Chinese + coordinates **140 / 192 B**. The row-for-row
-firmware layout bought every flavour 116-128 B, so the coordinate build is no
-longer the razor-edge one. Everything cut to buy that room back is tagged
-`[C1]`..`[C6]` in the source, so it can be put back one item at a time.
+Room left, **measured by CI** (GCC 13 `-Oz`). Every figure is a check-run
+annotation from the build itself (`::notice … N B used, M B free of 4096`), so
+it can be re-checked from the API at any time:
+
+| Flavour | Used | Free |
+|---|---|---|
+| English, show-all | 3900 B | 196 B |
+| English, hide-9 + pin | 4020 B | 76 B |
+| Chinese, show-all | 3808 B | 288 B |
+| Chinese, hide-9 + pin | 3928 B | 168 B |
+| Chinese + coordinates, show-all | 4020 B | 76 B |
+| Chinese + coordinates, hide-9 + pin | **4080 B** | **16 B** |
+
+The razor-edge build is now Chinese + coordinates with hide-9 and the pinned
+frequency, at 16 B. `[C1]`..`[C6]` in the source tag everything cut to buy room,
+so it can be put back one item at a time.
+
+**A caution learned the hard way (v0.3):** the Cortex-M0+ has no divide
+instruction, so a `/` or `%` by a constant pulls in libgcc's division helper. A
+`putu` rewritten to walk the digits with `%10` / `/10` instead of the
+powers-of-ten table grew the overlay by **264 B** (3808 -> 4072) and overflowed
+five of the six flavours. The table is the small form on this target; division
+is effectively banned from the overlay.

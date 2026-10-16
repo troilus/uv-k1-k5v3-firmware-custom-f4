@@ -39,14 +39,23 @@ _SYNDROME_LUT = {calc_syndrome(1 << p): p for p in range(31)}
 
 
 def bch_decode(cw):
+    """(corrected, st): st 0 = clean, 1 = one bit corrected, 2 = uncorrectable.
+    Mirrors the C bch_dec / upstream fix(): the syndrome only sees the 31-bit
+    BCH word, so the trailing even-parity bit is checked too - a null syndrome
+    with odd parity is a parity-bit error, and a correction that leaves the
+    parity odd is a second bit, uncorrectable."""
     d31 = (cw >> 1) & 0x7FFFFFFF
     syn = calc_syndrome(d31)
     if syn == 0:
-        return cw, True
+        if popcount(cw) & 1:
+            return cw ^ 1, 1
+        return cw, 0
     fp = _SYNDROME_LUT.get(syn)
     if fp is not None:
-        return (((d31 ^ (1 << fp)) << 1) | (cw & 1)), True
-    return cw, False
+        c = ((d31 ^ (1 << fp)) << 1) | (cw & 1)
+        if (popcount(c) & 1) == 0:
+            return c, 1
+    return cw, 2
 
 
 def _word(idbit, data20):
@@ -143,6 +152,9 @@ def lbj_detail(prefix="T1", loco_code="201", loco_no="1234", route="京沪线"):
 def decode_bcd(cws):
     out = []
     for cw in cws:
+        if not cw:                       # a lost word (soft erasure): 5 '?'
+            out.append("?????")
+            continue
         d20 = (cw >> 11) & 0xFFFFF
         for n in range(5):
             v = (d20 >> (16 - n * 4)) & 0xF
@@ -155,8 +167,13 @@ if __name__ == "__main__":
     assert bch_encode(0) == 0
     for addr, func in ((1234000, 3), (1233999, 1), (1234001, 1), (1234002, 3)):
         for cw in batch(addr, func, lbj_short("412", 87, "01234")):
-            cor, ok = bch_decode(cw)
-            assert ok, hex(cw)
+            cor, st = bch_decode(cw)
+            assert st < 2, hex(cw)
+    # the parity bit is checked on its own: flipping it is one correctable bit
+    cw = address_cw(1234000, 3)
+    assert bch_decode(cw ^ 1) == (cw, 1)
+    # two wrong bits are detected, not "corrected" into another codeword
+    assert bch_decode(cw ^ 3)[1] == 2
     m = message_cws(lbj_short("412", 87, "01234"))
     print("bcd round-trip:", repr(decode_bcd(m)))
     print("addr cw:", hex(address_cw(1234000, 3)))

@@ -63,13 +63,26 @@
 #define SMP4_POS       12u
 #define BIAS_CODE      2048u
 
-#define DC_SHIFT   7
+#define DC_SHIFT   9          /* ~512 samples = 26.7 ms at 19.2 kHz: slower than
+                               * a run of 13 equal bits, so the baseline never
+                               * chases the droop. (#12) */
 #define PK_SHIFT   8
 #define PLL_STEP   4096
-#define PLL_SHIFT  3
-#define INT_SHIFT  9
-#define INT_MAX    82
+#define PLL_SHIFT  3          /* proportional DPLL only, as upstream: phase -=
+                               * err >> 3. The integral term only cost code and
+                               * RAM, the model is identical without it. (#12) */
 #define BOX        16u
+
+/* #12: three hysteresis slicers over ONE front-end (DC tracker, low-pass
+ * biquad, boxcar matched filter, symmetric peak tracker), merged page by page.
+ * k = 3 reads the level through a wide band (it flips late but never on noise),
+ * k = 7 through a narrow one (it flips on the drooping edge of a high-passed
+ * NRZ), k = 5 in between. The single k = 6 chain this replaces collapsed as
+ * soon as the radio audio path cut high; the three read the marginal bits
+ * differently and the merge keeps whichever read each character. Chosen with
+ * the model in App/apps/lbj/test/model_rx.py (hpsweep). */
+#define LBJ_SLICERS 3u
+static const uint8_t LBJ_SL_K[LBJ_SLICERS] = { 3u, 5u, 7u };
 #define M_B0       725
 #define M_B1       1451
 #define M_A1     (-21674)
@@ -102,15 +115,22 @@ static inline volatile uint32_t *hw(uint32_t a){
 #define REG_RAW2B_AND 0x0007u
 #define REG_RAW73_OR  0x0010u
 
-/* ---- demodulator (test/model_rx.py, class DemodInt) ---- */
+/* ---- demodulator (test/model_rx.py, class DemodInt / class Slicer) ----
+ * The front-end is shared; each hysteresis slicer keeps its own level and its
+ * own DPLL, so the three of them hang off one pass over the samples. */
+typedef struct {
+    uint8_t  last;                 /* level held between the two thresholds */
+    int32_t  ph;                   /* DPLL phase, 65536 per bit            */
+} slice_t;
+
 typedef struct {
     int32_t dc;
     int32_t x1, x2, y1, y2;
     int32_t hi, lo;
-    int32_t ph, iint;
     int32_t bsum;
     int16_t box[BOX];
-    uint8_t last, bi;
+    uint8_t bi;
+    slice_t sl[LBJ_SLICERS];
 } dem_t;
 
 static dem_t g_dm;
@@ -127,7 +147,7 @@ typedef struct {
 } lbj_rec_t;
 
 static struct {
-    lbj_rx_t rx;
+    lbj_rx_t rx[LBJ_SLICERS];     /* one decoder per hysteresis slicer (#12)   */
     char     sess[16];            /* last 1233999/1234000 short block (15 ch) */
     bool     sessValid;
     bool     popup;
@@ -141,18 +161,27 @@ static struct {
     uint8_t   count, cur;
     uint16_t  sec, subSec;        /* free running clock for the message age  */
 
-    volatile bool pending;        /* decoded report handed to the main loop   */
-    uint32_t pendAddr;
-    uint8_t  pendFunc;
-    uint8_t  pendErr, pendCor;    /* BCH verdict of the queued report          */
-    uint16_t pendLen;
-    char     pendBcd[LBJ_CWMAX * 5u];
+    /* #12 page merge: the slicers read the same transmission and each gives the
+     * same page, within a tick or two. It is held here until the last slicer
+     * has had its say, then committed to the history. */
+    uint16_t tick10;              /* 10 ms tick counter (the merge window)     */
+    uint16_t pgTick;              /* the tick the page was last handed over   */
+    uint32_t pgAddr;
+    uint8_t  pgFunc, pgUsed, pgErr, pgCor, pgLen;
+    char     pgBcd[LBJ_CWMAX * 5u];
 
     bool     on;                 /* sampler running                           */
     uint16_t ticks, lostTicks;
     uint32_t savedModer, savedDac, savedRcc, savedDhr, savedSqr3, savedSmpr3;
     uint16_t saved2B, saved73;
 } g;
+
+/* Ticks a page stays open for the other slicers before it is committed. The
+ * main loop runs every 10 ms; a slicer that lost the word ending a page only
+ * flushes it after the decoder's 64-bit hunt timeout (2 words, ~53 ms), so the
+ * window has to outlast that. A slow batch is 427 ms, so two pages can never
+ * overlap and can never be merged by mistake. */
+#define MERGE_TICKS 8u
 
 /* ---- formatting ---- */
 static char *put(char *o, const char *s){ while (*s) *o++ = *s++; return o; }
@@ -410,7 +439,8 @@ static char *putage(char *o, uint16_t sec){
 
 /* One unified layout for every LBJ address; missing fields are dashes. The
  * address code and the signal strength are added by the popup itself. */
-static void format(uint32_t addr, uint8_t func, const char *b, uint16_t len){
+static void format(uint32_t addr, uint8_t func, const char *b, uint16_t len,
+                   uint8_t err, uint8_t cor){
     char *o;
     const bool merged     = (len >= 65u);
     const bool det_addr   = (addr >= 1234001u);
@@ -431,8 +461,8 @@ static void format(uint32_t addr, uint8_t func, const char *b, uint16_t len){
      * arrived clean, '*' when a codeword was repaired, '!' when it could not be
      * repaired at all. */
     o = g.l0; o = puttrain(o, sb, func, have_short);
-    if (g.pendErr)      *o++ = '!';
-    else if (g.pendCor) *o++ = '*';
+    if (err)      *o++ = '!';
+    else if (cor) *o++ = '*';
     *o = '\0';
 
     /* route name initials (the popup draws them as "LINE xxx") */
@@ -475,19 +505,86 @@ static void format(uint32_t addr, uint8_t func, const char *b, uint16_t len){
     *o = '\0';
 }
 
-/* ---- decoder callback (timer ISR context: only queue the raw report; all
- * formatting/popup work is done by the main loop so the ISR stays light.) ---- */
+/* ---- decoder callbacks (main-loop context, from lbj_process; the ISR only
+ * queues raw words) ---------------------------------------------------------- */
+static void sanitize(char *s);
+static void history_push(uint32_t addr);
+
+/* Commit the held page to the history: the merge window closed. */
+static void page_commit(void)
+{
+    if (!g.pgUsed)
+        return;
+    g.pgUsed = false;
+
+    /* An address alone, or a copy with more characters lost than read, is a
+     * slicer that slipped a bit: its shifted codewords are valid ones as often
+     * as not. Do not show it (upstream drops it the same way). */
+    uint8_t lost = 0;
+    for (uint8_t i = 0; i < g.pgLen; i++)
+        if (g.pgBcd[i] == '?')
+            lost++;
+    if (2u * lost > g.pgLen)
+        return;
+
+    if ((g.pgAddr == 1233999u || g.pgAddr == 1234000u) && g.pgLen >= 15u){
+        for (uint8_t i = 0; i < 15u; i++) g.sess[i] = g.pgBcd[i];
+        g.sessValid = true;
+    }
+    format(g.pgAddr, g.pgFunc, g.pgBcd, g.pgLen, g.pgErr, g.pgCor);
+    sanitize(g.l0); sanitize(g.l1); sanitize(g.l2); sanitize(g.l3);
+
+#ifdef ENABLE_LBJ_HIDE9
+    /* Optional build: a train number starting with 9 is never displayed.
+     * g.l0 is "<prefix><digits> <dir>" exactly as puttrain() wrote it, so its
+     * first character is the first character of the shown train number. The
+     * session tracking above has already run: reception and decoding are
+     * untouched, only the report is dropped. */
+    if (g.l0[0] == '9')
+        return;
+#endif
+
+    history_push(g.pgAddr);
+    if (!g.dismissed){
+        g.popup = true;
+        g.dirty = true;
+    }
+}
+
+/* A page finished on one slicer. The other slicers read the same transmission
+ * and hand the same page over within a few ticks: hold it, let them have their
+ * say, and merge - a character one slicer lost ('?') is taken from another that
+ * read it, and the longer text extends the shorter (#12, as upstream). */
 void lbj_emit_msg(const lbj_rx_t *r, const char *bcd, uint16_t len){
     if ((uint32_t)(r->addr - 1233980u) > 40u)
         return;                                   /* keep the LBJ family only */
-    uint16_t n = (len > sizeof g.pendBcd) ? (uint16_t)sizeof g.pendBcd : len;
-    g.pendAddr = r->addr;
-    g.pendFunc = r->func;
-    g.pendErr  = r->err;
-    g.pendCor  = r->cor;
-    g.pendLen  = n;
-    for (uint16_t i = 0; i < n; i++) g.pendBcd[i] = bcd[i];
-    g.pending = true;
+    uint8_t n = (len > (uint16_t)sizeof g.pgBcd) ? (uint8_t)sizeof g.pgBcd
+                                                 : (uint8_t)len;
+
+    if (g.pgUsed && g.pgAddr == r->addr && g.pgFunc == r->func &&
+        (uint16_t)(g.tick10 - g.pgTick) < MERGE_TICKS){
+        for (uint8_t i = 0; i < n && i < g.pgLen; i++)
+            if (g.pgBcd[i] == '?')
+                g.pgBcd[i] = bcd[i];
+        for (uint8_t i = g.pgLen; i < n; i++)
+            g.pgBcd[i] = bcd[i];
+        if (n > g.pgLen)
+            g.pgLen = n;
+        if (r->err) g.pgErr = 1u;
+        if (r->cor) g.pgCor = 1u;
+        g.pgTick = g.tick10;
+        return;
+    }
+
+    page_commit();                                /* a different page: close it */
+    g.pgUsed = true;
+    g.pgAddr = r->addr;
+    g.pgFunc = r->func;
+    g.pgErr  = r->err;
+    g.pgCor  = r->cor;
+    g.pgLen  = n;
+    for (uint8_t i = 0; i < n; i++) g.pgBcd[i] = bcd[i];
+    g.pgTick = g.tick10;
 }
 
 /* Replace any non-printable byte so the font routine never sees one. */
@@ -523,44 +620,6 @@ static void history_push(uint32_t addr){
     copyline(g.rec[0].l2, (uint8_t)sizeof g.rec[0].l2, g.l2);
     copyline(g.rec[0].l3, (uint8_t)sizeof g.rec[0].l3, g.l3);
     g.cur = 0;                       /* a new report always shows the newest */
-}
-
-/* Format the queued report and (unless dismissed) show the popup. Main loop. */
-static void processPending(void){
-    if (!g.pending)
-        return;
-    char bcd[sizeof g.pendBcd];
-    uint32_t addr;
-    uint8_t  func;
-    uint16_t len;
-    NVIC_DisableIRQ(TIM3_IRQn);
-    addr = g.pendAddr; func = g.pendFunc; len = g.pendLen;
-    for (uint16_t i = 0; i < len; i++) bcd[i] = g.pendBcd[i];
-    g.pending = false;
-    NVIC_EnableIRQ(TIM3_IRQn);
-
-    if ((addr == 1233999u || addr == 1234000u) && len >= 15u){
-        for (uint8_t i = 0; i < 15u; i++) g.sess[i] = bcd[i];
-        g.sessValid = true;
-    }
-    format(addr, func, bcd, len);
-    sanitize(g.l0); sanitize(g.l1); sanitize(g.l2); sanitize(g.l3);
-
-#ifdef ENABLE_LBJ_HIDE9
-    /* Optional build: a train number starting with 9 is never displayed.
-     * g.l0 is "<prefix><digits> <dir>" exactly as puttrain() wrote it, so its
-     * first character is the first character of the shown train number. The
-     * session tracking above has already run: reception and decoding are
-     * untouched, only the report is dropped. */
-    if (g.l0[0] == '9')
-        return;
-#endif
-
-    history_push(addr);
-    if (!g.dismissed){
-        g.popup = true;
-        g.dirty = true;
-    }
 }
 
 /* ---- popup ---- */
@@ -714,6 +773,29 @@ static void biasOff(uint32_t dac, uint32_t dhr, uint32_t rcc, uint32_t moder){
     DAC_CR = dac; DAC_DHR12R1 = dhr; RCC_APBENR1 = rcc; GPIOA_MODER = moder;
 }
 
+/* One hysteresis slicer over the shared front-end: its own band width
+ * h = (hi-lo) >> k, its own level, its own DPLL. The level at the 0.5 crossing
+ * is the bit, and a level transition pulls the phase toward the bit boundary
+ * (proportional only, as upstream). */
+static void dem_slice(dem_t *m, uint8_t i, int32_t y, int32_t mid, int32_t pp){
+    slice_t *s = &m->sl[i];
+    const int32_t h = pp >> LBJ_SL_K[i];
+    uint8_t level = s->last;
+    if (y > mid + h) level = 1u; else if (y < mid - h) level = 0u;
+    if (level != s->last){
+        int32_t err = s->ph;
+        if (err > 32768) err -= 65536;
+        s->ph -= err >> PLL_SHIFT;
+        if (s->ph < 0) s->ph += 65536; else if (s->ph >= 65536) s->ph -= 65536;
+    }
+    s->last = level;
+    int32_t p0 = s->ph;
+    s->ph += PLL_STEP;
+    if (p0 < 32768 && s->ph >= 32768) lbj_rx_bit(&g.rx[i], level);
+    if (s->ph >= 65536) s->ph -= 65536;
+}
+
+/* One ADC sample through the shared front-end, then every slicer. */
 static void dem_sample(dem_t *m, int32_t x){
     m->dc += (x - m->dc) >> DC_SHIFT;
     int32_t y = x - m->dc;
@@ -728,22 +810,9 @@ static void dem_sample(dem_t *m, int32_t x){
     m->lo += (y - m->lo) >> PK_SHIFT;
     if (y < m->lo) m->lo = y;
     const int32_t mid = (m->hi + m->lo) >> 1;
-    const int32_t h = (m->hi - m->lo) >> 6;
-    uint8_t level = m->last;
-    if (y > mid + h) level = 1u; else if (y < mid - h) level = 0u;
-    if (level != m->last){
-        int32_t err = m->ph;
-        if (err > 32768) err -= 65536;
-        m->iint += err >> INT_SHIFT;
-        if (m->iint > INT_MAX) m->iint = INT_MAX; else if (m->iint < -INT_MAX) m->iint = -INT_MAX;
-        m->ph -= (err >> PLL_SHIFT) + m->iint;
-        if (m->ph < 0) m->ph += 65536; else if (m->ph >= 65536) m->ph -= 65536;
-    }
-    m->last = level;
-    int32_t p0 = m->ph;
-    m->ph += PLL_STEP;
-    if (p0 < 32768 && m->ph >= 32768) lbj_rx_bit(&g.rx, level);
-    if (m->ph >= 65536) m->ph -= 65536;
+    const int32_t pp  = m->hi - m->lo;
+    for (uint8_t i = 0; i < LBJ_SLICERS; i++)
+        dem_slice(m, i, y, mid, pp);
 }
 
 /* ---- 19.2 kHz sampler (TIM3 update interrupt) ---- */
@@ -815,9 +884,16 @@ void LBJ_AdcEnd(void){
 void LBJ_Tick(void){
     /* Free running clock used for the message age (10 ms resolution). */
     if (++g.subSec >= 100u){ g.subSec = 0; g.sec++; }
+    g.tick10++;
 
-    /* Format a decoded report queued by the ISR (main-loop context). */
-    processPending();
+    /* Run the BCH and the word state machine over what the 19.2 kHz ISR
+     * queued - the correction is far longer than the 52 us sample period and
+     * would make the sampler miss samples - then close the merge window of a
+     * page no slicer has handed over for a while. */
+    for (uint8_t i = 0; i < LBJ_SLICERS; i++)
+        lbj_process(&g.rx[i]);
+    if (g.pgUsed && (uint16_t)(g.tick10 - g.pgTick) >= MERGE_TICKS)
+        page_commit();
 
     /* Never sample while keyed up or in power save: the radio is reconfigured. */
     if (gCurrentFunction == FUNCTION_TRANSMIT || gPttIsPressed){
@@ -830,7 +906,7 @@ void LBJ_Tick(void){
      * radio falls asleep 10 s after the last key, and then LBJ_Tick() returns
      * before it can consume g.dirty, so the window freezes for good: the keys
      * it swallows never reach the wake-up in the normal key path either. The
-     * window may also open while already asleep (processPending runs above),
+     * window may also open while already asleep (the report is committed above),
      * so wake up in that case too. */
     if (g.popup){
         gBatterySaveCountdown_10ms = battery_save_count_10ms;
