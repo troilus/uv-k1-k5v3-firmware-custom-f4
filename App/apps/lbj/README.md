@@ -8,7 +8,7 @@ Reference: [Sdr-Is-Fun/RTL_SDR_LBJ_RECEIVER](https://github.com/Sdr-Is-Fun/RTL_S
 (the Python chain this app is modelled on) and the APRS RX app of this firmware
 (PA4 sampling, DPLL, overlay-app conventions).
 
-Status: **v0.8, decoding confirmed on-air.** The demodulator and the
+Status: **v0.9, decoding confirmed on-air.** The demodulator and the
 POCSAG/LBJ decoder are validated in `test/model_rx.py` against synthetic frames
 (clean / noise / ±1 % clock / AC-coupled / high-passed); see the tables below.
 
@@ -133,6 +133,25 @@ that still finds nothing to complete (no short block within 5 s, or a train that
 only ever sends details) fills those three rows with the placeholders used
 elsewhere (`--`, `SPD - km/h`, `KM -`) rather than leaving them blank.
 
+v0.9 aligns the page classification with the overlay's own `hasdet()` and drops
+what is not a report (resident-only):
+
+- **What a page is** is now decided by the address *and* the length, exactly as
+  the overlay does: a detail block needs at least 30 characters on
+  1234001/1234002 and only the 65-character merged report has one on the short
+  addresses; anything else of at least 15 characters is a short block. The
+  resident version used to key on the address alone, so a short page on any other
+  address in the window (for instance `1234008`, the tail-of-train signal) was
+  rendered from the last short block heard instead of its own characters - and,
+  since v0.7, filed an entry with every row empty.
+- **A page that is neither** - the 5-character status page the short addresses
+  send, and anything else below 15 characters - is dropped outright: no history
+  entry and no popup. The upstream receiver returns on that same page (and on
+  `1234008`) too; the overlay app still files its `--`/`-`/`-` row for it.
+- The point of both halves of that: no history entry can be left with blank rows.
+  An unpaired detail shows the placeholders above, and a short page shows its own
+  characters even when they decoded to padding codes (`U`, `*`, a blank).
+
 ## 中文说明
 
 **v0.4**:解码改进落到了**常驻固件的 LBJ 双守模式**上（`App/app/lbj_dec.c`、
@@ -189,6 +208,18 @@ BCH、软擦除 `?`、同步 ≤2、去积分 DPLL），并实现 overlay 放不
 新那条的前三行是空的、只剩 BCH 标记。现在记录改记"**收到过短报文**"这个事实，详情按它对号
 入座，车次解没解出来都一样。仍然配不上的详情（5 秒内没有短报文，或该车只发详情）不再留空行，
 而是填上和别处一致的占位：`--` / `SPD - km/h` / `KM -`。
+
+**v0.9** 把"一页算什么"的分类**对齐 overlay 自己的 `hasdet()`**，并丢掉不是报文的页（仅常驻固件）：
+
+- **分类改看地址 + 长度**，与 overlay 完全一致：详情块在 1234001/1234002 上至少 30 字符、
+  在短地址上只有 65 字符合并报文才有；其余 ≥15 字符的一律算短报文。常驻版以前**只看地址**，
+  于是窗口内**其他地址**（如 `1234008` 尾信号）的短页会去"借上一条短报文"显示，而不是用它
+  自己的字符；并且从 v0.7 起会留下**一行全空的记录**（就是你看到的那条）。
+- **两半都不占的页**——短地址发的那种 **5 字符状态页**，以及任何 <15 字符的页——**整页丢弃**：
+  不进历史、不弹窗。上游接收机对同一页（以及 `1234008`）也是直接 return；overlay app 仍会
+  为它留一行 `--`/`-`/`-` 占位。
+- 结果：**历史里再也不会出现整行空白的记录**。配不上的详情照旧显示占位，短页即使解出来的是
+  "填充码"（`U`/`*`/空格）也显示它自己的字符。
 
 ### 使用步骤
 
