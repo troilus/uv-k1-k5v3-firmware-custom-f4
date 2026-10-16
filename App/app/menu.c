@@ -144,7 +144,7 @@ int MENU_GetLimits(uint8_t menu_id, int32_t *pMin, int32_t *pMax)
 
         case MENU_F_LOCK:
             //*pMin = 0;
-        #if defined(ENABLE_FEAT_F4HWN_LBJ) && defined(ENABLE_FEAT_F4HWN_CN)
+        #if defined(ENABLE_FEAT_F4HWN_LBJ) && defined(ENABLE_FEAT_F4HWN_LBJ_TX_LOCK) && defined(ENABLE_FEAT_F4HWN_CN)
             *pMin = F_LOCK_CN;      // [LBJ] locked to CN HAM
             *pMax = F_LOCK_CN;
         #else
@@ -419,7 +419,7 @@ int MENU_GetLimits(uint8_t menu_id, int32_t *pMin, int32_t *pMax)
             break;
         #endif
         case MENU_TX_LOCK:
-        #ifdef ENABLE_FEAT_F4HWN_LBJ
+        #if defined(ENABLE_FEAT_F4HWN_LBJ) && defined(ENABLE_FEAT_F4HWN_LBJ_TX_LOCK)
             *pMin = 1;              // [LBJ] locked to ON
             *pMax = 1;
             break;
@@ -886,7 +886,7 @@ void MENU_AcceptSetting(void)
 #endif
 
         case MENU_F_LOCK: {
-        #if defined(ENABLE_FEAT_F4HWN_LBJ) && defined(ENABLE_FEAT_F4HWN_CN)
+        #if defined(ENABLE_FEAT_F4HWN_LBJ) && defined(ENABLE_FEAT_F4HWN_LBJ_TX_LOCK) && defined(ENABLE_FEAT_F4HWN_CN)
             return;                 // [LBJ] locked: F Lock stays CN HAM, no save
         #endif
             if(gSubMenuSelection == F_LOCK_NONE) { // select 10 times to enable
@@ -1047,7 +1047,7 @@ void MENU_AcceptSetting(void)
             gSetting_set_tmr = gSubMenuSelection;
             break;
         case MENU_TX_LOCK:
-        #ifdef ENABLE_FEAT_F4HWN_LBJ
+        #if defined(ENABLE_FEAT_F4HWN_LBJ) && defined(ENABLE_FEAT_F4HWN_LBJ_TX_LOCK)
             return;                 // [LBJ] locked: TXLock stays on, no save
         #endif
             gTxVfo->TX_LOCK = gSubMenuSelection;

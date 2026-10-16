@@ -228,6 +228,14 @@ enable_feature(ENABLE_FEAT_F4HWN_LBJ
 # build is unchanged; the CI passes -DENABLE_LBJ_HIDE9=ON for one of the two
 # firmware artifacts of each preset.
 enable_feature(ENABLE_LBJ_HIDE9)
+# Optional LBJ build variant: the TX-lock forcing the LBJRadio preset ships
+# (F Lock pinned to CN, TXLock forced on, both menu items locked). The LBJRadio
+# preset sets it ON; the LBJRadioTX preset leaves it OFF so the compiled binary
+# behaves as if that change had never been made and TX stays user-controllable.
+enable_feature(ENABLE_FEAT_F4HWN_LBJ_TX_LOCK)
+if(ENABLE_FEAT_F4HWN_LBJ_TX_LOCK AND NOT ENABLE_FEAT_F4HWN_LBJ)
+    message(FATAL_ERROR "ENABLE_FEAT_F4HWN_LBJ_TX_LOCK requires ENABLE_FEAT_F4HWN_LBJ.")
+endif()
 if(ENABLE_FEAT_F4HWN_LBJ AND NOT ENABLE_FEAT_F4HWN)
     message(FATAL_ERROR "ENABLE_FEAT_F4HWN_LBJ requires ENABLE_FEAT_F4HWN.")
 endif()

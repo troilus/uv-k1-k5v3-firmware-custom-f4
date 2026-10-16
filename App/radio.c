@@ -393,7 +393,7 @@ void RADIO_ConfigureChannel(const unsigned int VFO, const unsigned int configure
             pVfo->TX_LOCK           = !!((d4 >> 6) & 1u);
         }
 
-#if defined(ENABLE_FEAT_F4HWN_LBJ)
+#if defined(ENABLE_FEAT_F4HWN_LBJ) && defined(ENABLE_FEAT_F4HWN_LBJ_TX_LOCK)
         pVfo->TX_LOCK           = true;      // [LBJ] TXLock forced on every VFO/channel load
 #endif
 

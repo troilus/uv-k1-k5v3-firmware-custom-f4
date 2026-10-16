@@ -219,9 +219,19 @@
                 "ENABLE_SPECTRUM": false,
                 "ENABLE_FEAT_F4HWN_SPECTRUM": false,
                 "ENABLE_FEAT_F4HWN_LBJ": true,
+                "ENABLE_FEAT_F4HWN_LBJ_TX_LOCK": true,
                 "ENABLE_SWD": false,
                 "EDITION_STRING": "LBJRadio",
                 "TARGET": "lbjradio"
+            }
+        },
+        {
+            "name": "LBJRadioTX",
+            "inherits": "LBJRadio",
+            "cacheVariables": {
+                "ENABLE_FEAT_F4HWN_LBJ_TX_LOCK": false,
+                "EDITION_STRING": "LBJRadioTX",
+                "TARGET": "lbjradio.tx"
             }
         }
     ],
@@ -257,6 +267,10 @@
         {
             "name": "LBJRadio",
             "configurePreset": "LBJRadio"
+        },
+        {
+            "name": "LBJRadioTX",
+            "configurePreset": "LBJRadioTX"
         }
     ]
 }
