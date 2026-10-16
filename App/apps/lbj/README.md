@@ -8,9 +8,24 @@ Reference: [Sdr-Is-Fun/RTL_SDR_LBJ_RECEIVER](https://github.com/Sdr-Is-Fun/RTL_S
 (the Python chain this app is modelled on) and the APRS RX app of this firmware
 (PA4 sampling, DPLL, overlay-app conventions).
 
-Status: **v0.1, decoding confirmed on-air.** The demodulator and the
+Status: **v0.2, decoding confirmed on-air.** The demodulator and the
 POCSAG/LBJ decoder are validated in `test/model_rx.py` against synthetic frames
 (clean / noise / ±1 % clock / AC-coupled); see the table below.
+
+What v0.2 changed (all mirrored in `test/model_rx.py`):
+
+- **Slower baseline tracker** (`DC_SHIFT` 7→9, 512 samples ≈ 26.7 ms): the
+  tracker no longer follows the AC-coupled droop, which is where most of the
+  gain is (AC-coupled case 1/3 → 3/3, noise 4500 0/3 → 2/3).
+- **Parity-checked BCH**: the trailing even-parity bit is checked too, catching
+  a parity-bit-only error and rejecting a "correction" that is really two bits.
+- **Soft erasure**: an uncorrectable word keeps its place with `?` characters
+  instead of being dropped, so the rest of the report survives.
+- **Sync popcount ≤ 2** (was ≤ 3), matching the model and upstream.
+- **Proportional-only DPLL** (the integral term cost code and RAM for no
+  measurable change).
+- **Absolute sample clock** (`ticks_ms * 48000 + SysTick position`) and the
+  **skip compensation** over the samples the key/screen slot took.
 
 ## 中文说明
 
@@ -221,8 +236,11 @@ the NRZ baseband. The loader restores the registers on exit.
 
 Per 19.2 kHz sample:
 
-1. Slow baseline tracker (1-pole, 128 samples ≈ 8 bits) — essential: the LBJ
-   baseband is AC-coupled and the baseline drifts over many bits.
+1. Slow baseline tracker (1-pole, 512 samples ≈ 26.7 ms) — essential: the LBJ
+   baseband is AC-coupled and the baseline drifts over many bits. Its time
+   constant is slower than a run of 13 equal bits (11 ms), so the baseline never
+   chases the signal down; it is the same corner upstream uses (`>>8` at 9.6 kHz,
+   `>>9` here at 19.2 kHz).
 2. Low-pass biquad 1500 Hz (Q14 fixed point).
 3. **One-bit matched filter**: a 16-sample running sum (16 samples = one bit;
    its null at 1200 Hz rejects the data-rate harmonics). The sum, not the mean,
@@ -231,12 +249,22 @@ Per 19.2 kHz sample:
    (`±(hi-lo)/64`, as the reference `_d8`): noise near the threshold neither
    flips the bit nor kicks the DPLL.
 5. **DPLL**: 65536 per bit, 4096 per sample; each level transition pulls the
-   phase toward the bit boundary (proportional + small integral); the bit is
+   phase toward the bit boundary (proportional only, as upstream); the bit is
    sampled at the 0.5 crossing.
-6. POCSAG: sync `0x7CD215D8` / its inverse (popcount ≤ 3, polarity auto),
+6. POCSAG: sync `0x7CD215D8` / its inverse (popcount ≤ 2, polarity auto),
    16 codewords per batch, idle word, address/message words, **BCH(31,21)**
-   single-bit correction (feedback 873, 31-entry syndrome table), then the LBJ
-   BCD layout: 5 bit-reversed nibbles per word, alphabet `0123456789*U -)(`.
+   correction (feedback 873) with the trailing **even-parity bit checked too**
+   (as upstream `fix()`: a null syndrome with odd parity is a parity-bit error,
+   and a correction that still leaves the parity odd is a second bit,
+   uncorrectable). A word the BCH cannot correct is not dropped: its 20 bits are
+   skipped and its 5 characters shown as `?`, so the words after it stay in
+   place and the rest of the report survives (**soft erasure**, upstream). Then
+   the LBJ BCD layout: 5 bit-reversed nibbles per word, alphabet `0123456789*U -)(`.
+7. The keys and the screen are served between frames; the samples the slot took
+   are not read, so the bit clocks run on over them and the missing bits are
+   taken as zeros, keeping a codeword's alignment (upstream `Demod.skip`). The
+   sampling clock is the absolute `ticks_ms * 48000 + position in the SysTick
+   period`, so a long LCD blit cannot lose a whole period.
 
 Only messages whose address falls in the LBJ family window `1233980..1234020`
 (matching the upstream receiver) reach the history; other POCSAG traffic is
@@ -321,20 +349,31 @@ on-radio, DAC-biased RAW path is the real target.
 
 ### Model results (`model_rx.py`, 3 seeds, address 1234000 func 3)
 
-After the 19.2 kHz / matched-filter / hysteresis change (before → after):
+v0.2 (DC tracker 7→9, parity-checked BCH, sync ≤ 2, proportional DPLL), against
+the previous matched-filter build:
 
-| Case | Before | After |
+| Case | matched-filter build | v0.2 |
 |---|---|---|
 | clean | 3/3 | 3/3 |
 | noise 1500 | 3/3 | 3/3 |
-| noise 3000 | 0/3 | 3/3 |
-| noise 4500 | 0/3 | 0/3 (sync 2, words 23) |
+| noise 3000 | 3/3 | 3/3 |
+| noise 4500 | 0/3 | 2/3 |
 | ±1 % clock | 3/3 | 3/3 |
 | STD audio path (de-emphasis) | 0/3 (why RAW is used) | 0/3 |
-| AC-coupled (no DAC bias) | 2/3 | 1/3 |
+| AC-coupled (no DAC bias) | 1/3 | 3/3 |
 
 The one-bit matched filter is the main win: it roughly doubles the noise the
-decoder tolerates (about +2–3 dB).
+decoder tolerates (about +2–3 dB). The v0.2 gain is the slower baseline tracker
+(26.7 ms): it stops following the AC-coupled droop, which is what lifted the
+AC-coupled case from 1/3 to 3/3 and noise 4500 from 0/3 to 2/3. The other v0.2
+changes (parity-checked BCH, soft erasure, ≤ 2 sync, proportional DPLL, the
+absolute clock and the skip compensation) mostly buy correctness and robustness
+on the radio rather than a different number here.
+
+Note the model's `raw` path is a 5 kHz low-pass with no high-pass: give
+`audio_path(..., hp=…)` a corner to see how a high-passed RAW path droops, which
+is what a single-threshold slicer is weak against (upstream answers that with
+three hysteresis slicers).
 
 ## Notes
 

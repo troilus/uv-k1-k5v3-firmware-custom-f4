@@ -76,9 +76,15 @@ def deemp(x, tau, fs):
     return y
 
 
-def audio_path(x, mode, fs=FS_SIM):
+def audio_path(x, mode, fs=FS_SIM, hp=0.0):
     if mode == "raw":
-        return biquad(x, 5000, fs, "lp")
+        # RAW is not flat: the audio path still high-passes, and its corner is
+        # not known on the BK4829 (upstream sweeps 10..1500 Hz). A high-passed
+        # NRZ level droops back to zero during a run of equal bits (up to 13,
+        # 11 ms), which is what breaks a plain threshold slicer on the radio.
+        # hp=0 keeps the old, flat model; hp>0 is the honest one.
+        y = biquad(x, 5000, fs, "lp")
+        return biquad(y, hp, fs, "hp") if hp > 0.0 else y
     if mode == "std":
         x = biquad(x, 300, fs, "hp")
         x = deemp(x, 750e-6, fs)
@@ -223,11 +229,12 @@ class Receiver:
             return
         self.nb = 0
         raw = self.sr if self.pol == 1 else (~self.sr & 0xFFFFFFFF)
-        cor, ok = P.bch_decode(raw)
+        cor, st = P.bch_decode(raw)
+        ok = st < 2
         self.words += 1
         if ok:
             self.bch_ok += 1
-            if cor != raw:
+            if st == 1:
                 self.bch_fix += 1
         else:
             self.bch_bad += 1
@@ -245,11 +252,13 @@ class Receiver:
             self.addr = ((cor >> 13) & 0x3FFFF) * 8 + (self.fp - 1) // 2
             self.cws = []
             self.inmsg = True
-            self.err = not ok
+            self.err = (st == 2)
         elif (cor >> 31) == 1:
             if self.inmsg:
-                self.cws.append(cor)
-                if not ok:
+                # soft erasure: an uncorrectable word is a 0 marker, its 5
+                # characters become '?' and what follows stays in place
+                self.cws.append(0 if st == 2 else cor)
+                if st == 2:
                     self.err = True
         if self.wc >= 16:
             self.state = 0
@@ -271,15 +280,13 @@ class DemodInt:
     19.2 kHz: phase 65536/bit, step 4096; a 16-sample boxcar (one-bit matched
     filter, running sum) feeds the symmetric peak tracker with a hysteresis
     slice; the level at the 0.5 crossing is the bit, and a level transition
-    pulls the phase toward the bit boundary (proportional + small integral)."""
+    pulls the phase toward the bit boundary (proportional only, as upstream)."""
 
     B0, B1, A1, A2 = biquad_q14()
-    DC_SHIFT = 7
+    DC_SHIFT = 9
     PK_SHIFT = 8
     STEP = 4096
-    PLL_SHIFT = 3        # proportional: phase -= err >> 3
-    INT_SHIFT = 9        # integral: iint += err >> 9
-    INT_MAX = 82         # ~ step*0.02
+    PLL_SHIFT = 3        # proportional DPLL only, as upstream: phase -= err >> 3
     BOX = 16             # 1-bit matched filter (samples per bit)
 
     def __init__(self):
@@ -288,7 +295,6 @@ class DemodInt:
         self.hi = 200
         self.lo = -200
         self.ph = 0
-        self.iint = 0
         self.last = 0
         self.buf = [0] * self.BOX
         self.bi = 0
@@ -323,9 +329,7 @@ class DemodInt:
             err = self.ph
             if err > 32768:
                 err -= 65536
-            self.iint += err >> self.INT_SHIFT
-            self.iint = max(-self.INT_MAX, min(self.INT_MAX, self.iint))
-            self.ph -= (err >> self.PLL_SHIFT) + self.iint
+            self.ph -= err >> self.PLL_SHIFT
             if self.ph < 0:
                 self.ph += 65536
             elif self.ph >= 65536:
@@ -368,11 +372,11 @@ def parse_lbj(addr, func, bcd, err):
 
 # -------------------------------------------------------------------- tests ---
 
-def synthetic(addr, func, bcd, mode="raw", noise=1500.0, clock_err=0.0, seed=0, ac=False):
+def synthetic(addr, func, bcd, mode="raw", noise=1500.0, clock_err=0.0, seed=0, ac=False, hp=0.0):
     bits = P.transmission(addr, func, bcd, preamble_bits=576)
     lead = [0.0] * int(0.05 * FS_SIM)
     wave = lead + nrz(bits) + lead
-    wave = audio_path(wave, mode)
+    wave = audio_path(wave, mode, hp=hp)
     if ac:
         wave = audio_path(wave, "ac")
     adc = to_adc(wave, clock_err=clock_err, noise=noise, seed=seed)
