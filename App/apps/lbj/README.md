@@ -8,7 +8,7 @@ Reference: [Sdr-Is-Fun/RTL_SDR_LBJ_RECEIVER](https://github.com/Sdr-Is-Fun/RTL_S
 (the Python chain this app is modelled on) and the APRS RX app of this firmware
 (PA4 sampling, DPLL, overlay-app conventions).
 
-Status: **v0.5, decoding confirmed on-air.** The demodulator and the
+Status: **v0.6, decoding confirmed on-air.** The demodulator and the
 POCSAG/LBJ decoder are validated in `test/model_rx.py` against synthetic frames
 (clean / noise / ±1 % clock / AC-coupled / high-passed); see the tables below.
 
@@ -85,6 +85,21 @@ popup (again resident-only: the overlay app and its 4 KiB budget are untouched):
   latitude (a 19-entry Q15 table, 5 degree steps, linear in between). Integer
   only - no 64-bit product, no floating point, so no libgcc.
 
+v0.6 is a **display fix** (both the resident popup and the overlay app; the
+decoder is untouched, so it changes no decode rate):
+
+- **The speed and the km post accept the blanks a transmitter leaves in the
+  unused leading positions of their fixed-width fields.** The short prefix
+  carries the speed as 3 characters and the km post as 5 (`DDDD.D`), and a
+  transmitter that does not zero-pad sends a blank in the positions it
+  "shortened away" - so a speed below 100 and a km post below 1000 came out as
+  a dash even though they had decoded perfectly. The gate is now "digits plus
+  blanks" instead of "digits only", and a blank reads as a 0 in place
+  (` 87` -> `87`, ` 3447` -> `0344.7`); the upstream Android receiver does the
+  same (`replace(' ', '0')` before its digit test). A `?` (a word the BCH could
+  not repair) and an all-blank field still show a dash, so this can never
+  invent a value: the "never a fake 0" rule is kept.
+
 ## 中文说明
 
 **v0.4**:解码改进落到了**常驻固件的 LBJ 双守模式**上（`App/app/lbj_dec.c`、
@@ -112,6 +127,15 @@ BCH、软擦除 `?`、同步 ≤2、去积分 DPLL），并实现 overlay 放不
   0.0001° 恒为 0.011132 km，经度按平均纬度的余弦缩放（19 项 Q15 表、5° 一档、档间线性
   插值）。全程整数运算——没有 64 位乘积、没有浮点，所以不会拉进 libgcc。
 
+**v0.6** 是个**显示修正**（常驻弹窗和 overlay app 同步改；解码链没动，所以不改变解码成功率）：
+
+- **速度与公里标接受发送端在定宽字段高位留下的空格。** 短前缀里速度是 3 字符、公里标是
+  5 字符（`DDDD.D`）；发送端不做零填充时，被"省掉"的高位就是一个空格——于是 **<100 的
+  速度和 <1000 的公里标即使完整解出来也会显示 `-`**。判据从"全是数字"放宽成"数字或空格"，
+  空格按位置当 0（` 87`→`87`，` 3447`→`0344.7`）；上游安卓接收机就是这么做的（先
+  `replace(' ', '0')` 再判数字）。**`?`（BCH 修不回来的字）和整字段全空仍然显示 `-`**，
+  所以不会凭空造出数值，"绝不给假 0"的原则保留。
+
 ### 使用步骤
 
 1. 把 VFO 调到 LBJ 频率、**FM**（如 **821.2375 MHz**；BK4829 覆盖 760–1160 MHz）。
@@ -134,8 +158,9 @@ BCH、软擦除 `?`、同步 ≤2、去积分 DPLL），并实现 overlay 放不
 ███████████████████████████████     ← 顶栏：固件 UI_DisplayStatus() 原样（电池等）
 K412 DN                             ← 第1行：车次前缀 + 车次 + 方向（DN 下行 / UP 上行 / ?? 未知，粗体），
                                       末尾 BCH 标记：干净无字符、修复过加 `*`、修不好加 `!`（`!` 优先）
-SPD 87 km/h                         ← 第2行：速度（没解出来显示 `-`，不会显示假的 0）
-KM 0344.7                           ← 第3行：公里标（同上）
+SPD 87 km/h                         ← 第2行：速度（没解出来显示 `-`，不会显示假的 0；发送端在
+                                      高位留的空格当 0，见 v0.6）
+KM 0344.7                           ← 第3行：公里标（同上；`DDDD.D`，发送端在千位以上留的空格当 0）
 -------                             ← 第4行：短报文没有详情块 → 车型行画 7 个横杠（与固件一致）
 LINE -                              ← 第5行：同理无线路 → `LINE -`（与固件一致；中文版没有拼音行，留空）
 1234000 -95dB                       ← 第6行：解出的地址值 + 接收瞬间的信号强度
@@ -306,6 +331,9 @@ CI（`.github/workflows/build-apps.yml`）一次出 **6 个工件**，下载后�
 v0.5 的距离显示全在常驻固件里（`App/app/lbj_dual.c`），overlay 一个字节都没动，
 所以上表的余量不变；常驻固件的增量体现在 CI 出的固件工件体积上。
 
+v0.6 的显示修正**会动 overlay**（`putspd()` 与公里标那处的判据），所以上表的余量会有
+几十字节的变化，以 CI 每次构建给出的 `N B used, M B free of 4096` 为准。
+
 教训（v0.3）：Cortex-M0+ 没有除法指令，遇到常数的 `/`、`%` 会引入 libgcc 的除法
 例程。把 `putu` 从查表改成 `%10` / `/10` 反而让 overlay **涨了 264 B**
 （3808 → 4072），六个档里五个溢出。本目标下查表才是小形态——overlay 里基本应禁用
@@ -403,7 +431,7 @@ only LBJ-family messages reach it nowadays.
 
 | Page | Content |
 |---|---|
-| **SUM** | Newest/selected record, laid out row for row like the firmware's `LBJ_DrawPopup`: the status bar stays exactly as `UI_DisplayStatus()` draws it (battery and icons; the app draws no title and no frequency), then row 1 train + direction ending in the BCH verdict (nothing when the report arrived clean, `*` when a codeword was repaired, `!` when it could not be repaired at all; `!` wins), row 2 `SPD xx km/h`, row 3 `KM xxxxx.x`, row 4 model abbreviation + 8-digit registration number, row 5 `LINE xxx` route, row 6 the decoded address value plus the strength captured at reception (`1234002 -87dB`, small font, not bold). A short report (1233999/1234000) has no detail block, so rows 4/5 get the firmware's placeholders - `-------` and `LINE -` (the Chinese build, which has no pinyin row, leaves row 5 empty); the train/speed/km digits show a dash instead of a fake 0 unless a full 15-char short prefix is there, which is the firmware's own gate. A merged 65-char report uses its own short prefix, a standalone detail (30..64 chars) the last short report kept in `g.sess`. With `LBJ_COORDS` (off by default) the coordinates join row 6 in the tiny font as `1234002 -120dB 104-16.1E30-35.1N` - the upstream Android receiver's DMS layout and validity check, minutes to a tenth of a minute so the pair fits the 128 px row; a rejected pair or a detail block shorter than 47 chars falls back to the plain address row. The train number is prefixed with the train-class letter (K/T/D/C...) decoded from the detail block's `[0:4]` - the two ASCII chars the radio actually transmits, sticky like LBJ_Console's `lbjClass` so a short report still carries the last prefix seen. The bottom bar shows the key hints (`4` backlight, `1` speaker) then `x/y` (selected/count, 1 = newest), drawn from launch as `0/0`; it is not polled for RSSI any more |
+| **SUM** | Newest/selected record, laid out row for row like the firmware's `LBJ_DrawPopup`: the status bar stays exactly as `UI_DisplayStatus()` draws it (battery and icons; the app draws no title and no frequency), then row 1 train + direction ending in the BCH verdict (nothing when the report arrived clean, `*` when a codeword was repaired, `!` when it could not be repaired at all; `!` wins), row 2 `SPD xx km/h`, row 3 `KM xxxxx.x`, row 4 model abbreviation + 8-digit registration number, row 5 `LINE xxx` route, row 6 the decoded address value plus the strength captured at reception (`1234002 -87dB`, small font, not bold). A short report (1233999/1234000) has no detail block, so rows 4/5 get the firmware's placeholders - `-------` and `LINE -` (the Chinese build, which has no pinyin row, leaves row 5 empty); the train/speed/km digits show a dash instead of a fake 0 unless a full 15-char short prefix is there, which is the firmware's own gate (a blank the transmitter left in an unused leading position reads as a 0 since v0.6). A merged 65-char report uses its own short prefix, a standalone detail (30..64 chars) the last short report kept in `g.sess`. With `LBJ_COORDS` (off by default) the coordinates join row 6 in the tiny font as `1234002 -120dB 104-16.1E30-35.1N` - the upstream Android receiver's DMS layout and validity check, minutes to a tenth of a minute so the pair fits the 128 px row; a rejected pair or a detail block shorter than 47 chars falls back to the plain address row. The train number is prefixed with the train-class letter (K/T/D/C...) decoded from the detail block's `[0:4]` - the two ASCII chars the radio actually transmits, sticky like LBJ_Console's `lbjClass` so a short report still carries the last prefix seen. The bottom bar shows the key hints (`4` backlight, `1` speaker) then `x/y` (selected/count, 1 = newest), drawn from launch as `0/0`; it is not polled for RSSI any more |
 
 Keys: UP/DOWN pick the newer/older record (`nav_dir`: UV-K1 LEFT/RIGHT; one step
 per press — holding does not auto-repeat) · `1` speaker · `2` clear history +

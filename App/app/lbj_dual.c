@@ -277,11 +277,20 @@ static char cn_initial(uint8_t hi, uint8_t lo){
     return "ABCDEFGHJKLMNOPQRSTWXYZ"[k];
 }
 
-/* True when all n BCD characters are real digits. Used so a field that was
- * not decoded shows a dash instead of a fake 0. */
-static bool bcdnum(const char *p, uint8_t n){
-    for (uint8_t i = 0; i < n; i++) if (p[i] < '0' || p[i] > '9') return false;
-    return true;
+/* True when the n characters are digits plus the blanks a transmitter leaves
+ * in the unused leading positions of a fixed-width number (the speed's
+ * hundreds, the km post's thousands). A blank means 0 there, so it must not
+ * hide the value - but '?' is a lost word and must still read as a dash, never
+ * a fake 0, and so must an all-blank field (no number was sent at all). */
+static bool bcdpad(const char *p, uint8_t n){
+    bool any = false;
+    for (uint8_t i = 0; i < n; i++){
+        const char c = p[i];
+        if (c == ' ') continue;
+        if (c < '0' || c > '9') return false;
+        any = true;
+    }
+    return any;
 }
 
 /* Locomotive model code -> ASCII name. Hard coded so there is no pointer
@@ -676,16 +685,17 @@ static void format(uint32_t addr, uint8_t func, const char *b, uint16_t len,
     }
     *o = '\0';
 
-    /* row1: speed. A speed that was not decoded is a dash, never a 0. */
+    /* row1: speed. A lost or unsent speed is a dash, never a 0, while the
+     * blanks a transmitter leaves in the unused hundreds are zeros (bcdpad). */
     o = g.l1; o = put(o, "SPD ");
-    if (have_short && bcdnum(sb + 6u, 3u)) o = putu(o, digv(sb + 6u, 3u));
+    if (have_short && bcdpad(sb + 6u, 3u)) o = putu(o, digv(sb + 6u, 3u));
     else                                   *o++ = '-';
     o = put(o, " km/h");
     *o = '\0';
 
     /* row2: position km, same rule as the speed */
     o = g.l2; o = put(o, "KM ");
-    if (have_short && bcdnum(sb + 10u, 5u)) o = putkm(o, sb + 10u);
+    if (have_short && bcdpad(sb + 10u, 5u)) o = putkm(o, sb + 10u);
     else                                    *o++ = '-';
     *o = '\0';
 
