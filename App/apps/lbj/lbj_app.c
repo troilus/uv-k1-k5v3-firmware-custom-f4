@@ -201,9 +201,16 @@ static char *putu(char *o,uint32_t v){
     for(uint8_t i=0;i<n;i++){ char c=p[i]; if(c>='0'&&c<='9') v=v*10u+(uint32_t)(c-'0'); }
     return v;
 }
+/* True when all n chars are real BCD digits. A field that was not decoded must
+ * show a dash, never a fake 0: the same test the firmware's lbj_dual.c uses
+ * (bcdnum), shared by the speed and the position km. */
+static bool bcdnum(const char *p,uint8_t n){
+    for(uint8_t i=0;i<n;i++) if(p[i]<'0'||p[i]>'9') return false;
+    return true;
+}
 /* 3 BCD chars -> decimal, or a dash when the field was not decoded at all. */
 static char *putspd(char *o,const char *p){
-    if((uint8_t)(p[0]-'0')>9u){ *o++='-'; return o; }
+    if(!bcdnum(p,3u)){ *o++='-'; return o; }
     return putu(o,digv(p,3u));
 }
 /* 5 BCD chars -> DDDD.D (blank / non-digit -> 0) */
@@ -553,9 +560,10 @@ static void drawSummary(char *s){
     o=put(o,s+T_KMH); *o='\0';
     A->print_bold(str,0,0,1);
 
-    /* row2: position km, same rule as the speed. */
+    /* row2: position km, same rule as the speed: only a fully decoded 5-char
+     * field is a number, anything else is a dash (never a fake 0000.0). */
     o=str; o=put(o,s+T_KM);
-    if(have) o=putkm(o,sb+10u); else *o++='-';
+    if(have && bcdnum(sb+10u,5u)) o=putkm(o,sb+10u); else *o++='-';
     *o='\0';
     A->print_bold(str,0,0,2);
 
