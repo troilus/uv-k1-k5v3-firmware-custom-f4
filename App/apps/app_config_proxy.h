@@ -9,7 +9,11 @@
  * by another installed app.  Writes remain deferred until the editor exits. */
 #define APP_CONFIG_PROXY_MAGIC 0x31505843u /* "CXP1" */
 #define APP_CONFIG_PROXY_MAX   117u
-#define APP_CONFIG_LOCAL_MAX   16u
+/* An app's own saved config (cfg_load/cfg_save without that descriptor).  It
+ * lived in 16 bytes until an app needed to keep five positions; an app whose
+ * settings are longer than 16 bytes must declare API level 3, since an older
+ * resident would silently truncate them. */
+#define APP_CONFIG_LOCAL_MAX   96u
 
 typedef struct {
     uint32_t magic;

@@ -423,9 +423,14 @@ static uint32_t app_rx_freq(void)      { return gRxVfo->pRX->Frequency; }
  * slot header), tagged with the app's name. Updating an app erases its slot: the
  * tagged config is kept across that erase and handed back to the app of that name
  * only, so an update keeps the app's settings while another app installed in the
- * slot starts from its own defaults. */
-#define APP_CFG_OFFSET  0x40u    /* config area within the header sector */
-#define APP_CFG_OWNER   0x50u    /* name of the app the config belongs to */
+ * slot starts from its own defaults.
+ *
+ * The area is APP_CONFIG_LOCAL_MAX bytes and the tag follows it, so an app that
+ * saved under the old 16-byte layout still reads back: its tag sits inside the
+ * wider area now, reads as erased flash and so takes the "untagged" branch
+ * below (its first 16 bytes are exactly where they were). */
+#define APP_CFG_OFFSET  0x40u   /* config area, right after the slot header */
+#define APP_CFG_OWNER   (APP_CFG_OFFSET + APP_CONFIG_LOCAL_MAX)
 
 static void app_cfg_load(uint8_t *buf, uint8_t len)
 {
@@ -471,8 +476,7 @@ static void app_cfg_save(const uint8_t *buf, uint8_t len)
     app_state.cfg_len = len;   /* mark dirty; the loader commits after the app returns */
 }
 
-_Static_assert(APP_CFG_OFFSET + APP_CONFIG_LOCAL_MAX <= APP_CFG_OWNER &&
-               APP_CFG_OWNER + APP_NAME_LEN <= APP_ASSET_OFFSET,
+_Static_assert(APP_CFG_OWNER + APP_NAME_LEN <= APP_ASSET_OFFSET,
                "config area overlaps its owner tag or the assets");
 
 /* ---- API level 2: time, randomness, read-only assets ---- */
@@ -719,6 +723,28 @@ uint8_t APP_ValidateSlot(uint8_t slot, app_header_t *out_header)
     if (rc == APP_OK && out_header)
         *out_header = h;
     return rc;
+}
+
+/* The same bytes cfg_load hands an app, for resident code that wants an app's
+ * own settings (the LBJ popup reads the position store LBJ Edit keeps).  The
+ * owner tag must name the app in the slot, or read as erased flash - the config
+ * of an app that used to live there is stale and belongs to nobody. */
+bool APP_ReadSlotConfig(uint8_t slot, uint8_t *buf, uint16_t len)
+{
+    app_header_t h;
+    char owner[APP_NAME_LEN];
+
+    if (app_read_validated_header(slot, &h) != APP_OK)
+        return false;
+    if (len > APP_CONFIG_LOCAL_MAX)
+        len = APP_CONFIG_LOCAL_MAX;
+
+    const uint32_t base = APP_SLOT_BASE(slot);
+    PY25Q16_ReadBuffer(base + APP_CFG_OWNER, owner, sizeof(owner));
+    if ((uint8_t)owner[0] != 0xFFu && memcmp(owner, h.name, sizeof(owner)) != 0)
+        return false;
+    PY25Q16_ReadBuffer(base + APP_CFG_OFFSET, buf, len);
+    return true;
 }
 
 uint8_t APP_SlotRevision(void)

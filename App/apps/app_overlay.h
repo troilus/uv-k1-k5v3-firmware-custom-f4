@@ -42,8 +42,8 @@
  * Header sector layout (slot-relative):
  *
  *   0x000  app_header_t (64 B)
- *   0x040  per-app config staged by cfg_save (16 B)
- *   0x050  name of the app that config belongs to (16 B, reserved up to 0x0FF);
+ *   0x040  per-app config staged by cfg_save (96 B)
+ *   0x0A0  name of the app that config belongs to (16 B, reserved up to 0x0FF);
  *          kept with the config when the slot is erased for an update
  *   0x100  packaged assets (API level 2, up to 3840 B, CRC-checked at launch);
  *          normally read-only, except for a validated config-proxy target block
@@ -159,6 +159,13 @@ enum {
 
 /* Read + validate a slot header (no CRC of the code). */
 uint8_t APP_ValidateSlot(uint8_t slot, app_header_t *out_header);
+
+/* Read the config bytes an app saved with cfg_save (APP_CONFIG_LOCAL_MAX at
+ * most), so resident code can make use of an app's own settings - the LBJ
+ * popup reads the position the LBJ Edit app keeps there.  False when the slot
+ * holds no validated app, or holds a config belonging to another app (a config
+ * survives a slot erase only for the app of the same name). */
+bool APP_ReadSlotConfig(uint8_t slot, uint8_t *buf, uint16_t len);
 
 /* Validate, load into the overlay, verify the code CRC, and run the app.
  * Returns when the app exits; the internal flash is never touched. */
