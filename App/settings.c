@@ -297,6 +297,11 @@ gEeprom.FreqChannel[1]   = IS_FREQ_CHANNEL(Data16[5]) ? Data16[5] : (FREQ_CHANNE
     gEeprom.REPEATER_TAIL_TONE_ELIMINATION = (Data[2] < 11) ? Data[2] : 0;
     gEeprom.TX_VFO                         = (Data[3] <  2) ? Data[3] : 0;
     gEeprom.BATTERY_TYPE                   = (Data[4] < BATTERY_TYPE_UNKNOWN) ? Data[4] : BATTERY_TYPE_1600_MAH;
+#ifdef ENABLE_FEAT_F4HWN_LBJ
+    /* LBJPOP. This byte was unused until now, so a radio that never stored one
+     * reads 0xFF here and the clamp turns that into 0 = ON, the default. */
+    gEeprom.LBJ_POPUP_TIME                 = (Data[5] < 5) ? Data[5] : 0;
+#endif
 
     // 0ED0..0ED7
     PY25Q16_ReadBuffer(0x00A0A8 + 0x40, Data, 8);
@@ -1032,6 +1037,9 @@ void SETTINGS_SaveSettings(void)
     State[2] = gEeprom.REPEATER_TAIL_TONE_ELIMINATION;
     State[3] = gEeprom.TX_VFO;
     State[4] = gEeprom.BATTERY_TYPE;
+    #ifdef ENABLE_FEAT_F4HWN_LBJ
+        State[5] = gEeprom.LBJ_POPUP_TIME;      /* 0x00A0C5, unused until now */
+    #endif
 
     // 0x0ED0
     State = SecBuf + 0x40;
