@@ -8,7 +8,7 @@ Reference: [Sdr-Is-Fun/RTL_SDR_LBJ_RECEIVER](https://github.com/Sdr-Is-Fun/RTL_S
 (the Python chain this app is modelled on) and the APRS RX app of this firmware
 (PA4 sampling, DPLL, overlay-app conventions).
 
-Status: **v0.12, decoding confirmed on-air.** The demodulator and the
+Status: **v0.13, decoding confirmed on-air.** The demodulator and the
 POCSAG/LBJ decoder are validated in `test/model_rx.py` against synthetic frames
 (clean / noise / ±1 % clock / AC-coupled / high-passed); see the tables below.
 
@@ -189,6 +189,21 @@ a detail sent right behind it still completes it into one full record (same 2 s
 window), while on its own it never reaches the history or the window. Nothing is
 lost - the block stays the partner of that detail - and nothing is invented.
 
+v0.13 adds the **LBJPOP** menu item (resident-only, right after `LBJ`), the power
+question the popup has always raised: while the window is up the firmware holds
+battery save off, so the radio sits at 100 % RX - and left open by accident it
+sits there for good. `ON` is the old behaviour. `3s`, `5s`, `10s` and `60s` close
+the window by itself that many seconds after the last thing that changed it: a
+new report, UP/DOWN paging or any key press. Closing is exactly what EXIT does -
+the rest of that same carrier is not interrupted by the window popping back up
+(the reports still go into the history) and the next carrier opens a fresh
+window - and 10 s after the last report the radio is back in battery save. A
+window opened by hand from the LBJ menu item is *pinned*: it never times out and
+stays up until EXIT or PTT, as it always did, which is also the way to read at
+leisure without touching the setting. Its byte is one the settings block had kept
+unused, so an upgrade reads 0xFF there and lands on `ON`: nothing changes for a
+radio whose owner never opens the item.
+
 ## 中文说明
 
 **v0.4**:解码改进落到了**常驻固件的 LBJ 双守模式**上（`App/app/lbj_dec.c`、
@@ -284,6 +299,15 @@ payload，所以车次/速度/公里标全丢的基础预警照样会到达 —�
 
 > 判据是"这一页 15 个字符里**没有任何一位是数字**"。若速度位还留着数字（例如车次空但速度有
 > `8`），那它不算空页，照旧显示 —— 有意的：收到过数字，只是字段不可用。
+
+**v0.13** 加上 **LBJPOP** 菜单项（仅常驻固件，紧跟 `LBJ` 之后），回答弹窗一直以来的耗电问题：
+窗口开着时固件会把省电**按住不放**，电台就一直 100% 收 —— 忘了关就一直这么耗下去。选 `ON`
+就是原来的行为；选 `3s`/`5s`/`10s`/`60s` 则窗口在**最后一次变化之后**这么多秒自己关掉：变化
+= 新报文、UP/DOWN 翻页、任意按键。关闭走的正是 EXIT 那条路 —— 同一次载波里后续报文**不会再把
+窗口弹回来**（报文照旧进历史），下一次载波重新正常弹出；最后一次报文之后 10 s 电台即回到省电。
+从 **LBJ 菜单手动打开**的窗口是**钉住的**：永不超时，一直留到 EXIT/PTT（和以前一样）—— 想慢慢
+看又不想动设置时就用它。存的字节用的是设置区里**一直空着的那一个**，所以升级后该字节是 `0xFF`、
+按 `ON` 处理：不动这个菜单项的人**行为完全不变**。
 
 ### 使用步骤
 

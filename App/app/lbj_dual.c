@@ -176,6 +176,12 @@ typedef struct {
 #define LBJ_DST_UNK    (-2)       /* detail block, but no usable fix: "--km"  */
 #define LBJ_DST_MAX  9999         /* 999.9 km; anything further reads ">999km" */
 
+/* LBJPOP, indexed by the stored setting: how many seconds the window the
+ * reports opened stays up after the last report or key. Index 0 is ON, i.e. up
+ * until EXIT or PTT as it always was. Kept in step with gSubMenu_LBJ_POP in
+ * ui/menu.c and with the clamp in SETTINGS_LoadSettings(). */
+static const uint8_t LBJ_POPUP_SECS[] = { 0, 3, 5, 10, 60 };
+
 static struct {
     lbj_rx_t rx[LBJ_SLICERS];     /* one decoder per hysteresis slicer (#12)   */
     char     sess[16];            /* last 1233999/1234000 short block (15 ch) */
@@ -183,6 +189,7 @@ static struct {
     bool     popup;
     bool     dirty;
     bool     dismissed;           /* popup dismissed until the carrier drops  */
+    bool     pinned;              /* the LBJ menu item opened it: no timeout  */
     char     pref[3];             /* sticky 2-char train prefix from the last detail */
     char     rt[5];               /* route initials of the report being formatted */
     int16_t  dst;                 /* distance of the report being formatted   */
@@ -197,6 +204,7 @@ static struct {
     lbj_rec_t rec[LBJ_HISTORY];   /* history, newest first                    */
     uint8_t   count, cur;
     uint16_t  sec, subSec;        /* free running clock for the message age  */
+    uint16_t  popSec;             /* g.sec the window last changed (LBJPOP)  */
 
     /* #12 page merge: the slicers read the same transmission and each gives the
      * same page, within a tick or two. It is held here until the last slicer
@@ -874,6 +882,7 @@ static void page_commit(void)
 #endif
 
     if (history_merge(g.pgAddr, g.pgFunc, g.pgLen, g.pgErr, g.pgCor) && !g.dismissed){
+        if (!g.popup) g.pinned = false;  /* opened by a report: LBJPOP applies */
         g.popup = true;
         g.dirty = true;
     }
@@ -1087,13 +1096,15 @@ void LBJ_ClosePopup(void){
 }
 
 /* Manually open the decode window (the LBJ menu item): unlike a received report
- * nothing re-arms it, so it simply stays until EXIT or PTT, and the newest
- * report is shown. Refuses when the history is still empty. */
+ * nothing re-arms it, so it simply stays until EXIT or PTT - the LBJPOP timeout
+ * does not apply to it (see g.pinned) - and the newest report is shown. Refuses
+ * when the history is still empty. */
 bool LBJ_OpenPopup(void){
     if (!g.count)
         return false;
     g.cur       = 0;
     g.popup     = true;
+    g.pinned    = true;              /* opened by hand: it never times out */
     g.dismissed = false;             /* an explicit open overrides an earlier EXIT */
     g.dirty     = true;
     return true;
@@ -1114,6 +1125,7 @@ bool LBJ_HandleKey(uint8_t key, bool pressed, bool held){
         return false;
     if (!pressed || held)                 /* held or released: eat it, but do not step again */
         return true;
+    g.popSec = g.sec;                     /* a key is activity: restart the LBJPOP count */
     if (key == KEY_EXIT){
         LBJ_ClosePopup();
         return true;
@@ -1427,7 +1439,21 @@ void LBJ_Tick(void){
 
     if (g.dirty){                                 /* refresh the popup from the main loop */
         g.dirty = false;
+        g.popSec = g.sec;                         /* activity: restart the LBJPOP count */
         BACKLIGHT_TurnOn();
         gUpdateDisplay = true;
+    }
+
+    /* LBJPOP: the window a report opened closes itself once the chosen number of
+     * seconds has gone by without a new report or a key. It is closed the way
+     * EXIT closes it, so the rest of that same carrier is not interrupted by it
+     * coming straight back (g.dismissed), and a later carrier opens a fresh
+     * window. The window the LBJ menu item opened is pinned (g.pinned) and stays
+     * up until EXIT or PTT, exactly as before. */
+    if (g.popup && !g.pinned){
+        const uint8_t t = gEeprom.LBJ_POPUP_TIME;
+        if (t < ARRAY_SIZE(LBJ_POPUP_SECS) && LBJ_POPUP_SECS[t] &&
+            (uint16_t)(g.sec - g.popSec) >= LBJ_POPUP_SECS[t])
+            LBJ_ClosePopup();
     }
 }

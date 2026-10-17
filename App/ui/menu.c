@@ -69,6 +69,7 @@ const t_menu_item MenuList[] =
 #endif
 #ifdef ENABLE_FEAT_F4HWN_LBJ
     {"LBJ",         MENU_LBJ           }, // last visible item: opens the decode window
+    {"LBJPOP",      MENU_LBJPOP        }, // how long that window stays up on its own
 #endif
     // hidden menu items from here on
     // enabled if pressing both the PTT and upper side button at power-on
@@ -230,6 +231,20 @@ const char gSubMenu_OFF_ON[][4] =
     "OFF",
     "ON"
 };
+
+#ifdef ENABLE_FEAT_F4HWN_LBJ
+/* The LBJPOP choices, in menu order. 0 is ON: the decode window the reports
+ * opened stays up exactly as it always did (until EXIT or PTT); the rest close
+ * it that many seconds after the last report or key press. */
+const char gSubMenu_LBJ_POP[][4] =
+{
+    "ON",
+    "3s",
+    "5s",
+    "10s",
+    "60s"
+};
+#endif
 
 const char gSubMenu_NA[4] =
 {
@@ -1423,6 +1438,11 @@ void UI_DisplayMenu(void)
         #endif
 #endif
 
+        #ifdef ENABLE_FEAT_F4HWN_LBJ
+            case MENU_LBJPOP:
+                strcpy(String, gSubMenu_LBJ_POP[gSubMenuSelection]);
+                break;
+        #endif
     }
 
     //#if !defined(ENABLE_SPECTRUM) || !defined(ENABLE_FMRADIO)

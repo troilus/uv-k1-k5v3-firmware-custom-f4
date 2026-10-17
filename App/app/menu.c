@@ -466,6 +466,13 @@ int MENU_GetLimits(uint8_t menu_id, int32_t *pMin, int32_t *pMax)
         #endif
 #endif
 
+        #ifdef ENABLE_FEAT_F4HWN_LBJ
+            case MENU_LBJPOP:
+                //*pMin = 0;
+                *pMax = ARRAY_SIZE(gSubMenu_LBJ_POP) - 1;
+                break;
+        #endif
+
         case MENU_VOL: {
             // SysInf paginates: 
             // page 0 = identity, 
@@ -1038,6 +1045,12 @@ void MENU_AcceptSetting(void)
             gRequestSaveChannel       = 1;
             return;
 #endif
+
+        #ifdef ENABLE_FEAT_F4HWN_LBJ
+            case MENU_LBJPOP:
+                gEeprom.LBJ_POPUP_TIME = gSubMenuSelection;
+                break;
+        #endif
     }
 
     gRequestSaveSettings = true;
@@ -1504,6 +1517,12 @@ void MENU_ShowCurrentSetting(void)
             gSubMenuSelection = gTxVfo->TX_LOCK;
             break;
 #endif
+
+        #ifdef ENABLE_FEAT_F4HWN_LBJ
+            case MENU_LBJPOP:
+                gSubMenuSelection = gEeprom.LBJ_POPUP_TIME;
+                break;
+        #endif
 
         default:
             return;

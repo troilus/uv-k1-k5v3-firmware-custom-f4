@@ -167,7 +167,11 @@ enum
 #ifdef ENABLE_FEAT_F4HWN_LBJ
     /* Not a setting: selecting it drops out of the menu and opens the decode
      * window on the main screen. Appended last so no existing id moves. */
-    MENU_LBJ
+    MENU_LBJ,
+    /* How long the decode window the reports opened stays up on its own before
+     * it closes itself: ON (as before), 3, 5, 10 or 60 s. The window the LBJ
+     * menu item opens by hand is not affected - it stays up as it always did. */
+    MENU_LBJPOP
 #endif
 };
 
@@ -178,6 +182,7 @@ extern const char        gSubMenu_TXP[8][6];
 extern const char        gSubMenu_SFT_D[3][4];
 extern const char        gSubMenu_W_N[2][7];
 extern const char        gSubMenu_OFF_ON[2][4];
+extern const char        gSubMenu_LBJ_POP[5][4];
 extern const char        gSubMenu_NA[4];
 extern const char        gSubMenu_TOT[11][7];
 extern const char* const gSubMenu_RXMode[4];

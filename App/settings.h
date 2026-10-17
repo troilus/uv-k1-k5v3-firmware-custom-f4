@@ -315,6 +315,13 @@ typedef struct {
     uint8_t               S0_LEVEL;
     uint8_t               S9_LEVEL;
 #endif
+
+#ifdef ENABLE_FEAT_F4HWN_LBJ
+    /* LBJPOP: how long the decode window that a report opened stays up on its
+     * own. 0 = ON (never closes itself, as before), 1..4 = 3/5/10/60 s. It lives
+     * in a settings byte that was unused until now (0x00A0C5, see settings.c). */
+    uint8_t               LBJ_POPUP_TIME;
+#endif
 } EEPROM_Config_t;
 
 extern EEPROM_Config_t gEeprom;
