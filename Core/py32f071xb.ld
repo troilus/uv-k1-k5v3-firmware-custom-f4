@@ -189,8 +189,11 @@ SECTIONS
          "FLASH overflowed by multiboot RAM-stub load image")
 
   /* Initialized data sections goes into RAM, load LMA copy after code.
-     Placed AFTER the overlay workspace (see above). */
-  .data :
+     Placed AFTER the overlay workspace (see above). The load address is
+     chained right behind the RAM-stub image: an explicit AT() (rather than
+     AT> FLASH) because the linker does not necessarily advance the FLASH
+     region cursor past an OVERLAY that carries its own AT(). */
+  .data : AT (LOADADDR(.mb_ramfunc) + SIZEOF(.mb_ramfunc))
   {
     . = ALIGN(4);
     _sdata = .;        /* create a global symbol at data start */
@@ -203,7 +206,7 @@ SECTIONS
 
     . = ALIGN(4);
     _edata = .;        /* define a global symbol at data end */
-  } >RAM AT (LOADADDR(.mb_ramfunc) + SIZEOF(.mb_ramfunc))
+  } >RAM
 
   /* The stub's FLASH load image was anchored above; .data's is chained right
      behind it by the explicit AT() above, so this only fires if a future edit
@@ -212,13 +215,13 @@ SECTIONS
          "Multiboot RAM-stub load image overlaps .data's load image")
 
   /* Explicit placement of .noncacheable (CherryUSB) + end-of-FLASH symbol */
-  .noncacheable :
+  .noncacheable : AT (LOADADDR(.data) + SIZEOF(.data))
   {
     . = ALIGN(4);
     *(.noncacheable)
     *(.noncacheable*)
     . = ALIGN(4);
-  } >RAM AT (LOADADDR(.data) + SIZEOF(.data))
+  } >RAM
 
   /* The stub's load image is anchored before .data, which is anchored before
      .noncacheable, so the highest FLASH byte in use is the end of
