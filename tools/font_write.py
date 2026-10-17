@@ -30,6 +30,9 @@ config bank 1..3 上，会互相覆盖。固件已经把字库搬到尾部空区
     --dry-run     只检查文件和地址，不连接对讲机
     --no-verify   跳过写完后的 CRC + 回读校验（不建议）
 
+官方 FontTool 生成的 .fon（以及仓库里的样本 16x16.FON / 8x8.FON）末尾会多带
+一个 CRLF 换行，它不是字模数据。脚本会自动忽略，不用手动改文件。
+
 写完直接拔线开机即可，不用重刷固件。
 """
 
@@ -253,20 +256,43 @@ def human(n: int) -> str:
     return f"{n:,}".replace(",", " ")
 
 
-def write_font(dev: Device, name: str, path: str, base: int, expected: int,
-               verify: bool = True):
+def load_font(path: str):
+    """读入 .fon，返回 (类型, 字模数据, 提示)。
+
+    官方 .fon（FontTool 生成 / 仓库样本）末尾常带一个 CRLF（0D 0A），
+    但字模本体仍然正好是 261,696 / 65,424 字节——多出来的只是行尾换行。
+    只有"去掉末尾换行后尺寸正好对上"时才忽略它，别的尺寸一律拒绝：
+    宁可让用户重新导出，也不能写半截字库进 flash。
+    """
+    if not os.path.isfile(path):
+        raise SystemExit(f"找不到文件：{path}")
+
     with open(path, "rb") as f:
         blob = f.read()
 
+    note = ""
+    if len(blob) not in (FONT16_SIZE, FONT8_SIZE):
+        trimmed = blob.rstrip(b"\r\n")
+        if len(trimmed) in (FONT16_SIZE, FONT8_SIZE) and len(trimmed) < len(blob):
+            note = f"（末尾 {len(blob) - len(trimmed)} 个换行字节已忽略）"
+            blob = trimmed
+
+    if len(blob) == FONT16_SIZE:
+        return "16×16", blob, note
+    if len(blob) == FONT8_SIZE:
+        return "8×8", blob, note
+
+    raise SystemExit(
+        f"{path} 大小是 {human(len(blob))} 字节，既不是 16×16（{human(FONT16_SIZE)}）"
+        f"也不是 8×8（{human(FONT8_SIZE)}），拒绝写入。"
+    )
+
+
+def write_font(dev: Device, name: str, path: str, base: int, blob: bytes,
+               verify: bool = True):
     print(f"\n== {name} ==")
     print(f"  文件   : {path}（{human(len(blob))} 字节）")
     print(f"  目标   : 0x{base:06X} .. 0x{base + len(blob) - 1:06X}")
-
-    if len(blob) != expected:
-        # 尺寸不对就拒绝，宁可什么都不写
-        howto = ("16×16 字库必须正好是 261,696 字节（0x3FE40）"
-                 if name.startswith("16") else "8×8 字库必须正好是 65,424 字节（0xFF90）")
-        raise SystemExit(f"文件大小不对：{howto}。请用 FontTool 重新导出。")
 
     if base < TAIL_FREE_START or base + len(blob) > TAIL_FREE_END:
         raise SystemExit("目标地址不在固件预留的尾部空区里，已中止（可能是脚本常量被改坏了）。")
@@ -356,22 +382,13 @@ def main():
     # 按文件大小判断是哪个字库，避免手滑把大字体写到小字体地址
     jobs = []
     for path in args.files:
-        if not os.path.isfile(path):
-            raise SystemExit(f"找不到文件：{path}")
-        size = os.path.getsize(path)
-        if size == FONT16_SIZE:
-            jobs.append(("16×16", path, FONT16_BASE))
-        elif size == FONT8_SIZE:
-            jobs.append(("8×8", path, FONT8_BASE))
-        else:
-            raise SystemExit(
-                f"{path} 大小是 {human(size)} 字节，既不是 16×16（{human(FONT16_SIZE)}）"
-                f"也不是 8×8（{human(FONT8_SIZE)}），拒绝写入。"
-            )
+        name, blob, note = load_font(path)
+        base = FONT16_BASE if name == "16×16" else FONT8_BASE
+        jobs.append((name, path, base, blob, note))
 
     print("将要写入：")
-    for name, path, base in jobs:
-        print(f"  {name:6s} {path} -> 0x{base:06X}")
+    for name, path, base, blob, note in jobs:
+        print(f"  {name:6s} {path} -> 0x{base:06X}（{human(len(blob))} 字节）{note}")
 
     if args.dry_run:
         print("\n--dry-run：只检查，没有连接对讲机。")
@@ -390,9 +407,8 @@ def main():
     try:
         version = dev.handshake()
         print(f"\n已连接：固件 {version or '(未知版本)'}（timestamp 0x{dev.timestamp:08X}）")
-        for name, path, base in jobs:
-            expected = FONT16_SIZE if name == "16×16" else FONT8_SIZE
-            write_font(dev, name, path, base, expected, verify=not args.no_verify)
+        for name, path, base, blob, note in jobs:
+            write_font(dev, name, path, base, blob, verify=not args.no_verify)
     except (IOError, TimeoutError) as e:
         print(f"\n失败：{e}")
         return 2
