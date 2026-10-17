@@ -168,6 +168,7 @@ typedef struct {
     char     trn[7];              /* train digits   (short block), "" if unknown */
     char     loc[9];              /* 8-digit registration (detail), "" if unknown */
     char     rt[5];               /* route name initials, e.g. "JGX"         */
+    char     pref[3];             /* train prefix currently baked into row0  */
     char     l0[14], l1[18], l2[14], l3[20];
 } lbj_rec_t;
 
@@ -199,6 +200,7 @@ static struct {
     bool     pendValid;           /* a hidden short block is waiting below    */
     uint16_t pendSec;             /* when that short block arrived            */
     char     pendL0[14], pendL1[18], pendL2[14];   /* its three rows, held back */
+    char     pendPref[3];         /* the prefix those three rows were built with */
     char     l0[14], l1[18], l2[14], l3[20];
 
     lbj_rec_t rec[LBJ_HISTORY];   /* history, newest first                    */
@@ -267,10 +269,17 @@ static uint8_t nib(char c){
  * as 2 BCD nibbles - exactly how the route field is packed. Decode them into
  * the sticky g.pref, printable bytes only, the usual blank pad dropped, so "K "
  * becomes "K". Sticky like LBJ_Console's lbjClass: a short report has no detail
- * block, yet still shows the last prefix seen. */
+ * block, yet still shows the last prefix seen.
+ *
+ * A '?' is a character no slicer could repair: that position keeps the value it
+ * already had instead of being wiped, so one lost codeword cannot strip a good
+ * prefix off its train. A real blank still clears the position, which is what a
+ * train without a class letter transmits. */
 static void decode_pref(const char *d){
     for (uint8_t i = 0; i < 2u; i++){
-        uint8_t v = (uint8_t)((nib(d[i * 2u]) << 4) | nib(d[i * 2u + 1u]));
+        if (d[i * 2u] == '?' || d[i * 2u + 1u] == '?')
+            continue;
+        const uint8_t v = (uint8_t)((nib(d[i * 2u]) << 4) | nib(d[i * 2u + 1u]));
         g.pref[i] = (v > 0x20u && v < 0x7Fu) ? (char)v : 0;  /* drop NUL/space */
     }
     g.pref[2] = '\0';
@@ -935,6 +944,28 @@ static void copyline(char *dst, uint8_t cap, const char *src){
     dst[i] = '\0';
 }
 
+/* Replace the train prefix at the start of a row0 string, keeping everything
+ * after it (train digits, direction) as it is. oldpref is the prefix currently
+ * baked into dst, so its length is what has to be dropped. Used when a detail
+ * block completes an entry whose short block arrived first: the short page was
+ * prefixed with the sticky value, which may belong to the previous train. */
+static void l0_reprefix(char *dst, uint8_t cap, const char *oldpref, const char *newpref){
+    uint8_t oldn = 0, len = 0;
+    char tmp[14];
+    uint8_t j = 0;
+
+    while (oldn < 2u && oldpref[oldn]) oldn++;
+    while (dst[len]) len++;
+    if (oldn > len) oldn = len;            /* never step past the NUL */
+
+    if (newpref[0]) tmp[j++] = newpref[0];
+    if (newpref[1]) tmp[j++] = newpref[1];
+    for (const char *p = dst + oldn; *p && j + 1u < (uint8_t)sizeof tmp; p++)
+        tmp[j++] = *p;
+    tmp[j] = '\0';
+    copyline(dst, cap, tmp);
+}
+
 /* Signal strength in dBm, with the same band correction the S-meter uses. */
 static int16_t lbj_dbm(void){
     return (int16_t)(BK4819_GetRSSI_dBm() + dBmCorrTable[gRxVfo->Band]);
@@ -979,7 +1010,13 @@ static bool key_eq(const char *a, const char *b){
  * in g.pend instead of being filed, so a detail arriving right behind it still
  * completes it into one full record, while on its own it never reaches the
  * history or the popup: nothing to show stands for a train we know nothing
- * about. */
+ * about.
+ *
+ * Row0 is the short block's, with one exception: the train prefix printed in
+ * front of the digits is a detail-block field. A detail therefore refreshes that
+ * prefix in place (l0_reprefix) - without this, a short block that arrived first
+ * kept the prefix of whichever train was heard before it, and its own detail
+ * never corrected it. */
 static bool history_merge(uint32_t addr, uint8_t func, uint16_t len, uint8_t err, uint8_t cor){
     const bool merged   = (len >= 65u);
     const bool own_sh   = page_has_short(addr, len);
@@ -1025,6 +1062,7 @@ static bool history_merge(uint32_t addr, uint8_t func, uint16_t len, uint8_t err
             copyline(g.pendL0, (uint8_t)sizeof g.pendL0, g.l0);
             copyline(g.pendL1, (uint8_t)sizeof g.pendL1, g.l1);
             copyline(g.pendL2, (uint8_t)sizeof g.pendL2, g.l2);
+            copyline(g.pendPref, (uint8_t)sizeof g.pendPref, g.pref);
             g.pendSec   = g.sec;
             g.pendValid = true;
             return false;
@@ -1034,6 +1072,7 @@ static bool history_merge(uint32_t addr, uint8_t func, uint16_t len, uint8_t err
         for (uint8_t k = (uint8_t)(g.count - 1u); k > 0u; k--)
             g.rec[k] = g.rec[k - 1u];
         g.rec[0].trn[0] = g.rec[0].loc[0] = g.rec[0].rt[0] = '\0';
+        g.rec[0].pref[0] = g.rec[0].pref[1] = '\0';
         g.rec[0].l0[0]  = g.rec[0].l1[0]  = g.rec[0].l2[0]  = g.rec[0].l3[0] = '\0';
         g.rec[0].dst    = LBJ_DST_NODET;
         g.rec[0].sh     = 0u;
@@ -1045,6 +1084,7 @@ static bool history_merge(uint32_t addr, uint8_t func, uint16_t len, uint8_t err
                 copyline(g.rec[0].l0, (uint8_t)sizeof g.rec[0].l0, g.pendL0);
                 copyline(g.rec[0].l1, (uint8_t)sizeof g.rec[0].l1, g.pendL1);
                 copyline(g.rec[0].l2, (uint8_t)sizeof g.rec[0].l2, g.pendL2);
+                copyline(g.rec[0].pref, (uint8_t)sizeof g.rec[0].pref, g.pendPref);
                 g.rec[0].sh = 1u;
                 g.pendValid = false;
             } else {
@@ -1054,6 +1094,7 @@ static bool history_merge(uint32_t addr, uint8_t func, uint16_t len, uint8_t err
                 char *o = g.rec[0].l0;
                 o = puttrain(o, g.sess, func, false);
                 *o = '\0';
+                copyline(g.rec[0].pref, (uint8_t)sizeof g.rec[0].pref, g.pref);
                 copyline(g.rec[0].l1, (uint8_t)sizeof g.rec[0].l1, "SPD - km/h");
                 copyline(g.rec[0].l2, (uint8_t)sizeof g.rec[0].l2, "KM -");
             }
@@ -1072,6 +1113,14 @@ static bool history_merge(uint32_t addr, uint8_t func, uint16_t len, uint8_t err
     g.rec[0].err  = err;
     g.rec[0].cor  = cor;
     if (own_sh){                     /* the short half, only when it is this report's */
+        /* Row0 starts with the train prefix, which the detail block owns. When
+         * this entry already has its detail and this page has none (a later
+         * short report of the same train), keep the entry's own prefix: the
+         * sticky g.pref may be another train's by now. */
+        if (!det_at && g.rec[0].loc[0])
+            l0_reprefix(g.l0, (uint8_t)sizeof g.l0, g.pref, g.rec[0].pref);
+        else
+            copyline(g.rec[0].pref, (uint8_t)sizeof g.rec[0].pref, g.pref);
         g.rec[0].sh = 1u;
         copyline(g.rec[0].trn, (uint8_t)sizeof g.rec[0].trn, g.trn);
         copyline(g.rec[0].l0, (uint8_t)sizeof g.rec[0].l0, g.l0);
@@ -1079,6 +1128,14 @@ static bool history_merge(uint32_t addr, uint8_t func, uint16_t len, uint8_t err
         copyline(g.rec[0].l2, (uint8_t)sizeof g.rec[0].l2, g.l2);
     }
     if (det_at){
+        /* The prefix in row0 is a detail-block field: refresh it now, so a short
+         * block that arrived first (and used the previous train's sticky prefix)
+         * is corrected as soon as its own detail shows up. A merged page carries
+         * its own short half, which already wrote this page's prefix above. */
+        if (!own_sh)
+            l0_reprefix(g.rec[0].l0, (uint8_t)sizeof g.rec[0].l0,
+                        g.rec[0].pref, g.pref);
+        copyline(g.rec[0].pref, (uint8_t)sizeof g.rec[0].pref, g.pref);
         copyline(g.rec[0].loc, (uint8_t)sizeof g.rec[0].loc, g.loc);
         copyline(g.rec[0].l3, (uint8_t)sizeof g.rec[0].l3, g.l3);
         copyline(g.rec[0].rt, (uint8_t)sizeof g.rec[0].rt, g.rt);
