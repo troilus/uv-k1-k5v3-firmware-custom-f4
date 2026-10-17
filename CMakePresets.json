@@ -207,6 +207,9 @@
                 "ENABLE_FEAT_F4HWN_QRCODE": true,
                 "ENABLE_FEAT_F4HWN_MEM": true,
                 "ENABLE_FEAT_F4HWN_LOGO": true,
+                "ENABLE_FEAT_F4HWN_MULTIBOOT": true,
+                "ENABLE_FEAT_F4HWN_MULTIBOOT_OVERLAY": true,
+                "ENABLE_FEAT_F4HWN_EXT_FLASH_RW": true,
                 "ENABLE_SWD": true,
                 "EDITION_STRING": "Fusion",
                 "TARGET": "f4hwn.fusion"

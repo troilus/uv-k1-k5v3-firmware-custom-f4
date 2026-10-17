@@ -27,8 +27,14 @@
 
 #define FONT16_SIZE      32
 #define FONT8_SIZE        8
-#define FLASH_FONT16_BASE  0x0A0000
-#define FLASH_FONT8_BASE   0x0E0000
+/* Built-in Chinese font, stored in the tail of the external SPI flash. It used
+ * to sit at 0x0A0000/0x0E0000, i.e. on top of multiboot's slot 4 and config
+ * banks 1..3; it now lives in the spare area between the overlay-app region and
+ * the Sonic interpolation reserve, so slots and banks no longer collide with
+ * it. Existing font data has to be rewritten at the new addresses with
+ * tools/font_write.py (the old FontTool still targets the old base). */
+#define FLASH_FONT16_BASE  0x18E000
+#define FLASH_FONT8_BASE   0x1CE000
 
 
 void UI_GenerateChannelString(char *pString, const uint16_t Channel)
@@ -406,8 +412,8 @@ static void sort(int16_t *a, int16_t *b)
     }
 #endif
 
-#if defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS)
-/* Shared bottom row for the overlay-apps selector. The EXIT action ends at
+#if defined(ENABLE_FEAT_F4HWN_MULTIBOOT) || defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS)
+/* Shared bottom row for the overlay-apps / multiboot selectors. The EXIT ends at
  * x=124; both key capsules and labels keep their positions. */
 void UI_DrawMenuKeyHints(const char *act_menu, const char *act_exit)
 {

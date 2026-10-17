@@ -71,6 +71,9 @@ const t_menu_item MenuList[] =
     {"LBJ",         MENU_LBJ           }, // last visible item: opens the decode window
     {"LBJPOP",      MENU_LBJPOP        }, // how long that window stays up on its own
 #endif
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
+    {"SetCfg",      MENU_SET_CFG       }, // pick the settings bank to boot with
+#endif
     // hidden menu items from here on
     // enabled if pressing both the PTT and upper side button at power-on
     {"F Lock",      MENU_F_LOCK        },
@@ -1441,6 +1444,18 @@ void UI_DisplayMenu(void)
         #ifdef ENABLE_FEAT_F4HWN_LBJ
             case MENU_LBJPOP:
                 strcpy(String, gSubMenu_LBJ_POP[gSubMenuSelection]);
+                break;
+        #endif
+
+        #ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
+            case MENU_SET_CFG:
+                /* Not a stored setting: the settings bank this firmware will
+                 * boot with. Bank 0 is the base config Main itself uses, the
+                 * others belong to the user slots of the same number. */
+                if (gSubMenuSelection == 0u)
+                    strcpy(String, "Main");
+                else
+                    sprintf(String, "Bank %d", gSubMenuSelection);
                 break;
         #endif
     }

@@ -5,6 +5,8 @@ target_link_libraries(App INTERFACE PY32F071_Driver)
 target_compile_definitions(App INTERFACE PRINTF_INCLUDE_CONFIG_H)
 
 target_sources(App INTERFACE
+    # libgcc override (signed division, used by the multiboot UI/progress code)
+    compact_div.S
     # Drivers
     driver/backlight.c
     driver/bk4829.c
@@ -261,6 +263,37 @@ if(ENABLE_FEAT_F4HWN_OVERLAY_APPS AND NOT ENABLE_FEAT_F4HWN)
 endif()
 if(ENABLE_FEAT_F4HWN_OVERLAY_INFO AND NOT ENABLE_FEAT_F4HWN_OVERLAY_APPS)
     message(FATAL_ERROR "ENABLE_FEAT_F4HWN_OVERLAY_INFO requires ENABLE_FEAT_F4HWN_OVERLAY_APPS.")
+endif()
+
+# ---- MULTIBOOT ----
+# Upstream's slots/banks layer. ENABLE_FEAT_F4HWN_MULTIBOOT is the guest
+# marker itself (MULTIBOOT.packed.bin sees it and reappears in the boot
+# selector) plus the boot selector, per-slot settings banks and the boot-time
+# self-backup of a normally flashed firmware into slot 0 (Main).
+#
+#   _MULTIBOOT_OVERLAY     restore stub copied to RAM before internal flash is
+#                          erased; WITHOUT it no slot can be restored.
+#   _MULTIBOOT_HOT_CFG     legacy switch-bank-without-reboot path (NOT enabled:
+#                          it needs upstream's settings/status/bitmaps rework).
+#   _EXT_FLASH_RW          raw external-flash read/erase/write host commands.
+enable_feature(ENABLE_FEAT_F4HWN_MULTIBOOT
+    driver/mb_flash.c
+    ui/multiboot.c
+)
+if(ENABLE_FEAT_F4HWN_MULTIBOOT AND NOT ENABLE_FEAT_F4HWN)
+    message(FATAL_ERROR "ENABLE_FEAT_F4HWN_MULTIBOOT requires ENABLE_FEAT_F4HWN.")
+endif()
+enable_feature(ENABLE_FEAT_F4HWN_MULTIBOOT_HOT_CFG)
+if(ENABLE_FEAT_F4HWN_MULTIBOOT_HOT_CFG AND NOT ENABLE_FEAT_F4HWN_MULTIBOOT)
+    message(FATAL_ERROR "ENABLE_FEAT_F4HWN_MULTIBOOT_HOT_CFG requires ENABLE_FEAT_F4HWN_MULTIBOOT.")
+endif()
+enable_feature(ENABLE_FEAT_F4HWN_MULTIBOOT_OVERLAY)
+if(ENABLE_FEAT_F4HWN_MULTIBOOT_OVERLAY AND NOT ENABLE_FEAT_F4HWN_MULTIBOOT)
+    message(FATAL_ERROR "ENABLE_FEAT_F4HWN_MULTIBOOT_OVERLAY requires ENABLE_FEAT_F4HWN_MULTIBOOT.")
+endif()
+enable_feature(ENABLE_FEAT_F4HWN_EXT_FLASH_RW)
+if(ENABLE_FEAT_F4HWN_EXT_FLASH_RW AND NOT ENABLE_FEAT_F4HWN_MULTIBOOT)
+    message(FATAL_ERROR "ENABLE_FEAT_F4HWN_EXT_FLASH_RW requires ENABLE_FEAT_F4HWN_MULTIBOOT.")
 endif()
 
 # ---- DEBUGGING ----
