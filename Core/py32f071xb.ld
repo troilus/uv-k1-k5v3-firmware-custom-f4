@@ -139,9 +139,25 @@ SECTIONS
      0x20000280, pass the loader's VMA guard. A bare ". = ..." does not survive
      the >RAM region allocation, hence OVERLAY (as the upstream linker does). It
      is placed FIRST in RAM: the resident .data/.noncacheable exceed the 0x280
-     worth of RAM before the anchor, so they follow the workspace instead. */
-  OVERLAY (ORIGIN(RAM) + 0x280) :
+     worth of RAM before the anchor, so they follow the workspace instead.
+
+     The multiboot restore stub lives in the SAME 4 KiB window (.mb_ramfunc,
+     see mb_flash.c): it is copied from FLASH into the sector cache right before
+     it erases internal flash, so it must share the workspace's VMA. Its load
+     image is anchored at the current end of the FLASH load cursor (just after
+     .fini_array, i.e. where .data's load image would otherwise start). */
+  OVERLAY (ORIGIN(RAM) + 0x280) : NOCROSSREFS AT (LOADADDR(.fini_array) + SIZEOF(.fini_array))
   {
+    .mb_ramfunc
+    {
+      . = ALIGN(4);
+      __mb_ramfunc_start = .;
+      KEEP(*(.MBRamFunc))
+      KEEP(*(.MBRamFunc*))
+      . = ALIGN(4);
+      __mb_ramfunc_end = .;
+    }
+
     .mb_workspace
     {
       . = ALIGN(4);
@@ -152,11 +168,25 @@ SECTIONS
       __mb_workspace_end = .;
     }
   } >RAM
+
+  __mb_ramfunc_load_start = LOADADDR(.mb_ramfunc);
+  __mb_ramfunc_size = SIZEOF(.mb_ramfunc);
   __mb_workspace_size = SIZEOF(.mb_workspace);
   ASSERT(__mb_workspace_size == 0x1000,
          "Overlay workspace must be exactly the 4 KiB PY25Q16 sector cache")
   ASSERT(__mb_workspace_start == ORIGIN(RAM) + 0x280,
          "Overlay workspace must be linked at 0x20000280")
+  ASSERT(__mb_ramfunc_size <= __mb_workspace_size,
+         "Multiboot RAM stub does not fit in PY25Q16 sector-cache overlay")
+  ASSERT((__mb_ramfunc_size == 0) ||
+         (ADDR(.mb_ramfunc) == ADDR(.mb_workspace)),
+         "Multiboot RAM stub and workspace do not share the same VMA")
+  ASSERT((__mb_ramfunc_size == 0) ||
+         (LOADADDR(.mb_ramfunc) != ADDR(.mb_ramfunc)),
+         "Multiboot RAM stub load and execution addresses must differ")
+  ASSERT((LOADADDR(.mb_ramfunc) + SIZEOF(.mb_ramfunc)) <=
+         (ORIGIN(FLASH) + LENGTH(FLASH)),
+         "FLASH overflowed by multiboot RAM-stub load image")
 
   /* Initialized data sections goes into RAM, load LMA copy after code.
      Placed AFTER the overlay workspace (see above). */
@@ -164,12 +194,22 @@ SECTIONS
   {
     . = ALIGN(4);
     _sdata = .;        /* create a global symbol at data start */
+
+    *(.RamFunc)        /* functions that must execute from RAM (e.g. internal */
+    *(.RamFunc*)       /* flash reprogramming); copied to RAM with .data      */
+
     *(.data)           /* .data sections */
     *(.data*)          /* .data* sections */
 
     . = ALIGN(4);
     _edata = .;        /* define a global symbol at data end */
-  } >RAM AT> FLASH
+  } >RAM AT (LOADADDR(.mb_ramfunc) + SIZEOF(.mb_ramfunc))
+
+  /* The stub's FLASH load image was anchored above; .data's is chained right
+     behind it by the explicit AT() above, so this only fires if a future edit
+     detaches one of the two. */
+  ASSERT(LOADADDR(.data) >= (LOADADDR(.mb_ramfunc) + SIZEOF(.mb_ramfunc)),
+         "Multiboot RAM-stub load image overlaps .data's load image")
 
   /* Explicit placement of .noncacheable (CherryUSB) + end-of-FLASH symbol */
   .noncacheable :
@@ -178,8 +218,16 @@ SECTIONS
     *(.noncacheable)
     *(.noncacheable*)
     . = ALIGN(4);
-  } >RAM AT> FLASH
+  } >RAM AT (LOADADDR(.data) + SIZEOF(.data))
+
+  /* The stub's load image is anchored before .data, which is anchored before
+     .noncacheable, so the highest FLASH byte in use is the end of
+     .noncacheable's load image. */
   _eflash_used = LOADADDR(.noncacheable) + SIZEOF(.noncacheable);
+  /* The load images above are anchored with explicit AT(), which the linker
+   * does not range-check against the FLASH region, so assert it here. */
+  ASSERT(_eflash_used <= (ORIGIN(FLASH) + LENGTH(FLASH)),
+         "FLASH overflowed by the .data/.noncacheable load images")
 
   /* Uninitialized data section */
   . = ALIGN(4);

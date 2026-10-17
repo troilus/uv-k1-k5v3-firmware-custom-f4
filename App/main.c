@@ -49,6 +49,10 @@
 #include "driver/system.h"
 #include "driver/systick.h"
 #include "driver/py25q16.h"
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
+    #include "driver/mb_flash.h"
+    #include "ui/multiboot.h"
+#endif
 #ifdef ENABLE_UART
     #include "driver/uart.h"
 #endif
@@ -84,6 +88,14 @@ void Main(void)
 
 #ifdef ENABLE_FEAT_F4HWN_OVERLAY_INFO
     STACK_WatermarkInit();
+#endif
+
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
+    /* Resolve the active settings bank BEFORE any EEPROM/settings access below.
+     * This also adopts a normally-flashed firmware as slot 0 (discreet
+     * self-backup) when the running image isn't the slot the marker points to.
+     * Calibration stays shared regardless of the selected bank. */
+    PY25Q16_SetBankBase(MB_BankBase(MB_BootResolveState()));
 #endif
 
     boot_counter_10ms = 150;   // 1.5 sec

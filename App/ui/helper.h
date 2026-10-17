@@ -43,7 +43,7 @@ void UI_DrawPixelBuffer(uint8_t (*buffer)[128], uint8_t x, uint8_t y, bool black
     bool IsEmptyName(const char *name, uint8_t len);
 #endif
 
-#if defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS)
+#if defined(ENABLE_FEAT_F4HWN_MULTIBOOT) || defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS)
 void UI_DrawMenuKeyHints(const char *act_menu, const char *act_exit);
 #endif
 void UI_DrawLineBuffer(uint8_t (*buffer)[128], int16_t x1, int16_t y1, int16_t x2, int16_t y2, bool black);

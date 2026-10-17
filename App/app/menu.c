@@ -44,6 +44,10 @@
 #ifdef ENABLE_FEAT_F4HWN_LBJ
     #include "app/lbj_dual.h"
 #endif
+#if defined(ENABLE_FEAT_F4HWN_MULTIBOOT) && !defined(ENABLE_OVERLAY)
+    #include "driver/mb_flash.h"
+    #include "ui/multiboot.h"
+#endif
 
 
 uint8_t gUnlockAllTxConfCnt;
@@ -378,6 +382,13 @@ int MENU_GetLimits(uint8_t menu_id, int32_t *pMin, int32_t *pMax)
             //*pMin = 0;
             *pMax = 1;
             break;
+
+        #if defined(ENABLE_FEAT_F4HWN_MULTIBOOT) && !defined(ENABLE_OVERLAY)
+            case MENU_SET_CFG:
+                //*pMin = 0;
+                *pMax = MB_BANK_COUNT - 1;
+                break;
+        #endif
 
         case MENU_F1SHRT:
         case MENU_F1LONG:
@@ -1051,6 +1062,26 @@ void MENU_AcceptSetting(void)
                 gEeprom.LBJ_POPUP_TIME = gSubMenuSelection;
                 break;
         #endif
+
+        #if defined(ENABLE_FEAT_F4HWN_MULTIBOOT) && !defined(ENABLE_OVERLAY)
+            case MENU_SET_CFG:
+            {
+                /* Not a stored setting: bind this firmware image to the chosen
+                 * settings bank in the multiboot marker and reboot into it. The
+                 * marker is verified on write, so a failed save never reboots
+                 * into a bank we did not record. Nothing is saved to the current
+                 * bank first: the reboot re-reads the target one anyway. */
+                const uint8_t err = MB_SetActiveBank((uint8_t)gSubMenuSelection);
+                if (err != MB_OK)
+                {
+                    UI_MultibootShowConfigError(err);
+                    return;
+                }
+
+                NVIC_SystemReset();
+                return;
+            }
+        #endif
     }
 
     gRequestSaveSettings = true;
@@ -1419,6 +1450,14 @@ void MENU_ShowCurrentSetting(void)
         case MENU_SET_NAV:
             gSubMenuSelection = gEeprom.SET_NAV;
             break;
+
+        #if defined(ENABLE_FEAT_F4HWN_MULTIBOOT) && !defined(ENABLE_OVERLAY)
+            case MENU_SET_CFG:
+                /* Not a stored setting: start the picker on the bank this
+                 * firmware booted with. */
+                gSubMenuSelection = MB_GetActiveBank();
+                break;
+        #endif
 
         case MENU_F1SHRT:
         case MENU_F1LONG:

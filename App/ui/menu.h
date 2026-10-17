@@ -171,7 +171,12 @@ enum
     /* How long the decode window the reports opened stays up on its own before
      * it closes itself: ON (as before), 3, 5, 10 or 60 s. The window the LBJ
      * menu item opens by hand is not affected - it stays up as it always did. */
-    MENU_LBJPOP
+    MENU_LBJPOP,
+#endif
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
+    /* Not a stored setting either: picks which settings bank the running
+     * firmware loads (0 = Main, then one per user slot), then reboots. */
+    MENU_SET_CFG
 #endif
 };
 
