@@ -29,10 +29,11 @@
  *
  * The popup's row0 prefixes the train number with the 2 ASCII train-class chars
  * (K/T/D/C...) decoded from the detail block's [0:4] - each packed as 2 BCD
- * nibbles like a GB2312 route char. They are sticky in g.pref (as
- * LBJ_Console's lbjClass), so a short report with no detail block still shows
- * the last prefix seen. LBJ_Console reaches the same value via its lbjClass;
- * no train-type/regex table is used here.
+ * nibbles like a GB2312 route char. Only a detail block carries them, so the
+ * prefix belongs to that page and to the entry it completes: a short block has
+ * none of its own and never borrows one. g.pref is the prefix of the page being
+ * formatted, and each entry keeps its own in rec[].pref. No train-type/regex
+ * table is used here.
  */
 
 #include <stdbool.h>
@@ -191,7 +192,7 @@ static struct {
     bool     dirty;
     bool     dismissed;           /* popup dismissed until the carrier drops  */
     bool     pinned;              /* the LBJ menu item opened it: no timeout  */
-    char     pref[3];             /* sticky 2-char train prefix from the last detail */
+    char     pref[3];             /* 2-char train prefix of the page being formatted */
     char     rt[5];               /* route initials of the report being formatted */
     int16_t  dst;                 /* distance of the report being formatted   */
     char     trn[7];              /* train digits of the report being formatted */
@@ -200,7 +201,6 @@ static struct {
     bool     pendValid;           /* a hidden short block is waiting below    */
     uint16_t pendSec;             /* when that short block arrived            */
     char     pendL0[14], pendL1[18], pendL2[14];   /* its three rows, held back */
-    char     pendPref[3];         /* the prefix those three rows were built with */
     char     l0[14], l1[18], l2[14], l3[20];
 
     lbj_rec_t rec[LBJ_HISTORY];   /* history, newest first                    */
@@ -267,26 +267,34 @@ static uint8_t nib(char c){
 
 /* The detail block's [0:4] holds 2 ASCII train-prefix chars (e.g. "K "), each
  * as 2 BCD nibbles - exactly how the route field is packed. Decode them into
- * the sticky g.pref, printable bytes only, the usual blank pad dropped, so "K "
- * becomes "K". Sticky like LBJ_Console's lbjClass: a short report has no detail
- * block, yet still shows the last prefix seen.
+ * g.pref, printable bytes only, the usual blank pad dropped, and pack what is
+ * left towards the front: the field is right aligned (" K" for a class-K
+ * train), so "K " and " K" both become "K". Keeping the fixed position instead
+ * would carry the hole into row0, and the "drop the old prefix" step of a later
+ * refresh would then measure a prefix of length 0 and add the letter a second
+ * time ("K359" -> "KK359").
  *
- * A '?' is a character no slicer could repair: that position keeps the value it
- * already had instead of being wiped, so one lost codeword cannot strip a good
- * prefix off its train. A real blank still clears the position, which is what a
- * train without a class letter transmits. */
+ * A '?' is a character no slicer could repair: that position is skipped rather
+ * than taken as a blank, so the other char still lands in the packed prefix and
+ * one lost codeword cannot strip a good prefix off its train. Both positions
+ * blank means the train has no class letter, and g.pref is then empty. */
 static void decode_pref(const char *d){
+    char p[2] = { 0, 0 };
+    uint8_t k = 0u;
     for (uint8_t i = 0; i < 2u; i++){
         if (d[i * 2u] == '?' || d[i * 2u + 1u] == '?')
             continue;
         const uint8_t v = (uint8_t)((nib(d[i * 2u]) << 4) | nib(d[i * 2u + 1u]));
-        g.pref[i] = (v > 0x20u && v < 0x7Fu) ? (char)v : 0;  /* drop NUL/space */
+        if (v > 0x20u && v < 0x7Fu && k < 2u)
+            p[k++] = (char)v;                    /* drop NUL/space, keep order */
     }
+    g.pref[0] = (k > 0u) ? p[0] : '\0';
+    g.pref[1] = (k > 1u) ? p[1] : '\0';
     g.pref[2] = '\0';
 }
 
 static char *puttrain(char *o, const char *sb, uint8_t func, bool have){
-    if (g.pref[0]) *o++ = g.pref[0];        /* sticky train prefix, K/T/D/C... */
+    if (g.pref[0]) *o++ = g.pref[0];        /* this page's train prefix, K/T/D/C... */
     if (g.pref[1]) *o++ = g.pref[1];
     if (!have){ *o++ = '-'; *o++ = '-'; }
     else for (uint8_t i = 0; i < 6u; i++) if (sb[i] != ' ') *o++ = sb[i];
@@ -751,7 +759,11 @@ static void format(uint32_t addr, uint8_t func, const char *b, uint16_t len){
     const char *d = merged ? (b + (uint16_t)(len - 50u)) : b;
     const uint8_t dlen = merged ? 50u : (uint8_t)(len < 50u ? len : 50u);
 
-    if (has_detail) decode_pref(d);   /* sticky train prefix, [0:4] */
+    /* Only a detail block carries the train prefix. A short report has none of
+     * its own, so it shows the digits alone instead of borrowing the prefix of
+     * whichever train was heard before it. */
+    if (has_detail) decode_pref(d);
+    else            g.pref[0] = g.pref[1] = '\0';
 
     /* distance to the receiver position: only a report carrying the detail
      * block says where the train itself is */
@@ -946,15 +958,20 @@ static void copyline(char *dst, uint8_t cap, const char *src){
 
 /* Replace the train prefix at the start of a row0 string, keeping everything
  * after it (train digits, direction) as it is. oldpref is the prefix currently
- * baked into dst, so its length is what has to be dropped. Used when a detail
- * block completes an entry whose short block arrived first: the short page was
- * prefixed with the sticky value, which may belong to the previous train. */
+ * baked into dst, so its length is what has to be dropped; it is counted per
+ * non-empty position rather than as a C string, so a 0 byte in front does not
+ * stop the count and the letter behind it is still dropped - read as an empty
+ * prefix, that letter was put in front a second time ("K359" -> "KK359"). Used
+ * when a detail block completes an entry whose short block arrived first: the
+ * short page carries no prefix, so the entry's own is moved in front once that
+ * detail is here. */
 static void l0_reprefix(char *dst, uint8_t cap, const char *oldpref, const char *newpref){
     uint8_t oldn = 0, len = 0;
     char tmp[14];
     uint8_t j = 0;
 
-    while (oldn < 2u && oldpref[oldn]) oldn++;
+    if (oldpref[0]) oldn++;
+    if (oldpref[1]) oldn++;
     while (dst[len]) len++;
     if (oldn > len) oldn = len;            /* never step past the NUL */
 
@@ -1013,10 +1030,11 @@ static bool key_eq(const char *a, const char *b){
  * about.
  *
  * Row0 is the short block's, with one exception: the train prefix printed in
- * front of the digits is a detail-block field. A detail therefore refreshes that
- * prefix in place (l0_reprefix) - without this, a short block that arrived first
- * kept the prefix of whichever train was heard before it, and its own detail
- * never corrected it. */
+ * front of the digits is a detail-block field. The short half therefore carries
+ * no prefix of its own, and the entry's prefix (rec[].pref, saved from whichever
+ * detail block last described that train) is put in front when the short half is
+ * filed (l0_reprefix). A train heard only in short blocks keeps no prefix at
+ * all, which is all a receiver that never saw its detail block can know. */
 static bool history_merge(uint32_t addr, uint8_t func, uint16_t len, uint8_t err, uint8_t cor){
     const bool merged   = (len >= 65u);
     const bool own_sh   = page_has_short(addr, len);
@@ -1062,7 +1080,6 @@ static bool history_merge(uint32_t addr, uint8_t func, uint16_t len, uint8_t err
             copyline(g.pendL0, (uint8_t)sizeof g.pendL0, g.l0);
             copyline(g.pendL1, (uint8_t)sizeof g.pendL1, g.l1);
             copyline(g.pendL2, (uint8_t)sizeof g.pendL2, g.l2);
-            copyline(g.pendPref, (uint8_t)sizeof g.pendPref, g.pref);
             g.pendSec   = g.sec;
             g.pendValid = true;
             return false;
@@ -1084,7 +1101,6 @@ static bool history_merge(uint32_t addr, uint8_t func, uint16_t len, uint8_t err
                 copyline(g.rec[0].l0, (uint8_t)sizeof g.rec[0].l0, g.pendL0);
                 copyline(g.rec[0].l1, (uint8_t)sizeof g.rec[0].l1, g.pendL1);
                 copyline(g.rec[0].l2, (uint8_t)sizeof g.rec[0].l2, g.pendL2);
-                copyline(g.rec[0].pref, (uint8_t)sizeof g.rec[0].pref, g.pendPref);
                 g.rec[0].sh = 1u;
                 g.pendValid = false;
             } else {
@@ -1113,11 +1129,12 @@ static bool history_merge(uint32_t addr, uint8_t func, uint16_t len, uint8_t err
     g.rec[0].err  = err;
     g.rec[0].cor  = cor;
     if (own_sh){                     /* the short half, only when it is this report's */
-        /* Row0 starts with the train prefix, which the detail block owns. When
-         * this entry already has its detail and this page has none (a later
-         * short report of the same train), keep the entry's own prefix: the
-         * sticky g.pref may be another train's by now. */
-        if (!det_at && g.rec[0].loc[0])
+        /* Row0 starts with the train prefix, which the detail block owns. This
+         * page has none (g.pref is empty unless the page carries a detail half),
+         * while the entry may have one from an earlier detail of the same train,
+         * so put the entry's own in front. A merged page has its detail half in
+         * this same report: g.pref is then this train's and is saved below. */
+        if (!det_at)
             l0_reprefix(g.l0, (uint8_t)sizeof g.l0, g.pref, g.rec[0].pref);
         else
             copyline(g.rec[0].pref, (uint8_t)sizeof g.rec[0].pref, g.pref);
@@ -1128,10 +1145,10 @@ static bool history_merge(uint32_t addr, uint8_t func, uint16_t len, uint8_t err
         copyline(g.rec[0].l2, (uint8_t)sizeof g.rec[0].l2, g.l2);
     }
     if (det_at){
-        /* The prefix in row0 is a detail-block field: refresh it now, so a short
-         * block that arrived first (and used the previous train's sticky prefix)
-         * is corrected as soon as its own detail shows up. A merged page carries
-         * its own short half, which already wrote this page's prefix above. */
+        /* The prefix in row0 is a detail-block field: put it in now, so a short
+         * block that arrived on its own gets its train's prefix as soon as that
+         * train's detail shows up. A merged page carries its own short half,
+         * which already wrote this page's prefix above. */
         if (!own_sh)
             l0_reprefix(g.rec[0].l0, (uint8_t)sizeof g.rec[0].l0,
                         g.rec[0].pref, g.pref);
