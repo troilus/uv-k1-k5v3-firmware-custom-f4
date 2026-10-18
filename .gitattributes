@@ -1,6 +1,10 @@
 # Overlay-app build: keep LF so the Linux (Docker) build reads them as-is.
 compile-app.sh                 text eol=lf
 App/apps/**                    text eol=lf
+# LBJ Log web tool: LF everywhere, so the vendored UV Studio assets stay
+# byte-identical to upstream on every checkout (core.autocrlf would rewrite
+# them to CRLF on Windows otherwise).
+tools/lbj_log/**               text eol=lf
 # ...but recordings/bitmaps and other binary assets under an app are binary.
 App/apps/**/*.wav              binary
 App/apps/**/*.exe              binary
