@@ -68,7 +68,7 @@ const t_menu_item MenuList[] =
     {"BatVol",    MENU_VOL           }, // was "VOL"
 #endif
 #ifdef ENABLE_FEAT_F4HWN_LBJ
-    {"LBJ",         MENU_LBJ           }, // last visible item: opens the decode window
+    {"LBJMSG",      MENU_LBJ           }, // last visible item: opens the decode window
     {"LBJPOP",      MENU_LBJPOP        }, // how long that window stays up on its own
     {"LBJLOG",      MENU_LBJLOG        }, // append one flash row per decoded train
     {"LBJCLR",      MENU_LBJCLR        }, // clear that log (No/Yes)
