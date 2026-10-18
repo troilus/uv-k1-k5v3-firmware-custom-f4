@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>LBJ Log — UV Studio</title>
+<!-- Same shell and design system as UV Studio (armel.github.io/uvstudio), vendored locally. -->
+<link href="css/core.css" rel="stylesheet">
+<link href="css/studio.css" rel="stylesheet">
+<link href="css/tools.css" rel="stylesheet">
+<link href="css/lbj-log.css" rel="stylesheet">
+</head>
+<body data-theme="light">
+
+<!-- ═══════════ Top bar ═══════════ -->
+<header class="topbar">
+    <div class="sb-brand">
+        <button class="btn icon" id="hamburgerMenu" type="button"
+                data-i18n-title="toggle_menu" data-i18n-aria-label="toggle_menu"
+                aria-controls="studioSidebar" aria-expanded="true"
+                aria-label="Toggle menu" title="Toggle menu">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="3" y1="12" x2="21" y2="12"></line>
+                <line x1="3" y1="6" x2="21" y2="6"></line>
+                <line x1="3" y1="18" x2="21" y2="18"></line>
+            </svg>
+        </button>
+        <span class="logo-mark" aria-hidden="true">
+            <svg viewBox="0 0 64 64" fill="none" stroke="currentColor"
+                 stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M20 15V5"/>
+                <path d="M40 15v-4h7v5"/>
+                <rect x="15" y="14" width="34" height="44" rx="5"/>
+                <rect x="20" y="20" width="24" height="12" rx="2"/>
+                <g fill="currentColor" stroke="none">
+                    <circle cx="23" cy="39" r="1.7"/>
+                    <circle cx="32" cy="39" r="1.7"/>
+                    <circle cx="41" cy="39" r="1.7"/>
+                    <circle cx="23" cy="46" r="1.7"/>
+                    <circle cx="32" cy="46" r="1.7"/>
+                    <circle cx="41" cy="46" r="1.7"/>
+                    <circle cx="23" cy="53" r="1.7"/>
+                    <circle cx="32" cy="53" r="1.7"/>
+                    <circle cx="41" cy="53" r="1.7"/>
+                </g>
+            </svg>
+        </span>
+        <span class="sb-title"><span class="sb-name">UV <b>Studio</b></span><span class="sb-sub">by F4HWN</span></span>
+        <span class="topbar-divider"></span>
+        <span class="section-name" id="sectionName" data-i18n="studio_nav_lbj_log">LBJ Log</span>
+    </div>
+    <div class="topbar-actions">
+        <div class="studio-serial-status" id="studioSerialStatus"
+             data-state="disconnected" role="status" aria-live="polite"
+             aria-label="Disconnected" title="Disconnected">
+            <span class="studio-serial-dot" aria-hidden="true"></span>
+            <span class="studio-serial-text" id="studioSerialText">Disconnected</span>
+        </div>
+        <button class="btn icon studio-serial-disconnect" id="studioSerialDisconnect" type="button" hidden
+                data-i18n-title="disconnect" data-i18n-aria-label="disconnect"
+                title="Disconnect" aria-label="Disconnect">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="m19 5 3-3M2 22l3-3"></path>
+                <path d="M6.3 20.3a2.4 2.4 0 0 0 3.4 0L12 18l-6-6-2.3 2.3a2.4 2.4 0 0 0 0 3.4Z"></path>
+                <path d="M7.5 13.5 10 11M10.5 16.5 13 14"></path>
+                <path d="m12 6 6 6 2.3-2.3a2.4 2.4 0 0 0 0-3.4l-2.6-2.6a2.4 2.4 0 0 0-3.4 0Z"></path>
+            </svg>
+        </button>
+        <button class="btn icon theme-toggle" id="themeToggle" type="button"
+                data-i18n-title="toggle_theme" data-i18n-aria-label="toggle_theme"
+                title="Toggle theme" aria-label="Toggle theme">
+            <svg class="theme-icon theme-icon-sun" viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="12" cy="12" r="3.5"></circle>
+                <path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.65 17.65l1.42 1.42M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.65 6.35l1.42-1.42"></path>
+            </svg>
+            <svg class="theme-icon theme-icon-moon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M20.5 14.2A8.5 8.5 0 0 1 9.8 3.5 8.5 8.5 0 1 0 20.5 14.2Z"></path>
+            </svg>
+        </button>
+        <select id="languageSelect" aria-label="Language" data-i18n-aria-label="studio_language">
+            <option value="zh">🇨🇳 中文</option>
+            <option value="en">🇬🇧 English</option>
+        </select>
+    </div>
+</header>
+
+<div class="shell">
+    <!-- ═══════════ Sidebar ═══════════ -->
+    <aside class="sidebar" id="studioSidebar">
+        <div class="nav-group">
+            <div class="nav-label">UV Tools</div>
+            <button class="nav-item active" aria-current="page" data-route="lbj-log"
+                    data-app="tools" data-tool-view="lbj-log" data-name="LBJ Log"
+                    data-section-i18n="studio_nav_lbj_log">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M3 14.5h18M9.5 4v16"/></svg>
+                <span class="nav-item-label" data-i18n="studio_nav_lbj_log">LBJ Log</span>
+            </button>
+        </div>
+        <div class="sidebar-foot">UV Studio · <span id="studioVersion">v—</span></div>
+    </aside>
+
+    <!-- ═══════════ Stage ═══════════ -->
+    <main class="stage">
+        <section class="pane active" id="pane-tools">
+          <div class="container">
+            <div class="tool-view active" id="lbj-log-content" role="region">
+                <section class="section">
+                    <p class="tab-description" data-i18n="lbjDescription">Read the LBJ train log from the radio's external flash (0x018000–0x01FFFF, 1024 × 32 bytes) and export it as CSV.</p>
+                    <button id="lbjReadBtn" data-i18n="lbjRead">Read LBJ log</button>
+                </section>
+
+                <div class="download-link" id="lbjCsvDownload">
+                    <a href="#" id="lbjCsvLink" download="lbj-log.csv"><svg class="dl-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg><span data-i18n="lbjDownloadCsv">Download lbj-log.csv</span></a>
+                </div>
+                <div class="download-link" id="lbjBinDownload">
+                    <a href="#" id="lbjBinLink" download="lbj-log.bin"><svg class="dl-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg><span data-i18n="lbjDownloadBin">Download lbj-log.bin (raw 32 KiB)</span></a>
+                </div>
+
+                <div class="lbj-results" id="lbjResults" hidden>
+                    <p class="tab-description" id="lbjMeta" aria-live="polite"></p>
+
+                    <label class="app-catalog-search" for="lbjFilter">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+                        <input id="lbjFilter" type="search" autocomplete="off" spellcheck="false"
+                               data-i18n-placeholder="lbjFilterPlaceholder" placeholder="Filter by train or loco number…"/>
+                    </label>
+
+                    <div class="slots-table-wrap lbj-table-wrap">
+                        <table class="slots-table lbj-table" id="lbjTable">
+                            <thead>
+                                <tr>
+                                    <th data-i18n="lbjColSeq">序号</th>
+                                    <th data-i18n="lbjColUptime">开机秒</th>
+                                    <th data-i18n="lbjColTrain">车次</th>
+                                    <th data-i18n="lbjColDirection">上行下行</th>
+                                    <th data-i18n="lbjColSpeed">速度</th>
+                                    <th data-i18n="lbjColKm">公里标</th>
+                                    <th data-i18n="lbjColModel">车型</th>
+                                    <th data-i18n="lbjColLoco">车号</th>
+                                    <th data-i18n="lbjColRoute">线路</th>
+                                    <th data-i18n="lbjColDistance">距离</th>
+                                </tr>
+                            </thead>
+                            <tbody id="lbjRows"></tbody>
+                        </table>
+                    </div>
+                    <p class="tab-description" id="lbjEmpty" hidden data-i18n="lbjEmpty">No records yet.</p>
+                </div>
+            </div>
+
+            <section class="progress-container" id="progressContainer" aria-live="polite">
+                <div class="progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                    <div class="progress-fill" id="progressFill"></div>
+                    <div class="progress-label" id="progressLabel">0%</div>
+                </div>
+            </section>
+
+            <section class="log-container" aria-labelledby="logTitle">
+                <h2 class="sr-only" id="logTitle" data-i18n="logTitle">Console</h2>
+                <div class="log-header"><button class="log-toggle" id="logToggle" type="button" aria-expanded="false" data-i18n="logShow">Show Console</button></div>
+                <div class="log" id="log" aria-live="polite"></div>
+            </section>
+
+            <aside class="info-box" id="infoBox"><strong>Note:</strong> <span data-i18n="lbjBrowserNote">This page needs Chrome, Edge or Opera on desktop (Web Serial API), and a K-plug programming cable. Close UV Studio / K5Viewer first — only one page can own the port.</span></aside>
+          </div>
+        </section>
+    </main>
+</div>
+
+<script src="locales/en.js"></script>
+<script src="locales/zh.js"></script>
+<script src="js/studio-preferences.js"></script>
+<script>
+  /* Default the shared UV Studio language key to Chinese on first visit.
+     Goes through UVStudioPreferences, whose in-memory fallback also covers
+     file:// pages where localStorage is unavailable or disabled. */
+  if (!window.UVStudioPreferences.get("currentLanguage", "")) {
+    window.UVStudioPreferences.set("currentLanguage", "zh");
+  }
+</script>
+<script src="js/studio-i18n.js"></script>
+<script src="js/studio-serial.js"></script>
+<script src="js/lbj-log.js"></script>
+<script src="js/serial.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

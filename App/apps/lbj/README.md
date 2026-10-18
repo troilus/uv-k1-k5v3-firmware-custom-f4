@@ -8,11 +8,12 @@ Reference: [Sdr-Is-Fun/RTL_SDR_LBJ_RECEIVER](https://github.com/Sdr-Is-Fun/RTL_S
 (the Python chain this app is modelled on) and the APRS RX app of this firmware
 (PA4 sampling, DPLL, overlay-app conventions).
 
-Status: **v0.14, decoding confirmed on-air.** The demodulator and the
+Status: **v0.15, decoding confirmed on-air.** The demodulator and the
 POCSAG/LBJ decoder are validated in `test/model_rx.py` against synthetic frames
 (clean / noise / ±1 % clock / AC-coupled / high-passed); see the tables below.
-The resident firmware now also keeps a train log in external flash (menu items
-`LBJLOG` / `LBJCLR`, export with `tools/lbj_log.py`).
+The resident firmware also keeps a train log in external flash (menu items
+`LBJLOG` / `LBJCLR`), exported either with `tools/lbj_log.py` or with the
+browser tool in `tools/lbj_log/` (no firmware change).
 
 What v0.2 changed (all mirrored in `test/model_rx.py`):
 
@@ -354,6 +355,31 @@ payload，所以车次/速度/公里标全丢的基础预警照样会到达 —�
 > 这里**故意**没有照抄上游 K5Viewer 的 `0x05/0x06` 帧：UV Studio 的一行固定 25 B
 > （车次/方向/线路只能塞进 `channelName[10]`），这 8 项根本放不下。日志因此走自己的
 > 区域、自己的工具，UV Studio 那边不做改动。
+
+**v0.15** 加上**网页版导出工具** `tools/lbj_log/` —— 纯前端静态页，**固件零改动**
+（overlay 一个字节没动，固件版本号也没动）。用桌面版 Chrome / Edge **双击
+`tools/lbj_log/index.html`** 就能读日志：走的是同一块 32 KiB 区域、同一套 `0x0738`
+物理读命令，页面外观 / 布局 / 串口连接方式**照 UV Studio 来做**（顶栏、侧栏、串口状态
+胶囊、全局断开按钮、主题切换、中英文切换、进度条、Console 都是内置的上游样式与代码）。
+
+- **只读**：连接 → 读取 → 表格 → 导出，**不带远程清空**（清空仍在固件菜单 `LBJCLR`
+  或 `python tools/lbj_log.py --clear`），误按关不掉车上的数据。
+- 表格 10 列 = 序号 + 开机秒 + 那 8 项（车次 / 上行下行 / 速度 / 公里标 / 车型 / 车号 /
+  线路 / 距离）；顶部输入框按**车次 / 车号**筛选（纯前端，不影响导出内容）。
+- 导出两个文件：`lbj-log.csv`（UTF-8 BOM + CRLF，界面是中文时表头也是中文，和
+  `lbj_log.py --chinese` **逐字节一致**）和 `lbj-log.bin`（原始 32 KiB，可离线分析，
+  也能再喂给 `python tools/lbj_log.py --raw`）。空槽数和 CRC 错的条数在结果上方单独计数，
+  坏记录不会当成半条读出来。
+- 实现上把 UV Studio 的 `flash.js` 协议层（组帧 / 混淆 / CRC16 / `0x0514` 握手 /
+  `0x0738`+`0x0739` / 重试与地址校验）搬过来，只新增"256 × 128 B 走完整个区域"这一段；
+  `css/{core,studio,tools}.css`、`js/studio-{preferences,i18n,serial}.js`、
+  `locales/{en,zh}.js` 都保持**逐字节原样**（locale 只在结尾追加本页的 `lbj*` 键），
+  本页自己的样式只有 `css/lbj-log.css` 十几行（窄屏表格 + 等宽数字）。
+- 记录解析与 CSV 有 Node 自测：`node --test tools/lbj_log/js/lbj-log.test.js`（15 项），
+  并与 `tools/lbj_log.py` 在同一份镜像上做了逐字节比对。
+
+同 32 B 记录格式、同一块区域，`tools/lbj_log.py`（Python + pyserial）和本页可以互换；
+没有 K 头写频线、或者只是想把 dump 转成 CSV 时用 Python 版，想看着表点两下就用本页。
 
 ### 使用步骤
 

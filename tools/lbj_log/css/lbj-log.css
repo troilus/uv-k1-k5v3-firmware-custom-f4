@@ -1,0 +1,45 @@
+/* LBJ Log page — same design tokens as UV Studio's core/studio/tools stylesheets.
+   Only the few rules the shared stylesheets cannot express for this tool live
+   here; everything else comes from the vendored files unchanged. */
+
+/* The LBJ table carries ten columns, so keep it a real (scrollable) table on
+   narrow screens instead of UV Studio's card layout for the eight-slot table.
+   Every rule below also exists in css/tools.css inside its max-width:900px
+   block, so these selectors are one class more specific and win. */
+@media (max-width: 900px) {
+  #pane-tools .slots-table-wrap.lbj-table-wrap {
+    overflow-x: auto;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+  #pane-tools .lbj-table thead { display: table-header-group; }
+  #pane-tools .lbj-table tbody { display: table-row-group; }
+  #pane-tools .lbj-table tbody tr {
+    display: table-row;
+    height: auto;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: none;
+  }
+  #pane-tools .lbj-table tbody td {
+    display: table-cell;
+    width: auto;
+    height: auto;
+    padding: 10px 12px;
+    white-space: nowrap;
+    align-items: initial;
+  }
+  #pane-tools .lbj-table tbody tr + tr td { border-top: 1px solid var(--border); }
+}
+
+/* Scanning a log is easier when the digits line up. */
+#pane-tools .lbj-table td {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+/* Result block: same muted description look, tighter spacing. */
+#pane-tools .lbj-results { margin-top: 18px; }
+#pane-tools .lbj-results > .tab-description { margin: 0 0 12px; }
+#pane-tools .lbj-results > .app-catalog-search { margin-bottom: 12px; }
