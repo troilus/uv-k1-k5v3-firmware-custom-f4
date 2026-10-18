@@ -1052,10 +1052,11 @@ void UART_HandleCommand(uint32_t Port)
             else if (addr > PY25Q16_TOTAL_SIZE || len > PY25Q16_TOTAL_SIZE - addr)
                 status = MB_ERR_SIZE;
             else
-            {
-                PY25Q16_ReadBufferPhysical(addr, Reply.Data, len);
-                status = MB_OK;
-            }
+                /* Polled read (see MB_ExternalFlashRead), NOT the PY25Q16 DMA
+                 * read: after the resident firmware has just written the log
+                 * with SPI2 in DMA mode that read never completes and the spin
+                 * freezes the whole radio. */
+                status = MB_ExternalFlashRead(addr, Reply.Data, len);
             Reply.Header.ID   = 0x0739;
             Reply.Address     = addr;
             Reply.Size        = (status == MB_OK) ? len : 0;

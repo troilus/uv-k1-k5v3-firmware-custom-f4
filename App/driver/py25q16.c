@@ -42,6 +42,31 @@
 #define SECTOR_SIZE 0x1000
 #define PAGE_SIZE 0x100
 
+/* Every polled wait is bounded, so a stuck SPI can only fail a host command -
+ * never freeze the radio. There is no watchdog in this firmware, so an
+ * unbounded spin here means the battery has to come out. ~1 ms for one byte,
+ * ~50 ms for a whole DMA transfer (a 4 KiB sector read is ~1.6 ms). */
+#define SPI_POLL_LIMIT 20000u
+#define SPI_DMA_LIMIT  500000u
+
+/* Put SPI2 back into clean polled mode before any polled byte exchange. The DMA
+ * paths (SPI_ReadBuf/SPI_WriteBuf) leave RXDMAEN/TXDMAEN set and both channels
+ * armed; a polled byte then loses its received byte to the DMA, RXNE never sets
+ * and `while (!RXNE);` spins forever. That is exactly the hazard mb_flash.c
+ * documents and repairs in mb_spi_polled_mode(), which is why UV Studio's
+ * app/slot reads never hit it. Idempotent - the DMA paths re-arm everything
+ * they need on their next call. */
+static void SPI_PolledMode(void)
+{
+    SPIx->CR2 &= ~(SPI_CR2_RXDMAEN | SPI_CR2_TXDMAEN);
+    LL_DMA_DisableChannel(DMA1, CHANNEL_RD);
+    LL_DMA_DisableChannel(DMA1, CHANNEL_WR);
+    /* Bounded drain: the RX FIFO is a few bytes deep, so a stuck or overrun
+     * RXNE cannot loop forever here. */
+    for (uint32_t guard = 64; LL_SPI_IsActiveFlag_RXNE(SPIx) && guard; guard--)
+        (void)LL_SPI_ReceiveData8(SPIx);
+}
+
 static uint32_t SectorCacheAddr = 0x1000000;
 /* The 4 KiB sector cache doubles as the overlay-app execution workspace. The
  * linker pins it at 0x20000280 (see Core/py32f071xb.ld) so the prebuilt
@@ -185,8 +210,17 @@ static void SPI_ReadBuf(uint8_t *Buf, uint32_t Size)
     LL_SPI_Enable(SPIx);
     LL_SPI_EnableDMAReq_TX(SPIx);
 
-    while (!TC_Flag)
+    /* Bounded: if the transfer never completes, drop the channels so the next
+     * operation starts from a clean state instead of spinning the radio to a
+     * standstill (no watchdog - that would cost a battery pull). */
+    uint32_t to = SPI_DMA_LIMIT;
+    while (!TC_Flag && --to)
         ;
+    if (!TC_Flag)
+    {
+        LL_DMA_DisableChannel(DMA1, CHANNEL_RD);
+        LL_DMA_DisableChannel(DMA1, CHANNEL_WR);
+    }
 }
 
 static void SPI_WriteBuf(const uint8_t *Buf, uint32_t Size)
@@ -234,17 +268,28 @@ static void SPI_WriteBuf(const uint8_t *Buf, uint32_t Size)
     LL_SPI_Enable(SPIx);
     LL_SPI_EnableDMAReq_TX(SPIx);
 
-    while (!TC_Flag)
+    /* Bounded: if the transfer never completes, drop the channels so the next
+     * operation starts from a clean state instead of spinning the radio to a
+     * standstill (no watchdog - that would cost a battery pull). */
+    uint32_t to = SPI_DMA_LIMIT;
+    while (!TC_Flag && --to)
         ;
+    if (!TC_Flag)
+    {
+        LL_DMA_DisableChannel(DMA1, CHANNEL_RD);
+        LL_DMA_DisableChannel(DMA1, CHANNEL_WR);
+    }
 }
 
 static uint8_t SPI_WriteByte(uint8_t Value)
 {
+    uint32_t to = SPI_POLL_LIMIT;
     while (!LL_SPI_IsActiveFlag_TXE(SPIx))
-        ;
+        if (!--to) return 0xFFu;
     LL_SPI_TransmitData8(SPIx, Value);
+    to = SPI_POLL_LIMIT;
     while (!LL_SPI_IsActiveFlag_RXNE(SPIx))
-        ;
+        if (!--to) return 0xFFu;
     return LL_SPI_ReceiveData8(SPIx);
 }
 
@@ -266,6 +311,7 @@ void PY25Q16_Init()
 static void ReadBufferRaw(uint32_t Address, void *pBuffer, uint32_t Size)
 {
     MBMARK("RD cmd");          // about to assert CS + send read command
+    SPI_PolledMode();          // no armed DMA may steal the command/address bytes
     CS_Assert();
 
     SPI_WriteByte(0x03);      // Send read command
@@ -508,7 +554,11 @@ static uint8_t ReadStatusReg(uint32_t Which)
 
 static void WaitWIP()
 {
-    for (int i = 0; i < 1000000; i++)
+    SPI_PolledMode();
+    /* Bounded at 100k status polls: still far above the 400 ms worst-case 4 KiB
+     * sector erase, but no longer the ~10 s the old 1M bound could hold the
+     * whole radio for. */
+    for (int i = 0; i < 100000; i++)
     {
         uint8_t Status = ReadStatusReg(0);
         if (1 & Status) // WIP
@@ -522,6 +572,7 @@ static void WaitWIP()
 
 static void WriteEnable()
 {
+    SPI_PolledMode();
     CS_Assert();
     SPI_WriteByte(0x6);
     CS_Release();
