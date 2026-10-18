@@ -896,17 +896,29 @@ static void format(uint32_t addr, uint8_t func, const char *b, uint16_t len){
 
 /* ---- the LBJ channel's LED ------------------------------------------------
  *
- * An LBJ carrier is on air for a whole report, so the radio's usual "squelch
- * open" light (app.c) would just sit on for seconds and the RX-end blink would
- * fire on every gap between bursts. On this mode those two are muted (see the
- * LBJ_RxVfoIsLbj() guards in app.c) and this is the only thing that drives the
- * LED: a double blink when a report is filed, i.e. when new information has
- * come off the air. 100 ms per phase, the same "on" width the radio's own A/B
- * (RX-end) blink uses, and the same 2 x blink the LBJ RX overlay app does
- * (lbj_app.c): on 100 / off 100 / on 100 / off 100. Not tied to SetEOT: the
- * point of the blink here is the decoded message, not the end of a carrier. */
-#define LBJ_LED_PHASES  4u       /* on, off, on, off                          */
-#define LBJ_LED_TICKS   10u      /* 10 x 10 ms = 100 ms per phase             */
+ * On this mode the LED keeps the radio's ordinary meaning - on while a carrier
+ * is being received - and the only extra is the message: a report that is
+ * filed gives 2 short flashes. What is muted here (see the LBJ_RxVfoIsLbj()
+ * guards in app.c) is the SetEOT "RX ended" blink: an LBJ carrier comes and
+ * goes with every burst of a report, so that blink fired all the time and made
+ * the light useless for reading a signal.
+ *
+ * The LED is therefore driven from this one place, every 10 ms:
+ *   - carrier only : on, steady (green on VFO A, green + red on VFO B);
+ *   - new report   : off 100 / on 100 / off 100 / on 100 - 2 flashes, the same
+ *                    either way whether the carrier is still up or already
+ *                    gone - and then back to the carrier state;
+ *   - keyed up     : a blink in progress is dropped and only the green is
+ *                    taken down (the red TX light is not ours).
+ * The phases are the 100 ms steps the radio's own A/B blink uses and the same
+ * 2 x flash the LBJ RX overlay app does (lbj_app.c). Not tied to SetEOT: what
+ * is announced here is the decoded message.
+ *
+ * Writing a BK4819 GPIO is a plain register write from the main loop, and the
+ * sampler runs in the TIM3 interrupt, so it cannot miss samples because of it
+ * (the overlay app's 40 us caution applies to its own sampling loop). */
+#define LBJ_LED_PHASES  4u       /* off, on, off, on (100 ms each)             */
+#define LBJ_LED_TICKS   10u      /* 10 x 10 ms = 100 ms per phase              */
 
 static void ledBlinkStart(void){
     if (g.ledPhase)              /* a train's two blocks merge into one blink */
@@ -916,18 +928,37 @@ static void ledBlinkStart(void){
     g.ledVfo   = gEeprom.RX_VFO; /* latched: the A/B LED of the channel it came on */
 }
 
-/* One 10 ms step, from LBJ_Tick(): main-loop context, and the BK4819 GPIO write
- * is a plain register write (the overlay app calls it from its sampler). */
-static void ledBlinkService(void){
-    if (!g.ledPhase)
-        return;
+/* One 10 ms step, from LBJ_Tick(). */
+static void ledService(void){
+    const bool vfoB = gEeprom.RX_VFO != 0u;
 
-    /* Keyed up: the red TX LED owns the light, so take only ours (the green)
-     * down and drop the rest of the blink. */
+    /* Not an LBJ channel: the radio's own logic owns the LED again. Only a
+     * blink we still had running has to be taken down; a channel change
+     * retunes the radio and clears the LEDs anyway. */
+    if (!LBJ_RxVfoIsLbj()){
+        if (g.ledPhase){
+            g.ledPhase = 0;
+            g.ledTick  = 0;
+            BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, false);
+        }
+        return;
+    }
+
+    /* Keyed up: the red TX light owns the LED. Drop a blink in progress; the
+     * green is ours, so take it down. */
     if (gCurrentFunction == FUNCTION_TRANSMIT || gPttIsPressed){
-        g.ledPhase = 0;
-        g.ledTick  = 0;
-        BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, false);
+        if (g.ledPhase){
+            g.ledPhase = 0;
+            g.ledTick  = 0;
+            BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, false);
+        }
+        return;
+    }
+
+    if (!g.ledPhase){
+        /* Nothing to announce: the LED just reports the carrier. */
+        BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, g_SquelchLost);
+        BK4819_ToggleGpioOut(BK4819_GPIO5_PIN1_RED, g_SquelchLost && vfoB);
         return;
     }
 
@@ -937,8 +968,9 @@ static void ledBlinkService(void){
     }
     g.ledTick = LBJ_LED_TICKS;
 
-    /* Phase 4 on, 3 off, 2 on, 1 off: even counts light, odd counts dark. */
-    const bool on = (g.ledPhase & 1u) == 0u;
+    /* Phases 4..1: off, on, off, on - two flashes; the idle branch above then
+     * puts the LED back to the carrier state. */
+    const bool on = (g.ledPhase & 1u) != 0u;
     BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, on);
     BK4819_ToggleGpioOut(BK4819_GPIO5_PIN1_RED, on && g.ledVfo != 0u);
     g.ledPhase--;
@@ -1669,10 +1701,10 @@ void LBJ_Tick(void){
     }
     LBJ_LOG_Tick();
 
-    /* The LBJ channel's LED: the double blink a filed report started. Runs
-     * before the TX / power-save exits below, so a blink can never be left
-     * frozen with the LED on. */
-    ledBlinkService();
+    /* The LBJ channel's LED: the carrier light plus the 2 x flash a filed
+     * report started. Runs before the TX / power-save exits below, so a blink
+     * can never be left frozen with the LED on. */
+    ledService();
 
     /* Never sample while keyed up or in power save: the radio is reconfigured. */
     if (gCurrentFunction == FUNCTION_TRANSMIT || gPttIsPressed){

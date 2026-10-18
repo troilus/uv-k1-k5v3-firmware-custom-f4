@@ -8,7 +8,7 @@ Reference: [Sdr-Is-Fun/RTL_SDR_LBJ_RECEIVER](https://github.com/Sdr-Is-Fun/RTL_S
 (the Python chain this app is modelled on) and the APRS RX app of this firmware
 (PA4 sampling, DPLL, overlay-app conventions).
 
-Status: **v0.17, decoding confirmed on-air.** The demodulator and the
+Status: **v0.18, decoding confirmed on-air.** The demodulator and the
 POCSAG/LBJ decoder are validated in `test/model_rx.py` against synthetic frames
 (clean / noise / ±1 % clock / AC-coupled / high-passed); see the tables below.
 The resident firmware also keeps a train log in external flash (menu items
@@ -416,6 +416,20 @@ payload，所以车次/速度/公里标全丢的基础预警照样会到达 —�
     所以**只有真的解出新信息才闪**，光有载波不闪。
   - 这个闪灯**不受 `SetEOT` 开关影响**（`SetEOT` 只管非 LBJ 通道的收尾闪灯）。
   - 发信红灯、非 LBJ 通道原来的信号灯、新信息亮背光，全都不变。
+
+**v0.18** 修正 v0.17 的灯行为（overlay 仍然一个字节没动，`APP_VER` 0.4 不变）：
+
+- **载波灯保留**：LBJ 通道上，只有载波、还没解出报文时 LED 是**常亮**
+  （A 通道绿灯，B 通道绿+红）—— v0.17 把这条也关掉了，等于把"有没有信号"这个
+  最基本的信息也丢了，这是错的。
+- **只有新报文才闪**：解出一条新报文 → **闪 2 下**（灭 100 / 亮 100 / 灭 100 /
+  亮 100，共 400 ms）。先灭再亮是有意的：有载波时灯本来就常亮，这样"两下"在
+  载波还在、载波已经断掉两种情况下看起来都一样。闪完自动回到载波状态 —— 载波还在
+  就继续常亮，载波没了就灭。
+- **载波断开不再闪**：`SetEOT` 的收尾闪灯在 LBJ 通道继续跳过（LBJ 的载波每段报文
+  都在断开，按原逻辑会一直闪，这正是当初"一直闪"的来源）。
+- 实现上 LED 只在 `lbj_dual.c` 一处、每 10 ms 同步一次（`ledService()`）；
+  `app.c` 的静噪沿不再直接写灯，避免两边打架把闪灯的灭相掐断。
 
 ### 使用步骤
 

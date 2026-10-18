@@ -1406,15 +1406,11 @@ void CheckKeys(void)
 static void HandleRxEndBlink(void)
 {
 #ifdef ENABLE_FEAT_F4HWN_LBJ
-    /* An LBJ channel does not use the RX-end blink: its carrier is on air for
-     * a whole report, so this would flash on every gap between bursts. Its LED
-     * belongs to the decoded-message blink instead (lbj_dual.c). */
+    /* An LBJ channel does not use the RX-end blink: its carrier comes and goes
+     * with every burst of a report, so this would flash all the time. The LED
+     * is driven by lbj_dual.c instead (carrier light + message flashes). */
     if (LBJ_RxVfoIsLbj()) {
-        if (gRxEndBlinkState != 0) {
-            BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, false);
-            BK4819_ToggleGpioOut(BK4819_GPIO5_PIN1_RED, false);
-            gRxEndBlinkState = 0;
-        }
+        gRxEndBlinkState = 0;
         gRxEndBlinkPrevSquelch = g_SquelchLost;
         return;
     }
