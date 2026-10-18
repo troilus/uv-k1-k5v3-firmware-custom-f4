@@ -15,6 +15,9 @@ The resident firmware also keeps a train log in external flash (menu items
 `LBJLOG` / `LBJCLR`), exported either with `tools/lbj_log.py` or with the
 browser tool in `tools/lbj_log/` (no firmware change).
 
+**使用说明（面向使用者）**：固件版 / LBJ RX App 版 / LBJ Edit 经纬度 / 导出，见
+[`USAGE.md`](USAGE.md)。开发细节在下面。
+
 What v0.2 changed (all mirrored in `test/model_rx.py`):
 
 - **Slower baseline tracker** (`DC_SHIFT` 7→9, 512 samples ≈ 26.7 ms): the
