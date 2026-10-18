@@ -47,6 +47,7 @@
 
 #include "lbj_dec.h"
 #include "lbj_dual.h"
+#include "lbj_log.h"
 
 #ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
 #include "apps/app_config_proxy.h"
@@ -171,6 +172,13 @@ typedef struct {
     char     rt[5];               /* route name initials, e.g. "JGX"         */
     char     pref[3];             /* train prefix currently baked into row0  */
     char     l0[14], l1[18], l2[14], l3[20];
+    /* the same numbers the rows show, kept separately for the LBJ log: the row
+     * text has them formatted (and a lost field as a dash), the log wants them
+     * as numbers (and a lost field as its "unknown" sentinel). */
+    uint16_t spd;                 /* km/h, LBJ_LOG_SPD_NONE if unknown       */
+    uint32_t km10;                /* km post, 0.1 km, LBJ_LOG_KM_NONE        */
+    uint16_t mdl;                 /* model code, LBJ_LOG_MDL_NONE if unknown */
+    uint8_t  dir;                 /* LBJ_LOG_DIR_NONE/DN/UP                  */
 } lbj_rec_t;
 
 /* g.dst / lbj_rec_t.dst values that are not a distance */
@@ -197,6 +205,10 @@ static struct {
     int16_t  dst;                 /* distance of the report being formatted   */
     char     trn[7];              /* train digits of the report being formatted */
     char     loc[9];              /* registration of the report being formatted */
+    uint16_t spd;                 /* speed of the report being formatted      */
+    uint32_t km10;                /* km post of the report being formatted    */
+    uint16_t mdl;                 /* model code of the report being formatted */
+    uint8_t  dir;                 /* direction of the report being formatted  */
     bool     shEmpty;             /* the short block decoded no digit at all  */
     bool     pendValid;           /* a hidden short block is waiting below    */
     uint16_t pendSec;             /* when that short block arrived            */
@@ -327,6 +339,14 @@ static char cn_initial(uint8_t hi, uint8_t lo){
 static bool no_digit(const char *p, uint8_t n){
     for (uint8_t i = 0; i < n; i++)
         if (p[i] >= '0' && p[i] <= '9')
+            return false;
+    return true;
+}
+
+/* True when every one of the n characters is a decimal digit. */
+static bool all_dig(const char *p, uint8_t n){
+    for (uint8_t i = 0; i < n; i++)
+        if (p[i] < '0' || p[i] > '9')
             return false;
     return true;
 }
@@ -852,12 +872,27 @@ static void format(uint32_t addr, uint8_t func, const char *b, uint16_t len){
         o = putdash(o, 7u);
     }
     *o = '\0';
+
+    /* The log record wants the same values as numbers: the rows above show them
+     * formatted (and a lost field as a dash), the record stores them so the
+     * export never has to parse the text back. A field the report did not carry
+     * (or one a lost codeword left as '?') keeps its "unknown" sentinel. */
+    g.spd  = (have_short && bcdpad(sb + 6u, 3u))
+                 ? (uint16_t)digv(sb + 6u, 3u) : (uint16_t)LBJ_LOG_SPD_NONE;
+    g.km10 = (have_short && bcdpad(sb + 10u, 5u))
+                 ? digv(sb + 10u, 5u) : (uint32_t)LBJ_LOG_KM_NONE;
+    g.mdl  = (has_detail && dlen >= 7u && all_dig(d + 4u, 3u))
+                 ? (uint16_t)digv(d + 4u, 3u) : (uint16_t)LBJ_LOG_MDL_NONE;
+    g.dir  = (func == 1u) ? (uint8_t)LBJ_LOG_DIR_DN
+                          : ((func == 3u) ? (uint8_t)LBJ_LOG_DIR_UP
+                                          : (uint8_t)LBJ_LOG_DIR_NONE);
 }
 
 /* ---- decoder callbacks (main-loop context, from lbj_process; the ISR only
  * queues raw words) ---------------------------------------------------------- */
 static void sanitize(char *s);
 static bool history_merge(uint32_t addr, uint8_t func, uint16_t len, uint8_t err, uint8_t cor);
+static void log_observe(void);
 
 /* Commit the held page to the history: the merge window closed. */
 static void page_commit(void)
@@ -902,7 +937,10 @@ static void page_commit(void)
         return;
 #endif
 
-    if (history_merge(g.pgAddr, g.pgFunc, g.pgLen, g.pgErr, g.pgCor) && !g.dismissed){
+    const bool filed = history_merge(g.pgAddr, g.pgFunc, g.pgLen, g.pgErr, g.pgCor);
+    if (filed)
+        log_observe();               /* the LBJ log's turn: file this train */
+    if (filed && !g.dismissed){
         if (!g.popup) g.pinned = false;  /* opened by a report: LBJPOP applies */
         g.popup = true;
         g.dirty = true;
@@ -1093,6 +1131,10 @@ static bool history_merge(uint32_t addr, uint8_t func, uint16_t len, uint8_t err
         g.rec[0].l0[0]  = g.rec[0].l1[0]  = g.rec[0].l2[0]  = g.rec[0].l3[0] = '\0';
         g.rec[0].dst    = LBJ_DST_NODET;
         g.rec[0].sh     = 0u;
+        g.rec[0].spd    = (uint16_t)LBJ_LOG_SPD_NONE;
+        g.rec[0].km10   = (uint32_t)LBJ_LOG_KM_NONE;
+        g.rec[0].mdl    = (uint16_t)LBJ_LOG_MDL_NONE;
+        g.rec[0].dir    = (uint8_t)LBJ_LOG_DIR_NONE;
         if (!own_sh && det_at){
             if (g.pendValid && (int16_t)(g.sec - g.pendSec) <= (int16_t)LBJ_MERGE_SECS){
                 /* the short block it belongs to was held back a moment ago: this
@@ -1128,6 +1170,7 @@ static bool history_merge(uint32_t addr, uint8_t func, uint16_t len, uint8_t err
     g.rec[0].dbm  = lbj_dbm();
     g.rec[0].err  = err;
     g.rec[0].cor  = cor;
+    g.rec[0].dir  = g.dir;
     if (own_sh){                     /* the short half, only when it is this report's */
         /* Row0 starts with the train prefix, which the detail block owns. This
          * page has none (g.pref is empty unless the page carries a detail half),
@@ -1143,6 +1186,8 @@ static bool history_merge(uint32_t addr, uint8_t func, uint16_t len, uint8_t err
         copyline(g.rec[0].l0, (uint8_t)sizeof g.rec[0].l0, g.l0);
         copyline(g.rec[0].l1, (uint8_t)sizeof g.rec[0].l1, g.l1);
         copyline(g.rec[0].l2, (uint8_t)sizeof g.rec[0].l2, g.l2);
+        g.rec[0].spd  = g.spd;
+        g.rec[0].km10 = g.km10;
     }
     if (det_at){
         /* The prefix in row0 is a detail-block field: put it in now, so a short
@@ -1157,9 +1202,97 @@ static bool history_merge(uint32_t addr, uint8_t func, uint16_t len, uint8_t err
         copyline(g.rec[0].l3, (uint8_t)sizeof g.rec[0].l3, g.l3);
         copyline(g.rec[0].rt, (uint8_t)sizeof g.rec[0].rt, g.rt);
         g.rec[0].dst = g.dst;
+        g.rec[0].mdl = g.mdl;
     }
     g.cur = 0;                       /* a fresh report always shows the newest */
     return true;
+}
+
+/* ---- log -----------------------------------------------------------------
+ *
+ * The LBJ log (see lbj_log.h) keeps one row per train in the flash zone the
+ * flash map reserves for an RX/TX log. A train's two blocks refresh the same
+ * history entry, so they must not become two rows either: the record is held in
+ * RAM until the train has gone quiet (LBJ_LOG_QUIET_SECS without another report)
+ * or until a different train shows up, and only then appended. That costs one
+ * page program per train instead of one sector erase per report.
+ *
+ * The quiet timer is what gets the last train of a session into the flash at
+ * all; a power-off before it expires loses that one row, which is the price of
+ * not erasing a sector per report.
+ */
+#define LBJ_LOG_QUIET_SECS 10u
+
+static struct {
+    bool          valid;
+    uint16_t      sec;            /* when the held train was last refreshed  */
+    lbj_log_rec_t rec;
+} g_log;
+
+static void log_build(lbj_log_rec_t *o, const lbj_rec_t *e){
+    uint8_t f = 0;
+
+    /* The history strings are C strings in fixed-size fields, so only the part
+     * up to the terminator is theirs: copying the whole field would drag in
+     * whatever a longer train number left behind it. The rest of the field stays
+     * 0 (a non-digit) and reads back as "missing". */
+    memset(o, 0, sizeof *o);
+    o->sec     = e->sec;
+    o->pref[0] = e->pref[0];
+    o->pref[1] = e->pref[1];
+    for (uint8_t i = 0; i < 6u && e->trn[i]; i++) o->trn[i] = e->trn[i];
+    for (uint8_t i = 0; i < 8u && e->loc[i]; i++) o->loc[i] = e->loc[i];
+    for (uint8_t i = 0; i < 4u && e->rt[i];  i++) o->rt[i]  = e->rt[i];
+    o->spd  = e->spd;
+    o->km10 = e->km10;
+    o->mdl  = e->mdl;
+    o->dst  = e->dst;
+    o->dir  = e->dir;
+
+    if (e->trn[0])                   f |= LBJ_LOG_F_TRN;
+    if (e->spd  != LBJ_LOG_SPD_NONE) f |= LBJ_LOG_F_SPD;
+    if (e->km10 != LBJ_LOG_KM_NONE)  f |= LBJ_LOG_F_KM;
+    if (e->mdl  != LBJ_LOG_MDL_NONE) f |= LBJ_LOG_F_MDL;
+    if (e->loc[0])                   f |= LBJ_LOG_F_LOC;
+    if (e->rt[0])                    f |= LBJ_LOG_F_RT;
+    if (e->dst >= 0)                 f |= LBJ_LOG_F_DST;
+
+    o->flags = f;
+}
+
+/* True when the held record and the entry are the same train: by registration
+ * when both carry one, otherwise by train number. A train that carries neither
+ * (a bare direction) never matches, so it can only become a record of its own. */
+static bool log_same(const lbj_log_rec_t *a, const lbj_rec_t *e){
+    if (a->loc[0] && e->loc[0]) return key_eq(a->loc, e->loc);
+    if (a->trn[0] && e->trn[0]) return key_eq(a->trn, e->trn);
+    return false;
+}
+
+static void log_flush(void){
+    if (!g_log.valid)
+        return;
+    if (!LBJ_LOG_Write(&g_log.rec))
+        return;                       /* off, clearing, or an app holds the flash */
+    g_log.valid = false;
+}
+
+/* A report was filed into the history: fold it into the held train, or close
+ * that one and start a new record for the train that just arrived. */
+static void log_observe(void){
+    if (!LBJ_LOG_Enabled()){
+        g_log.valid = false;
+        return;
+    }
+    if (g_log.valid && log_same(&g_log.rec, &g.rec[0])){
+        log_build(&g_log.rec, &g.rec[0]);
+        g_log.sec = g.sec;
+        return;
+    }
+    log_flush();
+    log_build(&g_log.rec, &g.rec[0]);
+    g_log.valid = true;
+    g_log.sec   = g.sec;
 }
 
 /* ---- popup ---- */
@@ -1465,6 +1598,17 @@ void LBJ_Tick(void){
         lbj_process(&g.rx[i]);
     if (g.pgUsed && (uint16_t)(g.tick10 - g.pgTick) >= MERGE_TICKS)
         page_commit();
+
+    /* LBJ log housekeeping: append the train held back once it has gone quiet,
+     * and let a clear of the log zone make progress. Both are no-ops until the
+     * operator enables the log or asks for a clear. */
+    if (g_log.valid){
+        if (!LBJ_LOG_Enabled())
+            g_log.valid = false;      /* turned off with a train still held back */
+        else if ((uint16_t)(g.sec - g_log.sec) >= LBJ_LOG_QUIET_SECS)
+            log_flush();
+    }
+    LBJ_LOG_Tick();
 
     /* Never sample while keyed up or in power save: the radio is reconfigured. */
     if (gCurrentFunction == FUNCTION_TRANSMIT || gPttIsPressed){

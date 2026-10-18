@@ -8,9 +8,11 @@ Reference: [Sdr-Is-Fun/RTL_SDR_LBJ_RECEIVER](https://github.com/Sdr-Is-Fun/RTL_S
 (the Python chain this app is modelled on) and the APRS RX app of this firmware
 (PA4 sampling, DPLL, overlay-app conventions).
 
-Status: **v0.13, decoding confirmed on-air.** The demodulator and the
+Status: **v0.14, decoding confirmed on-air.** The demodulator and the
 POCSAG/LBJ decoder are validated in `test/model_rx.py` against synthetic frames
 (clean / noise / ±1 % clock / AC-coupled / high-passed); see the tables below.
+The resident firmware now also keeps a train log in external flash (menu items
+`LBJLOG` / `LBJCLR`, export with `tools/lbj_log.py`).
 
 What v0.2 changed (all mirrored in `test/model_rx.py`):
 
@@ -308,6 +310,50 @@ payload，所以车次/速度/公里标全丢的基础预警照样会到达 —�
 从 **LBJ 菜单手动打开**的窗口是**钉住的**：永不超时，一直留到 EXIT/PTT（和以前一样）—— 想慢慢
 看又不想动设置时就用它。存的字节用的是设置区里**一直空着的那一个**，所以升级后该字节是 `0xFF`、
 按 `ON` 处理：不动这个菜单项的人**行为完全不变**。
+
+**v0.14** 加上 **LBJLOG / LBJCLR** 两个菜单项（仅常驻固件，紧跟 `LBJPOP` 之后），
+把解出的每一列车**记一条日志**到外部 flash。区域用的是 flashmap 里本来就空着、标着
+"RX/TX log" 的 32 KiB（`0x018000..0x01FFFF`，8 个 4 KiB 扇区 × 128 条 × 32 B；这里
+不再改那张表，只是复用这块目前无人使用的空间），存法照抄上游 RF log：环形追加、
+数据先写、commit 字节最后单独写、CRC8（初值 `0x5A`、多项式 `0x31`）——**断电中断的
+那条下次扫描时被丢掉**，不会当成半条读出来。每条记录就是那 8 项加序号和时间：
+
+    [0]      标志（b0..b6 = 车次/速度/公里标/车型/车号/线路/距离 有效，b7 保留）
+    [1..2]   车次前缀（2 ASCII）        [3..5]  车次数字（6 位 BCD，0xF=缺）
+    [6..7]   速度 u16（km/h）           [8..10] 公里标 u24（0.1 km）
+    [11..12] 车型码 u16                 [13..16] 车号（8 位 BCD）
+    [17..20] 线路（4 ASCII 拼音）       [21..22] 距离 i16（0.1 km）
+    [23]     方向（0=未知,1=DN,2=UP）   [24..25] 序号 u16
+    [26..27] 接收时的开机秒数           [28..29] 保留
+    [30]     CRC8（前 30 字节）         [31]    commit = 0xA5（最后写）
+
+一列车的短报文和详情块在历史里本来就是**一条**，日志也是**一条**：车次先在 RAM 里
+攒着，安静 10 s（或来了下一列车、或下一列车的车号/车次不同）才落盘。这样每列车只写
+一页，而不用为每条报文擦一个扇区；代价是**断电会丢掉最后那条还没落盘的**（计数只到
+"安静"为止）。
+
+`LBJLOG` 默认 **OFF**：不打开就完全不写 flash —— 这个设置字节以前一直空着，升级后
+读到的都是 `0xFF`、按 OFF 处理，所以不动这个菜单项的人**行为完全不变**（解码、弹窗、
+历史照旧）。`LBJCLR` 是清空，带 **`No`/`Yes`** 确认（`No` 在前，误按 EXIT 不会清）；
+擦除是一个扇区一扇区地在后台做，不卡界面。（首次写入时才扫描整块区域找断点，开机
+不额外读 flash。）
+
+运行 overlay app 期间日志会**挂起**：app 的代码正是跑在驱动那块 4 KiB 扇区缓存里，
+这时写日志会把正在执行的 app 覆盖掉 —— 所以 loader 起停 app 时顺带 `LBJ_LOG_Suspend`
+/ `Resume`（复用了原来 `RXTX_LOG` 留下的那三个位置）。
+
+导出用新脚本 `tools/lbj_log.py`：走固件自带的物理读命令（`0x0738`，和
+`tools/font_write.py` 同一套协议），读回 32 KiB → 校验 CRC → 按序号排序 → CSV，列就是
+上面那 8 项：
+
+    python tools/lbj_log.py --port COM3 -o lbj.csv     # 存 CSV（Excel 可直接开）
+    python tools/lbj_log.py --port COM3                # 直接打印成表格
+    python tools/lbj_log.py --port COM3 --clear        # 远程清空
+    python tools/lbj_log.py --port COM3 --raw dump.bin # 只存原始 32 KiB
+
+> 这里**故意**没有照抄上游 K5Viewer 的 `0x05/0x06` 帧：UV Studio 的一行固定 25 B
+> （车次/方向/线路只能塞进 `channelName[10]`），这 8 项根本放不下。日志因此走自己的
+> 区域、自己的工具，UV Studio 那边不做改动。
 
 ### 使用步骤
 
@@ -715,7 +761,9 @@ same design (`s2/s3/s4` over a shared front-end, one page merge).
 ## Notes
 
 - History is 8 records (on the stack); no raw-codeword ring and no external-flash
-  journal (the RAW page was removed to fit the 4 KiB overlay).
+  journal in the **app** (the RAW page was removed to fit the 4 KiB overlay). The
+  **resident firmware** keeps the flash journal instead - see v0.14 above and
+  `App/app/lbj_log.c`.
 - 4 KiB overlay: texts are read-only assets (`gen_assets.py`), as in APRS RX.
 - Built with `./compile-app.sh lbj` (Docker), `APP_NAME = "LBJ RX"`, blob
   `LBJRX.app`.

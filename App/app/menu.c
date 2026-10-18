@@ -43,6 +43,7 @@
 #include "ui/ui.h"
 #ifdef ENABLE_FEAT_F4HWN_LBJ
     #include "app/lbj_dual.h"
+    #include "app/lbj_log.h"
 #endif
 #if defined(ENABLE_FEAT_F4HWN_MULTIBOOT) && !defined(ENABLE_OVERLAY)
     #include "driver/mb_flash.h"
@@ -481,6 +482,14 @@ int MENU_GetLimits(uint8_t menu_id, int32_t *pMin, int32_t *pMax)
             case MENU_LBJPOP:
                 //*pMin = 0;
                 *pMax = ARRAY_SIZE(gSubMenu_LBJ_POP) - 1;
+                break;
+            case MENU_LBJLOG:
+                //*pMin = 0;
+                *pMax = ARRAY_SIZE(gSubMenu_OFF_ON) - 1;
+                break;
+            case MENU_LBJCLR:
+                //*pMin = 0;
+                *pMax = ARRAY_SIZE(gSubMenu_LBJ_CLR) - 1;
                 break;
         #endif
 
@@ -1061,6 +1070,16 @@ void MENU_AcceptSetting(void)
             case MENU_LBJPOP:
                 gEeprom.LBJ_POPUP_TIME = gSubMenuSelection;
                 break;
+            case MENU_LBJLOG:
+                gEeprom.LBJ_LOG_ENABLE = gSubMenuSelection;
+                break;
+            case MENU_LBJCLR:
+                /* the No/Yes submenu is the confirmation: only an explicit Yes
+                 * wipes the log, and the erase itself is done in the background
+                 * by LBJ_LOG_Tick(). */
+                if (gSubMenuSelection)
+                    LBJ_LOG_Clear();
+                break;
         #endif
 
         #if defined(ENABLE_FEAT_F4HWN_MULTIBOOT) && !defined(ENABLE_OVERLAY)
@@ -1560,6 +1579,12 @@ void MENU_ShowCurrentSetting(void)
         #ifdef ENABLE_FEAT_F4HWN_LBJ
             case MENU_LBJPOP:
                 gSubMenuSelection = gEeprom.LBJ_POPUP_TIME;
+                break;
+            case MENU_LBJLOG:
+                gSubMenuSelection = gEeprom.LBJ_LOG_ENABLE;
+                break;
+            case MENU_LBJCLR:
+                gSubMenuSelection = 0;   /* always starts on No */
                 break;
         #endif
 

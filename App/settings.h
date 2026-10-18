@@ -321,6 +321,11 @@ typedef struct {
      * own. 0 = ON (never closes itself, as before), 1..4 = 3/5/10/60 s. It lives
      * in a settings byte that was unused until now (0x00A0C5, see settings.c). */
     uint8_t               LBJ_POPUP_TIME;
+    /* LBJLOG: append one row per decoded train to the external-flash RX/TX log
+     * zone (0x018000), the LBJ log the export tools read. 0 = off (the default,
+     * so a radio that never stored the byte writes nothing), 1 = on. It lives
+     * in the settings byte behind LBJPOP (0x00A0C6, see settings.c). */
+    uint8_t               LBJ_LOG_ENABLE;
 #endif
 } EEPROM_Config_t;
 
