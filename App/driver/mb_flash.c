@@ -539,6 +539,32 @@ static void mb_ext_read(uint32_t addr, uint8_t *buf, uint32_t len)
     __set_PRIMASK(primask);
 }
 
+#if defined(ENABLE_FEAT_F4HWN_EXT_FLASH_RW) || defined(ENABLE_AIRCOPY_FLASH)
+/*
+ * Polled raw read backing the host 0x0738 dump command - the same primitive the
+ * app/slot readers use in MB_SlotInfo, and the one UV Studio exercises when it
+ * lists the installed apps. Deliberately NOT the PY25Q16 driver's DMA read:
+ * once the resident firmware has just programmed the LBJ log (or an app slot)
+ * with SPI2 in DMA mode, that read never sees its transfer-complete interrupt
+ * and spins forever, which freezes the whole radio (no watchdog - battery pull
+ * only). Here every byte is polled through mb_spi_byte()'s own timeout, so a
+ * sick bus degrades to MB_ERR_SPI instead. SPI2 is left in polled mode; the
+ * PY25Q16 driver re-arms DMA on its next operation, so mixing the two is safe.
+ */
+uint8_t MB_ExternalFlashRead(uint32_t address, uint8_t *buffer, uint32_t length)
+{
+    if (buffer == NULL || length == 0u ||
+        address > PY25Q16_TOTAL_SIZE || length > PY25Q16_TOTAL_SIZE - address)
+        return MB_ERR_SIZE;
+
+    mb_spi_err = 0;
+    mb_ext_read(address, buffer, length);
+    if (mb_spi_err)
+        return MB_ERR_SPI;
+    return MB_OK;
+}
+#endif
+
 /* -------------------------------------------------------------------------- */
 /* External flash raw erase/program (polled, flash-resident).                 */
 /*                                                                            */

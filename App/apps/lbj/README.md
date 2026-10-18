@@ -8,7 +8,7 @@ Reference: [Sdr-Is-Fun/RTL_SDR_LBJ_RECEIVER](https://github.com/Sdr-Is-Fun/RTL_S
 (the Python chain this app is modelled on) and the APRS RX app of this firmware
 (PA4 sampling, DPLL, overlay-app conventions).
 
-Status: **v0.15, decoding confirmed on-air.** The demodulator and the
+Status: **v0.16, decoding confirmed on-air.** The demodulator and the
 POCSAG/LBJ decoder are validated in `test/model_rx.py` against synthetic frames
 (clean / noise / ±1 % clock / AC-coupled / high-passed); see the tables below.
 The resident firmware also keeps a train log in external flash (menu items
@@ -380,6 +380,26 @@ payload，所以车次/速度/公里标全丢的基础预警照样会到达 —�
 
 同 32 B 记录格式、同一块区域，`tools/lbj_log.py`（Python + pyserial）和本页可以互换；
 没有 K 头写频线、或者只是想把 dump 转成 CSV 时用 Python 版，想看着表点两下就用本页。
+
+**v0.16** 修掉一个**能让电台死机**的固件缺陷：**只要 `LBJLOG` 刚记过车，紧接着读日志就会把
+电台卡死** —— LCD、按键、串口全停，固件没有看门狗，只能拔电池。网页版和
+`tools/lbj_log.py` 表现完全一样，因为都走同一条 `0x0738` 命令。
+
+- **根因**：`0x0738` 原来调 `PY25Q16_ReadBufferPhysical()`，它内部走 SPI2 的 **DMA 读**
+  （`SPI_ReadBuf()` 等 DMA1 CH4/CH5 的完成中断）。而电台自己写日志 / 写 app 槽位是另一条
+  路径，会把 SPI2 留在 DMA 模式；此后这条 DMA 读等不到完成中断，就永远卡在
+  `while (!TC_Flag);` 里。1 字节的探测读是**纯轮询**的，所以能过，卡死的是紧随其后的
+  第一条 128 字节 DMA 读 —— 这也解释了为什么 UV Studio 读"已安装 app 列表"一直正常：
+  那条命令走的是 `mb_flash.c` 的全轮询实现，从不碰 DMA。
+- **修法**：`0x0738` 改走全轮询读 —— `mb_flash.c` 新增导出 `MB_ExternalFlashRead()`，
+  复用的就是 UV Studio 读"已安装 app / 槽位头"那条 `mb_ext_read()`（每字节自带超时）。
+  同时给 `py25q16.c` 的 DMA 路径补上界限：`SPI_WriteByte()` 的 TXE/RXNE、
+  `SPI_ReadBuf()`/`SPI_WriteBuf()` 的 DMA 完成等待、`WaitWIP()` 的 100 万次上限
+  （≈10 s → 10 万次），并在轮询访问前按 `mb_spi_polled_mode()` 的做法把 SPI2 复位成
+  轮询模式。现在总线再出问题，最坏也只是**这一次读报错**，不会再把电台锁死。
+- 顺手修掉网页版错误信息没做插值的问题（原来显示字面的 `错误：{0}`，现在是
+  `错误：Read failed at 0x18000`）。
+- 只改常驻固件，**overlay blob 一个字节没动**，`APP_VER` 0.4 不变。
 
 ### 使用步骤
 

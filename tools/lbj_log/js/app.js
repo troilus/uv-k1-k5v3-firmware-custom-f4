@@ -295,7 +295,7 @@
             setTimeout(() => setProgressVisible(false), 800);
         } catch (error) {
             setProgressVisible(false);
-            log(t("error") + ": " + (error?.message ?? String(error)), "error");
+            log(t("error", error?.message ?? String(error)), "error");
         } finally {
             if (serial.isConnected()) await serial.disconnect().catch(() => undefined);
             endOperation(operation);
