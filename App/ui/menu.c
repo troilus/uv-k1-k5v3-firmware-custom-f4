@@ -70,6 +70,8 @@ const t_menu_item MenuList[] =
 #ifdef ENABLE_FEAT_F4HWN_LBJ
     {"LBJ",         MENU_LBJ           }, // last visible item: opens the decode window
     {"LBJPOP",      MENU_LBJPOP        }, // how long that window stays up on its own
+    {"LBJLOG",      MENU_LBJLOG        }, // append one flash row per decoded train
+    {"LBJCLR",      MENU_LBJCLR        }, // clear that log (No/Yes)
 #endif
 #ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
     {"SetCfg",      MENU_SET_CFG       }, // pick the settings bank to boot with
@@ -246,6 +248,14 @@ const char gSubMenu_LBJ_POP[][4] =
     "5s",
     "10s",
     "60s"
+};
+
+/* The LBJCLR confirmation, in menu order. It starts on No, so a stray EXIT
+ * never wipes the log. */
+const char gSubMenu_LBJ_CLR[][4] =
+{
+    "No",
+    "Yes"
 };
 #endif
 
@@ -1444,6 +1454,12 @@ void UI_DisplayMenu(void)
         #ifdef ENABLE_FEAT_F4HWN_LBJ
             case MENU_LBJPOP:
                 strcpy(String, gSubMenu_LBJ_POP[gSubMenuSelection]);
+                break;
+            case MENU_LBJLOG:
+                strcpy(String, gSubMenu_OFF_ON[gSubMenuSelection]);
+                break;
+            case MENU_LBJCLR:
+                strcpy(String, gSubMenu_LBJ_CLR[gSubMenuSelection]);
                 break;
         #endif
 

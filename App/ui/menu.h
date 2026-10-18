@@ -172,6 +172,12 @@ enum
      * it closes itself: ON (as before), 3, 5, 10 or 60 s. The window the LBJ
      * menu item opens by hand is not affected - it stays up as it always did. */
     MENU_LBJPOP,
+    /* LBJLOG: append one flash row per decoded train to the RX/TX log zone the
+     * flash map reserves (0x018000), the log the export tools read back. */
+    MENU_LBJLOG,
+    /* Not a setting either: clears that log zone. It carries its own No/Yes
+     * choice, so the second press is the confirmation. */
+    MENU_LBJCLR,
 #endif
 #ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
     /* Not a stored setting either: picks which settings bank the running
@@ -188,6 +194,7 @@ extern const char        gSubMenu_SFT_D[3][4];
 extern const char        gSubMenu_W_N[2][7];
 extern const char        gSubMenu_OFF_ON[2][4];
 extern const char        gSubMenu_LBJ_POP[5][4];
+extern const char        gSubMenu_LBJ_CLR[2][4];
 extern const char        gSubMenu_NA[4];
 extern const char        gSubMenu_TOT[11][7];
 extern const char* const gSubMenu_RXMode[4];

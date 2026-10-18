@@ -41,6 +41,9 @@
 #ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
 #include "app/rxtx_log.h"
 #endif
+#ifdef ENABLE_FEAT_F4HWN_LBJ
+#include "app/lbj_log.h"
+#endif
 #include "ui/helper.h"
 #include "ui/main.h"
 #include "ui/status.h"
@@ -975,6 +978,11 @@ uint8_t APP_LaunchOverlay(uint8_t slot)
 #ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
     RXTX_LOG_Suspend();
 #endif
+#ifdef ENABLE_FEAT_F4HWN_LBJ
+    /* The LBJ log writes through the same 4 KiB sector cache the app is about
+     * to run from, so it is held off for the app's lifetime. */
+    LBJ_LOG_Suspend();
+#endif
 
     /* Repurpose the sector cache: drop any cached config sector, load the code
      * straight in (ReadBuffer bypasses the cache), and verify it in RAM before
@@ -995,6 +1003,9 @@ uint8_t APP_LaunchOverlay(uint8_t slot)
         PY25Q16_InvalidateCache();
 #ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
         RXTX_LOG_Resume();
+#endif
+#ifdef ENABLE_FEAT_F4HWN_LBJ
+        LBJ_LOG_Resume();
 #endif
         return APP_ERR_CRC;
     }
@@ -1114,6 +1125,9 @@ uint8_t APP_LaunchOverlay(uint8_t slot)
 #endif
 #ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
     RXTX_LOG_Resume();
+#endif
+#ifdef ENABLE_FEAT_F4HWN_LBJ
+    LBJ_LOG_Resume();
 #endif
     return APP_OK;
 }

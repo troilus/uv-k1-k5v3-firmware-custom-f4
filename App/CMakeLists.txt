@@ -224,6 +224,7 @@ enable_feature(ENABLE_FEAT_F4HWN_LOGO)
 enable_feature(ENABLE_FEAT_F4HWN_LBJ
     app/lbj_dec.c
     app/lbj_dual.c
+    app/lbj_log.c
 )
 # Optional LBJ build variant: never display a report whose train number starts
 # with 9 (see processPending() in lbj_dual.c). Off by default, so a plain local
