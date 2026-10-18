@@ -786,12 +786,20 @@ static void CheckRadioInterrupts(void)
 
         if (interrupts.sqlLost) {
             g_SquelchLost = true;
-            if (gEeprom.RX_VFO == 0) {
-                BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, true);
-                BK4819_ToggleGpioOut(BK4819_GPIO5_PIN1_RED, false);
-            } else {
-                BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, true);
-                BK4819_ToggleGpioOut(BK4819_GPIO5_PIN1_RED, true);
+#ifdef ENABLE_FEAT_F4HWN_LBJ
+            /* An LBJ channel's LED is driven by the decoded-message blink in
+             * lbj_dual.c: the carrier is on air for a whole report, so the
+             * usual "squelch open" light would just stay on. */
+            if (!LBJ_RxVfoIsLbj())
+#endif
+            {
+                if (gEeprom.RX_VFO == 0) {
+                    BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, true);
+                    BK4819_ToggleGpioOut(BK4819_GPIO5_PIN1_RED, false);
+                } else {
+                    BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, true);
+                    BK4819_ToggleGpioOut(BK4819_GPIO5_PIN1_RED, true);
+                }
             }
             #ifdef ENABLE_FEAT_F4HWN_RX_TX_TIMER
                 gRxTimerCountdown_500ms = 7200;
@@ -800,9 +808,14 @@ static void CheckRadioInterrupts(void)
 
         if (interrupts.sqlFound) {
             g_SquelchLost = false;
-            BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, false);
-            if (gCurrentFunction != FUNCTION_TRANSMIT)
-                BK4819_ToggleGpioOut(BK4819_GPIO5_PIN1_RED, false);
+#ifdef ENABLE_FEAT_F4HWN_LBJ
+            if (!LBJ_RxVfoIsLbj())
+#endif
+            {
+                BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, false);
+                if (gCurrentFunction != FUNCTION_TRANSMIT)
+                    BK4819_ToggleGpioOut(BK4819_GPIO5_PIN1_RED, false);
+            }
         }
 
 #ifdef ENABLE_AIRCOPY
@@ -1392,6 +1405,21 @@ void CheckKeys(void)
 #ifdef ENABLE_FEAT_F4HWN
 static void HandleRxEndBlink(void)
 {
+#ifdef ENABLE_FEAT_F4HWN_LBJ
+    /* An LBJ channel does not use the RX-end blink: its carrier is on air for
+     * a whole report, so this would flash on every gap between bursts. Its LED
+     * belongs to the decoded-message blink instead (lbj_dual.c). */
+    if (LBJ_RxVfoIsLbj()) {
+        if (gRxEndBlinkState != 0) {
+            BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, false);
+            BK4819_ToggleGpioOut(BK4819_GPIO5_PIN1_RED, false);
+            gRxEndBlinkState = 0;
+        }
+        gRxEndBlinkPrevSquelch = g_SquelchLost;
+        return;
+    }
+#endif
+
     if (gSetting_set_eot == 0) {
         gRxEndBlinkState = 0;
         return;

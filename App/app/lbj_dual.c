@@ -231,6 +231,12 @@ static struct {
 
     bool     on;                 /* sampler running                           */
     uint16_t ticks, lostTicks;
+
+    /* The LBJ channel's LED: a double blink when a report is filed. The
+     * signal-driven blinks are muted on this mode (the guards in app.c). */
+    uint8_t  ledPhase;           /* 100 ms phases left; 0 = idle              */
+    uint8_t  ledTick;            /* 10 ms ticks left in the current phase      */
+    uint8_t  ledVfo;             /* the RX_VFO the blink belongs to (A/B LED)  */
     uint32_t savedModer, savedDac, savedRcc, savedDhr, savedSqr3, savedSmpr3;
     uint16_t saved2B, saved73;
 } g;
@@ -888,6 +894,56 @@ static void format(uint32_t addr, uint8_t func, const char *b, uint16_t len){
                                           : (uint8_t)LBJ_LOG_DIR_NONE);
 }
 
+/* ---- the LBJ channel's LED ------------------------------------------------
+ *
+ * An LBJ carrier is on air for a whole report, so the radio's usual "squelch
+ * open" light (app.c) would just sit on for seconds and the RX-end blink would
+ * fire on every gap between bursts. On this mode those two are muted (see the
+ * LBJ_RxVfoIsLbj() guards in app.c) and this is the only thing that drives the
+ * LED: a double blink when a report is filed, i.e. when new information has
+ * come off the air. 100 ms per phase, the same "on" width the radio's own A/B
+ * (RX-end) blink uses, and the same 2 x blink the LBJ RX overlay app does
+ * (lbj_app.c): on 100 / off 100 / on 100 / off 100. Not tied to SetEOT: the
+ * point of the blink here is the decoded message, not the end of a carrier. */
+#define LBJ_LED_PHASES  4u       /* on, off, on, off                          */
+#define LBJ_LED_TICKS   10u      /* 10 x 10 ms = 100 ms per phase             */
+
+static void ledBlinkStart(void){
+    if (g.ledPhase)              /* a train's two blocks merge into one blink */
+        return;
+    g.ledPhase = LBJ_LED_PHASES;
+    g.ledTick  = 0;
+    g.ledVfo   = gEeprom.RX_VFO; /* latched: the A/B LED of the channel it came on */
+}
+
+/* One 10 ms step, from LBJ_Tick(): main-loop context, and the BK4819 GPIO write
+ * is a plain register write (the overlay app calls it from its sampler). */
+static void ledBlinkService(void){
+    if (!g.ledPhase)
+        return;
+
+    /* Keyed up: the red TX LED owns the light, so take only ours (the green)
+     * down and drop the rest of the blink. */
+    if (gCurrentFunction == FUNCTION_TRANSMIT || gPttIsPressed){
+        g.ledPhase = 0;
+        g.ledTick  = 0;
+        BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, false);
+        return;
+    }
+
+    if (g.ledTick){
+        g.ledTick--;
+        return;
+    }
+    g.ledTick = LBJ_LED_TICKS;
+
+    /* Phase 4 on, 3 off, 2 on, 1 off: even counts light, odd counts dark. */
+    const bool on = (g.ledPhase & 1u) == 0u;
+    BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, on);
+    BK4819_ToggleGpioOut(BK4819_GPIO5_PIN1_RED, on && g.ledVfo != 0u);
+    g.ledPhase--;
+}
+
 /* ---- decoder callbacks (main-loop context, from lbj_process; the ISR only
  * queues raw words) ---------------------------------------------------------- */
 static void sanitize(char *s);
@@ -938,8 +994,11 @@ static void page_commit(void)
 #endif
 
     const bool filed = history_merge(g.pgAddr, g.pgFunc, g.pgLen, g.pgErr, g.pgCor);
-    if (filed)
+    if (filed){
         log_observe();               /* the LBJ log's turn: file this train */
+        if (LBJ_RxVfoIsLbj())        /* new information: blink the LBJ LED  */
+            ledBlinkStart();
+    }
     if (filed && !g.dismissed){
         if (!g.popup) g.pinned = false;  /* opened by a report: LBJPOP applies */
         g.popup = true;
@@ -1609,6 +1668,11 @@ void LBJ_Tick(void){
             log_flush();
     }
     LBJ_LOG_Tick();
+
+    /* The LBJ channel's LED: the double blink a filed report started. Runs
+     * before the TX / power-save exits below, so a blink can never be left
+     * frozen with the LED on. */
+    ledBlinkService();
 
     /* Never sample while keyed up or in power save: the radio is reconfigured. */
     if (gCurrentFunction == FUNCTION_TRANSMIT || gPttIsPressed){

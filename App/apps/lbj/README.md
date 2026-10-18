@@ -8,7 +8,7 @@ Reference: [Sdr-Is-Fun/RTL_SDR_LBJ_RECEIVER](https://github.com/Sdr-Is-Fun/RTL_S
 (the Python chain this app is modelled on) and the APRS RX app of this firmware
 (PA4 sampling, DPLL, overlay-app conventions).
 
-Status: **v0.16, decoding confirmed on-air.** The demodulator and the
+Status: **v0.17, decoding confirmed on-air.** The demodulator and the
 POCSAG/LBJ decoder are validated in `test/model_rx.py` against synthetic frames
 (clean / noise / ±1 % clock / AC-coupled / high-passed); see the tables below.
 The resident firmware also keeps a train log in external flash (menu items
@@ -400,6 +400,22 @@ payload，所以车次/速度/公里标全丢的基础预警照样会到达 —�
 - 顺手修掉网页版错误信息没做插值的问题（原来显示字面的 `错误：{0}`，现在是
   `错误：Read failed at 0x18000`）。
 - 只改常驻固件，**overlay blob 一个字节没动**，`APP_VER` 0.4 不变。
+
+**v0.17** 两处常驻固件改动（overlay blob 依然一个字节没动，`APP_VER` 0.4 不变）：
+
+- **菜单项 `LBJ` 改名 `LBJMSG`**：只改显示名，`MENU_LBJ` 的 id 和功能不变（仍是打开解码
+  窗口）；旁边的 `LBJPOP` / `LBJLOG` / `LBJCLR` 不动。6 个字符和 `LBJLOG` / `LBJCLR`
+  同宽，菜单列不会溢出。
+- **LBJ 通道的 LED 改成"解出新报文才闪"**：以前只要静噪一开绿灯就亮、静噪一关就按
+  `SetEOT` 的规则闪几下 —— LBJ 的 OOK 载波是整段报文在发，静噪几乎一直开着，所以灯
+  不是长亮就是一直闪。现在**调制方式为 LBJ 的通道**上，这两种"有信号就动灯"的行为都
+  关掉，改为**每解出一条新报文闪 2 下**：亮 100 ms / 灭 100 ms × 2（共 400 ms），和
+  LBJ 覆盖层 App 自己的绿灯双闪一致；A 通道亮绿灯，B 通道亮绿+红。同一次列车的短块和
+  详块相隔只有几百毫秒，会合并成**一次**闪灯，不会连成一片。
+  - 触发点是 `page_commit()` 里"这条报文已归档"（和写日志、弹窗、亮背光是同一拍），
+    所以**只有真的解出新信息才闪**，光有载波不闪。
+  - 这个闪灯**不受 `SetEOT` 开关影响**（`SetEOT` 只管非 LBJ 通道的收尾闪灯）。
+  - 发信红灯、非 LBJ 通道原来的信号灯、新信息亮背光，全都不变。
 
 ### 使用步骤
 
