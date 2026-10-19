@@ -2,7 +2,7 @@
 
 > **Deprecated (v0.22).** The five positions and the primary are now edited from
 > the resident settings menu itself - `LBJPRI` picks the slot, `LBJLAT` and
-> `LBJLON` type its latitude and longitude (see `../lbj/USAGE.md`), and the
+> `LBJLON` type its latitude and longitude (see `../lbj/README.md`, v0.22), and the
 > store is a 4 KiB sector of the firmware's own (`App/app/lbj_pos.c`). This app
 > is kept, and still builds, only for radios that already have it: **the popup
 > still reads its store as a fallback** when the menu has never set a position,
