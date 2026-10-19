@@ -8,13 +8,15 @@ Reference: [Sdr-Is-Fun/RTL_SDR_LBJ_RECEIVER](https://github.com/Sdr-Is-Fun/RTL_S
 (the Python chain this app is modelled on) and the APRS RX app of this firmware
 (PA4 sampling, DPLL, overlay-app conventions).
 
-Status: **v0.20, decoding confirmed on-air.** The demodulator and the
+Status: **v0.21, decoding confirmed on-air.** The demodulator and the
 POCSAG/LBJ decoder are validated in `test/model_rx.py` against synthetic frames
 (clean / noise / ±1 % clock / AC-coupled / high-passed); see the tables below.
 The resident firmware also keeps a train log in external flash (menu items
 `LBJLOG` / `LBJCLR` / `LBJHST`), exported either with `tools/lbj_log.py` or with
-the browser tool in `tools/lbj_log/`, and in v0.20 readable on the radio itself
-(the `LBJHST` list, no PC needed).
+the browser tool in `tools/lbj_log/`, and since v0.20 readable on the radio
+itself (the `LBJHST` list, no PC needed). Since v0.21 the settings menu is a
+category browser with LBJ second and every item reachable without the power-on
+gesture (DTMF excepted) - see `USAGE.md` §6.1.
 
 **使用说明（面向使用者）**：固件版 / LBJ RX App 版 / LBJ Edit 经纬度 / 导出，见
 [`USAGE.md`](USAGE.md)。开发细节在下面。
@@ -453,7 +455,7 @@ payload，所以车次/速度/公里标全丢的基础预警照样会到达 —�
   - 常驻固件新增约 30 B（CI 工件 `firmware-artifact` **83,347 B**、`-artifact9` **83,343 B**，
     v0.18 是 83,318 / 83,316 B；RAM 不变）。**6 个 overlay 工件不受影响**：这次没有触碰
     `App/apps/**`，overlay 二进制的源头一个字节没动，CI 的 Build Apps 全绿，各变体在
-    4096 B 槽位里的占用是 4092 / 3912 / 3940 / 3820 / 4092 / 4032 B。
+    4096 B 槽位里的占用是 4032 / 3912 / 3940 / 3820 / 4092 / 4032 B。
 
 **v0.20** 加上**电台上直接看日志**的列表页（overlay 仍然一个字节没动，`APP_VER` 0.4 不变）：
 
@@ -483,6 +485,7 @@ payload，所以车次/速度/公里标全丢的基础预警照样会到达 —�
   但**不会被拽走**；列表页和详情页不受影响。）
 - **`LBJMSG`（含按键快捷方式）在没有 RAM 历史时改开列表**：解出过报文就还是原来的实时页，
   一条都没有但 flash 里有记录时改开列表，两边都没有才拒绝（菜单项停在原处／双响）。
+  **v0.21 收回这条**，见下。
 - 顺手补的**健壮性修复**：`LBJ_OpenPopup()` / `LBJ_OpenList()` 在 **FM 收音机模式**下直接
   返回失败。弹窗画在主界面上，FM 模式下本来就看不见，但窗口会独占键盘 —— 以前在 FM 里
   按到 `LBJMSG`（或挂在侧键上）会把电台"锁"在 FM 上，只有载波沿或重启能救回来。
@@ -491,9 +494,34 @@ payload，所以车次/速度/公里标全丢的基础预警照样会到达 —�
  8 B 光标 + 查看器 7 B 静态量 + 记录结构里多出的 2 B 序号），1024 条记录不占 RAM。
   **6 个 overlay 工件不受影响**：这次的代码改动只在常驻固件里（`App/app/`、`App/ui/`），
   overlay 的源码（`App/apps/**` 的 `.c` / `.h`）一个字节没动，CI 的 Build Apps 各变体占用
-  仍是 4092 / 3912 / 3940 / 3820 / 4092 / 4032 B。增加的这 2 KB 主要来自新的列表页与
+  仍是 4032 / 3912 / 3940 / 3820 / 4092 / 4032 B。增加的这 2 KB 主要来自新的列表页与
   存盘详情页的绘制与按键分支（`lbj_dual.c` +396 行、`lbj_log.c` +160 行），常驻固件离
   118 KB 上限仍有约 32 KB 余量。
+
+**v0.21** 把设置菜单做成**分类浏览**（overlay 仍然一个字节没动，`APP_VER` 0.4 不变）：
+
+- **菜单分两级**：按 `M` 先进**分类页**（一屏三个分类，中间反白，右边是项数，底部
+  `n.N`），`M` 进该分类的设置项列表，`UP`/`DOWN` 在分类页切分类、在列表里移光标，
+  `EXIT` 退一级（列表 → 分类页，分类页 → 退菜单）。数字键照旧按序号跳项：在分类页按
+  数字会先切到"全部"（老菜单那份平铺列表）再跳。分类表、按键表见 `USAGE.md` §6.1。
+- **12 个分类**：信道 19 / **LBJ 5（第二个）** / 扫描 6 / 按键 9 / 电源 2 / 显示 11 /
+  定时 4 / 音频 4 / 电台 6 / DTMF 6 / 服务 6 / 全部 78。
+- **不再有隐藏菜单**：78 项全部可见，原来"开机按住 PTT + 侧键 1"才出现的那半张菜单
+  没有了。唯一保留的是 **DTMF 分类**（6 项）：它仍然默认不显示，那个手势现在的作用
+  是把它显示出来（开机手势会直接落在 DTMF 分类上）。不按手势时，DTMF 分类和它的 6 项
+  在分类页和"全部"里都不出现 —— 效果和以前的隐藏菜单一样。
+- 分类归属放在 `App/ui/menu.c` 的 `gMenuCatOf[]`，**按 `MENU_*` id 索引**，不写进
+  `MenuList` 的每一行：菜单行一个字节没改，而且这张表和语言无关，`main00` 与
+  `lbjradio` 只差分类名那张小表（中文 / 英文）。
+- **不在 RAM 里存副本**：某个分类里的第 n 项是**扫一遍 `MenuList` 数出来的**（78 次
+  比较，可忽略），每个分类各记一个光标 = 12 B，加分类页标志和当前分类共 14 B 全局量。
+- **`LBJMSG` 收回 v0.20 的"没有 RAM 历史就改开列表"**：这次开机还没解出过报文就是
+  **不打开**，菜单项停在原处；挂在侧键 / 长按 M 上时**双响**拒绝。要看存盘记录用
+  `LBJHST` —— 一个实时窗口、一个存盘列表，不再互相顶替。
+- 常驻固件新增约 0.85 KB（CI 工件 `firmware-artifact` **86,245 B**、`-artifact9`
+  **86,228 B**，v0.20 是 85,379 / 85,386 B，即 +866 / +842 B）；RAM 只多约 14 B。
+  **6 个 overlay 工件不受影响**：这次没有触碰 `App/apps/**` 的 `.c` / `.h`，CI 的
+  Build Apps 各变体占用仍是 4032 / 3912 / 3940 / 3820 / 4092 / 4032 B。
 
 ### 使用步骤
 
