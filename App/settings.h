@@ -140,6 +140,12 @@ enum ACTION_OPT_t {
 #ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
     ACTION_OPT_TONECALL,
 #endif
+#ifdef ENABLE_FEAT_F4HWN_LBJ
+    /* The side key / M Long shortcut for the LBJ decode window. Appended at the
+     * end so every value already in the settings stays valid: anything at or
+     * above ACTION_OPT_LEN is turned back into that key's default on load. */
+    ACTION_OPT_LBJMSG,
+#endif
     ACTION_OPT_LEN
 };
 
