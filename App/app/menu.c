@@ -44,6 +44,7 @@
 #ifdef ENABLE_FEAT_F4HWN_LBJ
     #include "app/lbj_dual.h"
     #include "app/lbj_log.h"
+    #include "app/lbj_pos.h"
 #endif
 #if defined(ENABLE_FEAT_F4HWN_MULTIBOOT) && !defined(ENABLE_OVERLAY)
     #include "driver/mb_flash.h"
@@ -500,6 +501,10 @@ int MENU_GetLimits(uint8_t menu_id, int32_t *pMin, int32_t *pMax)
             case MENU_LBJCLR:
                 //*pMin = 0;
                 *pMax = ARRAY_SIZE(gSubMenu_LBJ_CLR) - 1;
+                break;
+            case MENU_LBJPRI:
+                //*pMin = 0;
+                *pMax = ARRAY_SIZE(gSubMenu_LBJ_PRI) - 1;
                 break;
         #endif
 
@@ -1096,6 +1101,38 @@ void MENU_AcceptSetting(void)
                 if (gSubMenuSelection)
                     LBJ_LOG_Clear();
                 break;
+            case MENU_LBJPRI:
+                /* Entry 0 is "--" (no primary), 1..5 is the store's slot 0..4.
+                 * Chosen before the coordinate is typed, so a slot with nothing
+                 * in it can be picked and filled in afterwards. */
+                LBJ_POS_SetPrimary(gSubMenuSelection
+                                       ? (uint8_t)(gSubMenuSelection - 1)
+                                       : LBJ_POS_NONE);
+                break;
+            case MENU_LBJLAT:
+            case MENU_LBJLON:
+            {   /* One half of the primary slot's coordinate, as typed into the
+                 * box. Nothing typed, or no primary to put it in: say so and
+                 * leave the store alone (LBJ_POS_SetLat/Lon refuse an
+                 * out-of-range half the same way). */
+                const uint8_t need = (UI_MENU_GetCurrentMenuId() == MENU_LBJLON) ? 7u : 6u;
+                const uint8_t prim = LBJ_POS_Primary();
+                uint8_t       dig[7];
+
+                if (prim >= LBJ_POS_SLOTS || gInputBoxIndex < need)
+                {
+                    gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
+                    break;
+                }
+
+                const char *ascii = INPUTBOX_GetAscii();
+                for (uint8_t i = 0; i < need; i++)
+                    dig[i] = (uint8_t)(ascii[i] - '0');
+
+                if (need == 7u ? !LBJ_POS_SetLon(prim, dig) : !LBJ_POS_SetLat(prim, dig))
+                    gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
+                break;
+            }
         #endif
 
         #if defined(ENABLE_FEAT_F4HWN_MULTIBOOT) && !defined(ENABLE_OVERLAY)
@@ -1602,6 +1639,13 @@ void MENU_ShowCurrentSetting(void)
             case MENU_LBJCLR:
                 gSubMenuSelection = 0;   /* always starts on No */
                 break;
+            case MENU_LBJPRI:
+            {   /* the choice the store holds: 0 is "--", 1..5 is slot 0..4 */
+                const uint8_t prim = LBJ_POS_Primary();
+
+                gSubMenuSelection = (prim < LBJ_POS_SLOTS) ? (int32_t)(prim + 1u) : 0;
+                break;
+            }
         #endif
 
         default:
@@ -1765,6 +1809,34 @@ static void MENU_Key_0_to_9(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
 
     const int m = UI_MENU_GetCurrentMenuId();
 
+    if (m == MENU_LBJLAT || m == MENU_LBJLON)
+    {   /* One half of the primary slot's coordinate: DD MM hh or DDD MM hh,
+         * complete when its last digit is in. Only the range is checked here -
+         * the box is both what the row shows and what MENU commits, so EXIT
+         * leaves the store untouched. A digit past the end of the field is
+         * dropped rather than entered, and an out-of-range field starts over
+         * with the double beep the other numeric boxes give. */
+        const uint8_t need = (m == MENU_LBJLON) ? 7u : 6u;
+        uint8_t       dig[7];
+
+        if (gInputBoxIndex > need)
+            gInputBoxIndex = need;         /* the field is full: ignore the rest */
+
+        if (gInputBoxIndex < need)
+            return;                        /* still typing */
+
+        const char *ascii = INPUTBOX_GetAscii();
+        for (uint8_t i = 0; i < need; i++)
+            dig[i] = (uint8_t)(ascii[i] - '0');
+
+        if (need == 7u ? !LBJ_POS_LonOk(dig) : !LBJ_POS_LatOk(dig))
+        {
+            gInputBoxIndex = 0;
+            gBeepToPlay    = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
+        }
+        return;
+    }
+
     if (m == MENU_MEM_CH ||
         m == MENU_DEL_CH ||
         m == MENU_1_CALL ||
@@ -1898,7 +1970,17 @@ Skip:
     {
         if (gIsInSubMenu)
         {
-            if (gInputBoxIndex == 0 || UI_MENU_GetCurrentMenuId() != MENU_OFFSET)
+            const int m = UI_MENU_GetCurrentMenuId();
+
+            /* MENU_OFFSET and the two LBJ coordinate boxes are typed into: a
+             * short EXIT takes back the last digit while there is one, and only
+             * then leaves the item. */
+            if (gInputBoxIndex == 0 ||
+                (m != MENU_OFFSET
+                 #ifdef ENABLE_FEAT_F4HWN_LBJ
+                     && m != MENU_LBJLAT && m != MENU_LBJLON
+                 #endif
+                ))
             {
                 goto Skip;
             }
@@ -1991,6 +2073,16 @@ static void MENU_Key_MENU(const bool bKeyPressed, const bool bKeyHeld)
             if (LBJ_OpenList())
                 gRequestDisplayScreen = DISPLAY_MAIN;
             return;
+        }
+        if (m == MENU_LBJLAT || m == MENU_LBJLON)
+        {   /* The coordinate goes into the slot LBJPRI picked; with no primary
+             * there is nowhere to put it, so say so rather than opening a box
+             * that could not be committed. */
+            if (LBJ_POS_Primary() >= LBJ_POS_SLOTS)
+            {
+                gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
+                return;
+            }
         }
 #endif
 

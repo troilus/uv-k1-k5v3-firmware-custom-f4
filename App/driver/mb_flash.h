@@ -144,6 +144,7 @@ uint8_t MB_SlotWrite(uint8_t slot, uint32_t offset, const uint8_t *data, uint32_
 /*   0x000000  bank 0 config  (channels/settings)      ] per-bank             */
 /*   0x010000  calibration (512 B)                     ] shared               */
 /*   0x011000  boot logo (4 KiB)                       ] shared               */
+/*   0x012000  LBJ positions (4 KiB)                   ] shared               */
 /*   0x018000  RX/TX log (32 KiB)                      ] shared               */
 /*   0x020000  slot 0 firmware  (BACKUP, 128 KiB)      ] firmware-managed     */
 /*   0x040000  slot 1 firmware  (128 KiB)              ]                      */

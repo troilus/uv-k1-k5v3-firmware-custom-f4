@@ -729,7 +729,8 @@ uint8_t APP_ValidateSlot(uint8_t slot, app_header_t *out_header)
 }
 
 /* The same bytes cfg_load hands an app, for resident code that wants an app's
- * own settings (the LBJ popup reads the position store LBJ Edit keeps).  The
+ * own settings (the LBJ popup still falls back to the position store the
+ * deprecated LBJ Edit app keeps).  The
  * owner tag must name the app in the slot, or read as erased flash - the config
  * of an app that used to live there is stale and belongs to nobody. */
 bool APP_ReadSlotConfig(uint8_t slot, uint8_t *buf, uint16_t len)
