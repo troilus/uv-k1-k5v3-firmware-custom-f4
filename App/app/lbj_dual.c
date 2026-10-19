@@ -55,6 +55,7 @@
 #include "apps/aprs_profile.h"
 #include "apps/lbjedit/lbjedit_pos.h"
 #endif
+#include "app/fm.h"
 #include "audio.h"
 #include "driver/backlight.h"
 #include "driver/bk4819.h"
@@ -160,6 +161,18 @@ static dem_t g_dm;
 /* ---- state ---- */
 #define LBJ_HISTORY   8u          /* decoded reports kept for paging back     */
 
+/* The window has more than one page: the live decode (what a received report,
+ * the LBJMSG item or a shortcut shows), the list of the reports stored in
+ * flash, and the detail of one of those. */
+#define LBJ_VIEW_LIVE  0u
+#define LBJ_VIEW_LIST  1u
+#define LBJ_VIEW_REC   2u
+
+/* Reports the list shows at once. Five rows of the 3x5 font at an 8 px pitch
+ * fill rows 0..4 of the screen; row 5 is the "LOG n" line and row 6 the key
+ * hints. */
+#define LBJ_LIST_ROWS  5u
+
 typedef struct {
     uint32_t addr;                /* decoded address code (1233999..1234002) */
     uint16_t sec;                 /* receive time, seconds (age base)        */
@@ -218,6 +231,14 @@ static struct {
     lbj_rec_t rec[LBJ_HISTORY];   /* history, newest first                    */
     uint8_t   count, cur;
     uint16_t  sec, subSec;        /* free running clock for the message age  */
+
+    /* Which page the window is on (LBJ_VIEW_*), and - for the two pages that
+     * read the flash log - the record the cursor is on and the record the list
+     * draws on its first row. Everything else is read on demand, so a list of
+     * 1024 reports costs 17 bytes of RAM, not a copy of the ring. */
+    uint8_t        view;
+    lbj_log_view_t lv;
+    lbj_log_view_t lvTop;
     uint16_t  popSec;             /* g.sec the window last changed (LBJPOP)  */
 
     /* #12 page merge: the slicers read the same transmission and each gives the
@@ -272,6 +293,52 @@ static char *putkm(char *o, const char *p){       /* 5 BCD chars -> DDDD.D */
     return o;
 }
 static char *putdash(char *o, uint8_t n){ while (n--) *o++ = '-'; return o; }
+
+/* Right / left aligned copy of s in width characters; a longer value keeps its
+ * first width characters so the columns of the list never collide. */
+static char *rjust(char *o, uint8_t width, const char *s){
+    uint8_t n = 0;
+    while (s[n]) n++;
+    if (n > width) n = width;
+    for (uint8_t i = n; i < width; i++) *o++ = ' ';
+    for (uint8_t i = 0; i < n; i++) *o++ = s[i];
+    return o;
+}
+static char *ljust(char *o, uint8_t width, const char *s){
+    uint8_t n = 0;
+    while (s[n]) n++;
+    if (n > width) n = width;
+    for (uint8_t i = 0; i < n; i++) *o++ = s[i];
+    for (uint8_t i = n; i < width; i++) *o++ = ' ';
+    return o;
+}
+
+/* The km post as the log record keeps it: tenths of a km in a 32-bit field,
+ * written out DDDD.D exactly like putkm() writes the BCD one. */
+static char *putkm10(char *o, uint32_t km10){
+    static const uint32_t KMW[] = { 1000u, 100u, 10u, 1u };
+    uint32_t v = km10 / 10u;
+    if (v > 9999u) v = 9999u;
+    for (uint8_t i = 0; i < 4u; i++) *o++ = (char)('0' + sub(&v, KMW[i]));
+    *o++ = '.';
+    *o++ = (char)('0' + (unsigned)(km10 % 10u));
+    return o;
+}
+
+/* When a stored report was received: the uptime the record carries, H:MM:SS.
+ * The record has no wall clock - the export's uptime_s column is this number. */
+static char *puttime(char *o, uint16_t sec){
+    uint32_t v = sec;
+    const unsigned h = sub(&v, 3600u);
+    const unsigned m = sub(&v, 60u);
+    o = putu(o, h);
+    *o++ = ':';
+    if (m < 10u) *o++ = '0';
+    o = putu(o, m);
+    *o++ = ':';
+    if (v < 10u) *o++ = '0';
+    return putu(o, v);
+}
 
 /* bcd char -> raw 4-bit value (inverse of the decoder's BCD alphabet). */
 static uint8_t nib(char c){
@@ -1032,7 +1099,13 @@ static void page_commit(void)
             ledBlinkStart();
     }
     if (filed && !g.dismissed){
-        if (!g.popup) g.pinned = false;  /* opened by a report: LBJPOP applies */
+        if (!g.popup){
+            g.pinned = false;            /* opened by a report: LBJPOP applies */
+            g.view   = LBJ_VIEW_LIVE;    /* ... on the live page, not the list */
+            g.cur    = 0;                /* a fresh report shows the newest    */
+        }
+        /* A window that is already up keeps whatever the operator put on it: a
+         * report arriving does not yank the list or a stored detail away. */
         g.popup = true;
         g.dirty = true;
     }
@@ -1395,15 +1468,40 @@ void LBJ_ClosePopup(void){
 
 /* Manually open the decode window (the LBJ menu item): unlike a received report
  * nothing re-arms it, so it simply stays until EXIT or PTT - the LBJPOP timeout
- * does not apply to it (see g.pinned) - and the newest report is shown. Refuses
- * when the history is still empty. */
+ * does not apply to it (see g.pinned) - and the newest report is shown. With no
+ * live history at all the stored list is what the operator gets instead.
+ * Refuses when there is neither.
+ *
+ * FM mode is refused outright: the window is drawn over the main screen, so a
+ * popup opened there could swallow the keypad without ever being visible. */
 bool LBJ_OpenPopup(void){
-    if (!g.count)
+    if (gFmRadioMode)
         return false;
+    if (!g.count)
+        return LBJ_OpenList();       /* nothing decoded yet: what is stored */
     g.cur       = 0;
+    g.view      = LBJ_VIEW_LIVE;
     g.popup     = true;
     g.pinned    = true;              /* opened by hand: it never times out */
     g.dismissed = false;             /* an explicit open overrides an earlier EXIT */
+    g.dirty     = true;
+    return true;
+}
+
+/* The other way in, and what an empty live history falls back to: the list of
+ * reports stored in the flash log (the LBJHST menu item). Refused while the log
+ * is being cleared - a list of records that are about to go is worse than no
+ * list - and while the ring holds nothing. */
+bool LBJ_OpenList(void){
+    if (gFmRadioMode)
+        return false;
+    if (!LBJ_LOG_ViewOpen(&g.lv))
+        return false;
+    g.lvTop     = g.lv;              /* the list opens on the newest report */
+    g.view      = LBJ_VIEW_LIST;
+    g.popup     = true;
+    g.pinned    = true;
+    g.dismissed = false;
     g.dirty     = true;
     return true;
 }
@@ -1412,7 +1510,12 @@ bool LBJ_OpenPopup(void){
  * the radio. Only the fresh press of a key does anything - UP/DOWN step
  * through the history once and EXIT closes the window - while a hold, a
  * release and every other key are swallowed silently. PTT closes the window
- * and transmits. */
+ * and transmits.
+ *
+ * MENU turns the page: the live report shows the stored list, the list shows
+ * the detail of the report it has marked, and that detail goes back to the
+ * list. EXIT closes the window from wherever it is, so the list is never more
+ * than one key away from the radio. */
 bool LBJ_HandleKey(uint8_t key, bool pressed, bool held){
     if (key == KEY_PTT){                 /* PTT closes the popup and stops the sampler, still transmits */
         LBJ_ClosePopup();
@@ -1428,14 +1531,54 @@ bool LBJ_HandleKey(uint8_t key, bool pressed, bool held){
         LBJ_ClosePopup();
         return true;
     }
+    if (key == KEY_MENU){
+        if (g.view == LBJ_VIEW_LIVE){
+            if (LBJ_LOG_ViewOpen(&g.lv)){
+                g.lvTop = g.lv;           /* the list opens on the newest report */
+                g.view  = LBJ_VIEW_LIST;
+                g.dirty = true;
+            } else
+                gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;   /* nothing stored */
+        } else if (g.view == LBJ_VIEW_LIST){
+            g.view  = LBJ_VIEW_REC;
+            g.dirty = true;
+        } else {
+            g.lvTop = g.lv;               /* back to the list, on this report */
+            g.view  = LBJ_VIEW_LIST;
+            g.dirty = true;
+        }
+        return true;
+    }
     if (key == KEY_UP || key == KEY_DOWN){
-        if (g.count){
-            int t = (int)g.cur + ((key == KEY_UP) ? -1 : 1);
-            if (t < 0) t = 0;
-            if (t > (int)g.count - 1) t = (int)g.count - 1;
-            if (t != (int)g.cur){
-                g.cur = (uint8_t)t;
-                g.dirty = true;            /* redraw with the other report */
+        const bool newer = (key == KEY_UP);
+
+        if (g.view == LBJ_VIEW_LIVE){
+            if (g.count){
+                int t = (int)g.cur + (newer ? -1 : 1);
+                if (t < 0) t = 0;
+                if (t > (int)g.count - 1) t = (int)g.count - 1;
+                if (t != (int)g.cur){
+                    g.cur = (uint8_t)t;
+                    g.dirty = true;        /* redraw with the other report */
+                }
+            }
+        } else {
+            lbj_log_view_t t = g.lv;
+            if (newer ? LBJ_LOG_ViewNewer(&t) : LBJ_LOG_ViewOlder(&t)){
+                g.lv = t;
+                if (g.view == LBJ_VIEW_LIST){
+                    /* the window follows the mark off the first and the last
+                     * row; the list never scrolls past what is stored */
+                    if (newer){
+                        if (g.lv.idx < g.lvTop.idx)
+                            LBJ_LOG_ViewNewer(&g.lvTop);
+                    } else if ((uint16_t)(g.lv.idx - g.lvTop.idx) >= LBJ_LIST_ROWS){
+                        LBJ_LOG_ViewOlder(&g.lvTop);
+                    }
+                } else {
+                    g.lvTop = g.lv;        /* the list keeps up with the detail */
+                }
+                g.dirty = true;
             }
         }
         return true;
@@ -1451,7 +1594,236 @@ bool LBJ_HandleKey(uint8_t key, bool pressed, bool held){
 #define POP_TIMEX  52u                  /* age, middle                        */
 #define POP_EXITX 100u                  /* EXIT, hard right (100..127)        */
 
+/* ---- the stored-report list ----------------------------------------------
+ *
+ * The window's second page: what the LBJHST menu item opens, and what an empty
+ * live history falls back to. Five rows of the 3x5 font - the one the status bar
+ * and the overlay-app selector use, so a whole row fits - one stored report
+ * each, newest first:
+ *
+ *     序号  车次  速度  距离
+ *
+ * The 序号 is the rank counted from the newest (1 = the report stored last), the
+ * same way the footer's total is counted; the export tool's own "seq" column is
+ * on the detail page instead. A field the report did not carry is a dash, never
+ * a 0, and the train number drops the record's 0xF padding while a lost digit
+ * stays a dash. Columns are right aligned so the numbers line up.
+ *
+ * The records are read from the flash as the page is drawn - nothing is cached -
+ * and the two cursors (the marked row and the first row on screen) are what make
+ * scrolling O(1): one record read per row, one more for a step.
+ */
+#define LBJ_LIST_Y(line) ((uint8_t)((line) * 8u + 1u))   /* inside the 8 px row */
+
+/* 车次: the prefix characters the report carried, then its digits. The record
+ * pads a short number with 0xF, which unpack_bcd() hands over as a dash, so the
+ * tail is dropped; a dash in the middle is a lost digit and stays. */
+static void putltrn(char *o, const lbj_log_rec_t *r){
+    uint8_t n = 0;
+    for (uint8_t i = 0; i < 6u; i++)
+        if (r->trn[i] != '-') n = (uint8_t)(i + 1u);
+    if (r->pref[0]) *o++ = r->pref[0];
+    if (r->pref[1]) *o++ = r->pref[1];
+    if (!n){
+        if (!r->pref[0]) *o++ = '-';      /* no number and no class letter */
+        *o++ = '-';
+    } else {
+        for (uint8_t i = 0; i < n; i++) *o++ = r->trn[i];
+    }
+    *o = '\0';
+}
+
+/* 距离: what the record carries, ">999" beyond what the live window prints, "-"
+ * for a report that had no distance. */
+static void putldst(char *o, const lbj_log_rec_t *r){
+    if (!(r->flags & LBJ_LOG_F_DST) || r->dst < 0){
+        *o++ = '-';
+    } else if (r->dst > LBJ_DST_MAX){
+        o = put(o, ">999");
+    } else {
+        o = putu(o, (uint32_t)r->dst / 10u);
+        *o++ = '.';
+        *o++ = (char)('0' + (unsigned)(r->dst % 10u));
+    }
+    *o = '\0';
+}
+
+static void itoa_u(char *s, uint32_t v){ char *o = putu(s, v); *o = '\0'; }
+
+/* 序号 车次 速度 距离 - 23 characters of the 4 px font, 92 px of the 128. */
+static void list_row(char *o, const lbj_log_rec_t *r, uint32_t rank){
+    char s[12];
+
+    itoa_u(s, rank);
+    o = rjust(o, 4u, s);
+    *o++ = ' ';
+
+    putltrn(s, r);
+    o = ljust(o, 8u, s);
+    *o++ = ' ';
+
+    if (r->flags & LBJ_LOG_F_SPD) itoa_u(s, r->spd);
+    else { s[0] = '-'; s[1] = '\0'; }
+    o = rjust(o, 3u, s);
+    *o++ = ' ';
+
+    putldst(s, r);
+    o = rjust(o, 5u, s);
+
+    *o = '\0';
+}
+
+static void drawList(void){
+    char s[24];
+    lbj_log_view_t v = g.lvTop;
+
+    UI_DisplayClear();
+
+    for (uint8_t row = 0; row < LBJ_LIST_ROWS; row++){
+        lbj_log_rec_t r;
+
+        LBJ_LOG_ViewGet(&v, &r);
+        list_row(s, &r, (uint32_t)v.idx + 1u);
+        if (v.pos == g.lv.pos)                    /* the marked report */
+            GUI_DisplaySmallestInverse(s, 2, row, false, true, 126);
+        else
+            GUI_DisplaySmallest(s, 2, LBJ_LIST_Y(row), false, true);
+
+        if (!LBJ_LOG_ViewOlder(&v))
+            break;
+    }
+
+    /* how many reports are stored, and the two keys this page answers to */
+    {
+        char *o = put(s, "LOG ");
+        o = putu(o, g.lv.count);
+        *o = '\0';
+    }
+    GUI_DisplaySmallest(s, 0, LBJ_LIST_Y(5), false, true);
+#if defined(ENABLE_FEAT_F4HWN_MULTIBOOT) || defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS)
+    UI_DrawMenuKeyHints("DETAIL", "CLOSE");
+#else
+    GUI_DisplaySmallestInverse("MENU", 4, 6, false, true, 20);
+    GUI_DisplaySmallest("DETAIL", 26, LBJ_LIST_Y(6), false, true);
+    GUI_DisplaySmallestInverse("EXIT", 106, 6, false, true, 122);
+#endif
+
+    ST7565_BlitStatusLine();
+    ST7565_BlitFullScreen();
+}
+
+/* The detail of one stored report: the same rows the live window prints, built
+ * from the record instead of the history entry. Where the live page shows the
+ * address code and the signal strength - neither of which a record keeps - it
+ * shows the ordinal the export knows the record by and the time it was stored. */
+static void drawLogDetail(void){
+    lbj_log_rec_t r;
+    char s[22];
+
+    LBJ_LOG_ViewGet(&g.lv, &r);
+
+    UI_DisplayClear();
+
+    /* row0: the train number and direction, the distance at the right */
+    {
+        char *o = s;
+        if (r.pref[0]) *o++ = r.pref[0];
+        if (r.pref[1]) *o++ = r.pref[1];
+        uint8_t n = 0;
+        for (uint8_t i = 0; i < 6u; i++)
+            if (r.trn[i] != '-') n = (uint8_t)(i + 1u);
+        if (!n){ *o++ = '-'; *o++ = '-'; }
+        else for (uint8_t i = 0; i < n; i++) *o++ = r.trn[i];
+        *o++ = ' ';
+        o = put(o, (r.dir == LBJ_LOG_DIR_DN) ? "DN"
+                 : ((r.dir == LBJ_LOG_DIR_UP) ? "UP" : "??"));
+        *o = '\0';
+        UI_PrintStringSmallBold(s, 0, 0, 0);
+    }
+    if (r.flags & LBJ_LOG_F_DST){
+        char *o = s;
+        if (r.dst > LBJ_DST_MAX)       o = put(o, ">999km");
+        else {
+            o = putu(o, (uint32_t)r.dst / 10u);
+            *o++ = '.';
+            *o++ = (char)('0' + (unsigned)(r.dst % 10u));
+            o = put(o, "km");
+        }
+        *o = '\0';
+        UI_PrintStringSmallBold(s, (uint8_t)(128u - (uint8_t)(o - s) * 7u), 0, 0);
+    }
+
+    /* row1: speed */
+    {
+        char *o = put(s, "SPD ");
+        if (r.flags & LBJ_LOG_F_SPD) o = putu(o, r.spd);
+        else *o++ = '-';
+        o = put(o, " km/h");
+        *o = '\0';
+        UI_PrintStringSmallBold(s, 0, 0, 1);
+    }
+
+    /* row2: km post */
+    {
+        char *o = put(s, "KM ");
+        if (r.flags & LBJ_LOG_F_KM) o = putkm10(o, r.km10);
+        else *o++ = '-';
+        *o = '\0';
+        UI_PrintStringSmallBold(s, 0, 0, 2);
+    }
+
+    /* row3: the model name and the registration */
+    {
+        char *o = s;
+        const char *nm = (r.flags & LBJ_LOG_F_MDL) ? type_name(r.mdl) : 0;
+        if (nm) o = put(o, nm); else o = putdash(o, 2);
+        *o++ = ' ';
+        if (r.flags & LBJ_LOG_F_LOC)
+            for (uint8_t i = 0; i < 8u; i++) *o++ = r.loc[i];
+        else o = putdash(o, 8);
+        *o = '\0';
+        UI_PrintStringSmallBold(s, 0, 0, 3);
+    }
+
+    /* row4: route initials, or a dash */
+    {
+        char *o = put(s, "LINE ");
+        if ((r.flags & LBJ_LOG_F_RT) && r.rt[0]){
+            for (uint8_t i = 0; i < 4u && r.rt[i]; i++) *o++ = r.rt[i];
+        } else *o++ = '-';
+        *o = '\0';
+        UI_PrintStringSmallBold(s, 0, 0, 4);
+    }
+
+    /* row5: the record's ordinal in the log (the export's "seq" column) and the
+     * uptime it was stored at - a record keeps no wall clock */
+    {
+        char *o = put(s, "#");
+        o = putu(o, r.seq);
+        o = put(o, " T+");
+        o = puttime(o, r.sec);
+        *o = '\0';
+        UI_PrintStringSmallNormal(s, 0, 0, 5);
+    }
+
+    /* footer: its rank in the list, EXIT hard right */
+    {
+        char *o = putu(s, (uint32_t)g.lv.idx + 1u);
+        *o++ = '/';
+        o = putu(o, g.lv.count);
+        *o = '\0';
+        UI_PrintStringSmallNormal(s, POP_PAGEX, 0, POP_FOOTER);
+    }
+    UI_PrintStringSmallBold("EXIT", POP_EXITX, 0, POP_FOOTER);
+
+    ST7565_BlitStatusLine();
+    ST7565_BlitFullScreen();
+}
+
 void LBJ_DrawPopup(void){
+    if (g.view == LBJ_VIEW_LIST){ drawList();      return; }
+    if (g.view == LBJ_VIEW_REC ){ drawLogDetail(); return; }
+
     const lbj_rec_t *r = &g.rec[g.cur];
     char s[22];
 

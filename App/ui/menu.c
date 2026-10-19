@@ -72,6 +72,7 @@ const t_menu_item MenuList[] =
     {"LBJPOP",      MENU_LBJPOP        }, // how long that window stays up on its own
     {"LBJLOG",      MENU_LBJLOG        }, // append one flash row per decoded train
     {"LBJCLR",      MENU_LBJCLR        }, // clear that log (No/Yes)
+    {"LBJHST",      MENU_LBJHST        }, // list the reports stored in that log
 #endif
 #ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
     {"SetCfg",      MENU_SET_CFG       }, // pick the settings bank to boot with
