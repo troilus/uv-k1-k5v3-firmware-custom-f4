@@ -35,7 +35,9 @@ if(GIT_FOUND AND EXISTS "${CMAKE_SOURCE_DIR}/.git")
 endif()
 
 if(ENABLE_FEAT_F4HWN)
-    # Personal attribution/callsigns intentionally removed.
+    # Personal attribution/callsigns intentionally removed. A preset may still
+    # set AUTHOR_STRING_2 to a non-personal identifier: the LBJRadio preset
+    # reports itself as "LBJRADIO" (see CMakePresets.json).
     if(NOT AUTHOR_STRING_1)
         set(AUTHOR_STRING_1 "")
     endif()

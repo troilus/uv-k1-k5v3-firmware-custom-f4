@@ -219,6 +219,7 @@
             "name": "LBJRadio",
             "inherits": "Fusion",
             "cacheVariables": {
+                "AUTHOR_STRING_2": "LBJRADIO",
                 "ENABLE_SPECTRUM": false,
                 "ENABLE_FEAT_F4HWN_SPECTRUM": false,
                 "ENABLE_FEAT_F4HWN_LBJ": true,

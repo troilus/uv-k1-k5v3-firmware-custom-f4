@@ -24,6 +24,10 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # The archive step below pushes to the main00 branch, so the default
+    # read-only GITHUB_TOKEN would not be enough.
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -32,10 +36,15 @@ jobs:
         # TX stays user-controllable. The plain artifact name hides the reports
         # whose train number starts with 9, the "9" suffixed one shows
         # everything (only the locked LBJRadio gets both flavours).
+        #
+        # "archive" is the name the .bin is committed under in the main00
+        # branch's archive/ folder; only the plain, non-TX LBJRadio goes in.
+        # The "9" flavour stays a CI artifact, and LBJRadioTX (same radio with
+        # the TX-lock forcing compiled out) is a CI artifact only as well.
         include:
-          - { preset: LBJRadio,   hide9: 'ON',  suffix: ''  }
-          - { preset: LBJRadio,   hide9: 'OFF', suffix: '9' }
-          - { preset: LBJRadioTX, hide9: 'ON',  suffix: ''  }
+          - { preset: LBJRadio,   hide9: 'ON',  suffix: '',  bin: 'lbjradio.bin',    archive: 'LBJRADIO'   }
+          - { preset: LBJRadio,   hide9: 'OFF', suffix: '9', bin: 'lbjradio.bin',    archive: ''           }
+          - { preset: LBJRadioTX, hide9: 'ON',  suffix: '',  bin: 'lbjradio.tx.bin', archive: ''           }
 
     steps:
     - name: Checkout code
@@ -51,3 +60,32 @@ jobs:
       with:
         name: firmware-${{ matrix.preset }}${{ matrix.suffix }}
         path: build/${{ matrix.preset }}/*.bin
+
+    # The archive lives on main00. Only the builds started elsewhere feed it:
+    # main00 never archives its own run, and the "9" flavour (no "archive"
+    # name) is left out on purpose.
+    - name: Checkout main00 for the archive
+      if: matrix.archive != '' && github.ref_name != 'main00'
+      uses: actions/checkout@v4
+      with:
+        ref: main00
+        path: archive-repo
+        fetch-depth: 0
+
+    - name: Archive firmware to main00
+      if: matrix.archive != '' && github.ref_name != 'main00'
+      run: |
+        set -euo pipefail
+        version=$(python3 -c "import json;ps=json.load(open('CMakePresets.json'))['configurePresets'];print(next(p['cacheVariables']['VERSION_STRING_2'] for p in ps if p['name']=='default'))")
+        mkdir -p archive-repo/archive
+        cp "build/${{ matrix.preset }}/${{ matrix.bin }}" "archive-repo/archive/${{ matrix.archive }}.${version}.bin"
+        cd archive-repo
+        git config user.name  "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git add archive
+        if git diff --cached --quiet; then
+          echo "archive already up to date"
+        else
+          git commit -m "Archive ${{ matrix.archive }} ${version} firmware"
+          git push
+        fi

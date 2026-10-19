@@ -2,7 +2,7 @@ name: Build Apps
 
 on:
   push:
-    branches: [ main00, main ]
+    branches: [ main00, main, lbjradio ]
     paths:
       - 'App/apps/**'
       - 'compile-app.sh'
@@ -17,6 +17,10 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # The archive step below pushes to the main00 branch, so the default
+    # read-only GITHUB_TOKEN would not be enough.
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -36,9 +40,14 @@ jobs:
           # (the loader restores the user's VFO on exit). Only the two plain
           # flavours carry it: the "9" variants and the coordinate variants
           # keep their overlay budget untouched.
-          - { hide9: '1', suffix: '',                pin: '1' }
+          #
+          # "archive" marks the flavours whose LBJ blob is committed to the
+          # main00 branch's archive/apps/ folder: the plain English one and the
+          # Chinese one. The coordinate flavour is not archived, and neither is
+          # anything with a "9".
+          - { hide9: '1', suffix: '',                pin: '1', archive: '1' }
           - { hide9: '',  suffix: '9',                            }
-          - { hide9: '1', suffix: '-cn',        cn: '1', pin: '1' }
+          - { hide9: '1', suffix: '-cn',        cn: '1', pin: '1', archive: '1' }
           - { hide9: '',  suffix: '-cn9',       cn: '1'           }
           - { hide9: '1', suffix: '-cn-coord',  cn: '1', coords: '1' }
           - { hide9: '',  suffix: '-cn9-coord', cn: '1', coords: '1' }
@@ -63,3 +72,37 @@ jobs:
         name: overlay-apps${{ matrix.suffix }}
         path: build/Apps/*.app
         if-no-files-found: error
+
+    # The archive lives on main00, and main00 never archives its own run. Only
+    # the LBJ app is ours, and only two of its flavours go in: the plain
+    # English one and the Chinese one. The coordinate flavour is not archived
+    # and neither is anything with a "9" (those show the reports the plain
+    # builds hide, so they stay CI-only).
+    - name: Checkout main00 for the archive
+      if: ${{ matrix.archive && github.ref_name != 'main00' }}
+      uses: actions/checkout@v4
+      with:
+        ref: main00
+        path: archive-repo
+        fetch-depth: 0
+
+    - name: Archive the LBJ overlay app to main00
+      if: ${{ matrix.archive && github.ref_name != 'main00' }}
+      run: |
+        set -euo pipefail
+        sfx="${{ matrix.suffix }}"
+        version=$(python3 -c "import json;ps=json.load(open('CMakePresets.json'))['configurePresets'];print(next(p['cacheVariables']['VERSION_STRING_2'] for p in ps if p['name']=='default'))")
+        mkdir -p archive-repo/archive/apps
+        # App/apps/lbj/build.sh bakes APP_NAME "LBJ RX", i.e. LBJRX.app; the
+        # other overlay apps are upstream and are not archived here.
+        cp -f "build/Apps/LBJRX.app" "archive-repo/archive/apps/LBJRX${sfx}.${version}.app"
+        cd archive-repo
+        git config user.name  "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git add archive/apps
+        if git diff --cached --quiet; then
+          echo "archive already up to date"
+        else
+          git commit -m "Archive LBJRX${sfx} ${version} overlay app"
+          git push
+        fi
