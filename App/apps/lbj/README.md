@@ -8,7 +8,7 @@ Reference: [Sdr-Is-Fun/RTL_SDR_LBJ_RECEIVER](https://github.com/Sdr-Is-Fun/RTL_S
 (the Python chain this app is modelled on) and the APRS RX app of this firmware
 (PA4 sampling, DPLL, overlay-app conventions).
 
-Status: **v0.21, decoding confirmed on-air.** The demodulator and the
+Status: **v0.22, decoding confirmed on-air.** The demodulator and the
 POCSAG/LBJ decoder are validated in `test/model_rx.py` against synthetic frames
 (clean / noise / ±1 % clock / AC-coupled / high-passed); see the tables below.
 The resident firmware also keeps a train log in external flash (menu items
@@ -16,9 +16,13 @@ The resident firmware also keeps a train log in external flash (menu items
 the browser tool in `tools/lbj_log/`, and since v0.20 readable on the radio
 itself (the `LBJHST` list, no PC needed). Since v0.21 the settings menu is a
 category browser with LBJ second and every item reachable without the power-on
-gesture (DTMF excepted) - see `USAGE.md` §6.1.
+gesture (DTMF excepted) - see `USAGE.md` §6.1. Since v0.22 the receiver's own
+position, which is what the distance in the decode window is measured from, is
+entered from that menu too (`LBJPRI` / `LBJLAT` / `LBJLON`), so no overlay app
+is needed for it any more - the LBJ Edit app is deprecated and kept readable as
+a fallback only (`apps/lbjedit/README.md`).
 
-**使用说明（面向使用者）**：固件版 / LBJ RX App 版 / LBJ Edit 经纬度 / 导出，见
+**使用说明（面向使用者）**：固件版 / LBJ RX App 版 / 经纬度（v0.22 起在固件菜单里填）/ 导出，见
 [`USAGE.md`](USAGE.md)。开发细节在下面。
 
 What v0.2 changed (all mirrored in `test/model_rx.py`):
@@ -522,6 +526,45 @@ payload，所以车次/速度/公里标全丢的基础预警照样会到达 —�
   **86,228 B**，v0.20 是 85,379 / 85,386 B，即 +866 / +842 B）；RAM 只多约 14 B。
   **6 个 overlay 工件不受影响**：这次没有触碰 `App/apps/**` 的 `.c` / `.h`，CI 的
   Build Apps 各变体占用仍是 4032 / 3912 / 3940 / 3820 / 4092 / 4032 B。
+
+**v0.22** 把**接收机坐标搬进固件菜单**，分类页改成一行，收到报文 LED 立即闪，`EXIT`
+改成抬起才切单双信道（overlay 仍然一个字节没动，`APP_VER` 0.4 不变）：
+
+- **三个新菜单项 `LBJPRI` / `LBJLAT` / `LBJLON`**（接在 `MenuList` 的 `LBJHST` 之后；
+  `MENU_*` 照旧追加在枚举最后，已有 id 一个都不动）：五个坐标位和"测量点（主位）"
+  直接在电台上选、在电台上填，**测距不再需要任何 overlay app**。
+  - `LBJPRI`：`--` 加 `1`…`5` 共六项，进这一项时光标落在**当前主位**上；
+    `--` = 不指定（退回 APRS 那份坐标）。
+  - `LBJLAT` / `LBJLON`：数字输入框，纬度 **6 位** `DD MM hh`（显示 `39 54.32`），
+    经度 **7 位** `DDD MM hh`（显示 `116 23.45`）。位数够了才算完整，`M` 才写，
+    短按 `EXIT` 退一位。**越界 / 位数不够 / 没选主位都是双响、不写**；没选主位时
+    这两项显示 `--`，连编辑框都不开。
+  - **只支持北纬、东经**（和 APRS Edit 一致），分辨率 0.01′ ≈ 18.5 m。
+- **新开一个 4 KiB 扇区 `0x012000`**（flash 图里"开机 logo `0x011000`"和
+  "收/发记录 `0x018000`"之间的空档），记录格式和 LBJ Edit app 里那份**逐字节相同**
+  （`"LBJ1"` + 版本 + 主位 + 5 组 13 位数字）：写入方式照抄车次日志 —— **只追加**，
+  记录后面那个 commit 字节写下去才算数，所以断电只会留下"本来就没写过"的记录；
+  53 个槽写满才擦一次扇区，擦完立刻把生效的那条写回去。坐标只在菜单里改，
+  不占 RAM（一条记录 73 B + 两个标志 ≈ 90 B）。
+- **读取顺序**：固件自己的 store → **旧 LBJ Edit app** 里那份（装了它的电台行为不变）
+  → APRS TX profile。距离计算本身不再包在 `ENABLE_FEAT_F4HWN_OVERLAY_APPS` 里，
+  没有 overlay app 的构建也算得出距离。
+- **LBJ Edit 退役**：`App/apps/lbjedit/` 保留、照旧编得出来，README 里标明**已由固件
+  菜单取代**（不再重新构建分发）；它存过的那份坐标仍然被当兜底读，不会丢。
+- **分类页改成一行**（v0.21 那版是上/中/下三行）：上一类靠左、当前类**居中反白**、
+  下一类靠右，到头绕回；项数不显示了，页码 `n/N` 挪到**右下角**小字。英文分类名
+  太长的（12 个组合里有 2 个）那一侧**干脆不画**，不会压到中间那项上；行还是列表里
+  高亮那一行，进出分类不跳。
+- **LED 收到报文立即闪**（不再等 `HandleRxEndBlink()` 那 1 秒）：仍是 **4 组 × 2 下**，
+  组内亮 100 / 灭 100、组间灭 500，共 **3.2 秒**；LBJ 信道上"载波消失"的那种闪仍然屏蔽。
+- **`EXIT` 改成"抬起"才切单双信道**（`main00`；`lbjradio` 本来就不切）：按下去只响一声
+  并记一笔，**松手**才 `ACTION_RxMode()`，所以按住稍久只恢复 VFO、不会再顺手切一次；
+  那一下按键被别人（比如解码窗口）吃掉时，松手也不会误切。
+- 常驻固件新增约 1.2 KB（CI 工件 `firmware-artifact` **87,440 B**、`-artifact9`
+  **87,445 B**，v0.21 是 86,245 / 86,228 B，即 **+1,195 / +1,217 B**）。
+  **6 个 overlay 工件不受影响**：这次只碰了 `App/app/**` 与 `App/ui/**`，
+  `App/apps/**` 的 `.c` / `.h` 一个字节没动，CI 的 Build Apps 各变体占用仍是
+  4032 / 3912 / 3940 / 3820 / 4092 / 4032 B。
 
 ### 使用步骤
 

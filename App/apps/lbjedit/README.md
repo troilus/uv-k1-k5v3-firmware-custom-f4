@@ -1,5 +1,14 @@
 # LBJ Edit: the positions the LBJ popup measures from
 
+> **Deprecated (v0.22).** The five positions and the primary are now edited from
+> the resident settings menu itself - `LBJPRI` picks the slot, `LBJLAT` and
+> `LBJLON` type its latitude and longitude (see `../lbj/USAGE.md`), and the
+> store is a 4 KiB sector of the firmware's own (`App/app/lbj_pos.c`). This app
+> is kept, and still builds, only for radios that already have it: **the popup
+> still reads its store as a fallback** when the menu has never set a position,
+> so nothing that was entered here is lost. There is no reason to install it
+> again, and the app is no longer rebuilt for new firmware versions.
+
 An overlay app that keeps **five positions** and marks one of them as the
 **primary**. The resident LBJ popup uses that primary position to work out the
 distance to a decoded train (see `../lbj/README.md`), so the address does not
