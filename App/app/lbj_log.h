@@ -64,6 +64,9 @@ typedef struct {
     char     loc[8];     /* 8-digit registration                           */
     char     rt[4];      /* route initials, e.g. "JGX"                     */
     int16_t  dst;        /* distance, tenths of km; < 0 = unknown kind     */
+    uint16_t seq;        /* the ordinal the record carries in the flash, i.e.
+                          * the export's "seq" column. Only the viewer fills it
+                          * - the writer takes the ordinal from the ring. */
 } lbj_log_rec_t;
 
 /* The LBJLOG menu setting. */
@@ -87,5 +90,31 @@ void LBJ_LOG_Tick(void);
  * up. The loader calls these around the app's lifetime. */
 void LBJ_LOG_Suspend(void);
 void LBJ_LOG_Resume(void);
+
+/* ---- the viewer (the list the radio shows) -------------------------------
+ *
+ * Read-only: the very records the export tool reads, walked newest first
+ * straight out of the flash. Nothing is copied into RAM - the radio has 16 KiB
+ * for everything - so a view is a position and a count, and every slot it hands
+ * over is checked with the same commit + CRC test the writer uses, which means
+ * a sector an earlier firmware left behind is skipped instead of shown.
+ */
+typedef struct {
+    uint32_t pos;        /* flash address of the record this view is on      */
+    uint16_t idx;        /* its rank from the newest, 0 based                */
+    uint16_t count;      /* records the ring held when the view was opened   */
+} lbj_log_view_t;
+
+/* Point a view at the newest stored record - the ring is scanned once, not on
+ * every open. False when nothing is stored, or while a clear is still running
+ * (anything listed now could be wiped from under it). */
+bool LBJ_LOG_ViewOpen(lbj_log_view_t *v);
+
+/* Read the record a view is on. Unreadable slots come back empty. */
+void LBJ_LOG_ViewGet(const lbj_log_view_t *v, lbj_log_rec_t *out);
+
+/* Step one record older / newer. False at either end of the ring. */
+bool LBJ_LOG_ViewOlder(lbj_log_view_t *v);
+bool LBJ_LOG_ViewNewer(lbj_log_view_t *v);
 
 #endif /* APP_LBJ_LOG_H */

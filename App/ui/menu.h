@@ -182,7 +182,13 @@ enum
 #ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
     /* Not a stored setting either: picks which settings bank the running
      * firmware loads (0 = Main, then one per user slot), then reboots. */
-    MENU_SET_CFG
+    MENU_SET_CFG,
+#endif
+#ifdef ENABLE_FEAT_F4HWN_LBJ
+    /* Also an action, not a setting: the list of the reports stored in the flash
+     * log (LBJHST). Appended after everything else so no existing id moves - the
+     * order the menu shows is MenuList, not this enumeration. */
+    MENU_LBJHST,
 #endif
 };
 

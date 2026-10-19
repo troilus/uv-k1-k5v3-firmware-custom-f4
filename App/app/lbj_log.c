@@ -80,6 +80,12 @@ static bool     ready;         /* the ring has been scanned                   */
 static bool     clearing;      /* a clear is in progress                      */
 static uint8_t  clearSector;
 static bool     suspended;     /* an overlay app owns the flash cache         */
+/* What the last scan saw. The viewer starts at newestAddr instead of rescanning
+ * and uses storedCount to know where the ring ends; ringMoved says a write has
+ * been filed since, so the pair is stale and the next open has to scan again. */
+static uint32_t newestAddr;
+static uint16_t storedCount;
+static bool     ringMoved;
 
 /* ---- helpers ------------------------------------------------------------- */
 
@@ -104,25 +110,44 @@ static void pack_bcd(uint8_t *out, const char *s, uint8_t n){
     }
 }
 
+/* The other way round, for the viewer: n/2 bytes -> n characters, a nibble that
+ * is not a digit (the 0xF the writer pads with) reads as a dash. */
+static void unpack_bcd(char *out, const uint8_t *p, uint8_t n){
+    for (uint8_t i = 0; i < n; i++){
+        const uint8_t b = p[i / 2u];
+        const uint8_t d = (uint8_t)((i & 1u) ? (b & 0x0Fu) : (b >> 4));
+        out[i] = (d <= 9u) ? (char)('0' + d) : '-';
+    }
+}
+
+/* A character a report actually carried: the writer leaves 0xFF (and the odd
+ * 0x00 from a shorter string) in the rest of a text field. */
+static bool ch_ok(char c){
+    return c >= 0x20 && c <= 0x7E;
+}
+
 static bool record_ok(const lbj_log_flash_t *e){
     return e->commit == LBJ_LOG_COMMIT &&
            e->crc == crc8((const uint8_t *)e, LBJ_LOG_REC_SIZE - 2u);
 }
 
-/* Find the newest valid record and resume behind it. Reading the whole ring
- * once is the only way to know where a previous session stopped; it is done in
- * batches and only when the log is first switched on (LBJ_LOG_Tick), not when a
- * train is being filed, so the decoder is never stalled while it listens. */
-static void ensure_ready(void){
-    if (ready)
-        return;
-    ready = true;
-    head    = LBJ_LOG_BASE;
-    nextSeq = 0u;
+/* Read the ring once: find the newest valid record, count the valid records,
+ * and resume behind the newest. The ring is written in order, so everything
+ * from the write pointer round to the newest is stored data and the rest is
+ * either blank or a sector an earlier firmware left behind - the commit + CRC
+ * test tells them apart. Reading the whole ring is the only way to know where a
+ * previous session stopped; it is done in batches, on the first tick after the
+ * log is switched on (LBJ_LOG_Tick) and when the viewer needs an exact list,
+ * never while a train is being filed. */
+static void scan_ring(void){
+    head        = LBJ_LOG_BASE;
+    nextSeq     = 0u;
+    newestAddr  = 0u;
+    storedCount = 0u;
+    ringMoved   = false;          /* what the viewer now reads is what is there */
 
     bool     found = false;
-    uint32_t newestAddr = 0;
-    uint16_t newestSeq  = 0;
+    uint16_t newestSeq = 0;
 
     /* Four records (128 bytes) per SPI transaction: 256 of them read the whole
      * 32 KiB, instead of one short transaction per record. */
@@ -134,6 +159,7 @@ static void ensure_ready(void){
             const lbj_log_flash_t *e = &buf[i];
             if (!record_ok(e))
                 continue;
+            storedCount++;
             if (!found || (int16_t)(e->seq - newestSeq) > 0){
                 found = true;
                 newestSeq  = e->seq;
@@ -148,6 +174,13 @@ static void ensure_ready(void){
             head = LBJ_LOG_BASE;
         nextSeq = (uint16_t)(newestSeq + 1u);
     }
+}
+
+static void ensure_ready(void){
+    if (ready)
+        return;
+    ready = true;
+    scan_ring();
 }
 
 static bool slot_blank(uint32_t address){
@@ -178,6 +211,11 @@ static void prepare_slot(void){
 
     if (!slot_blank(head))
         PY25Q16_SectorErase(head);
+
+    /* A sector the ring came back round to takes 128 stored records with it, so
+     * a view opened from the last scan would walk over a hole: make the next
+     * open scan again. */
+    ringMoved = true;
 }
 
 /* ---- api ----------------------------------------------------------------- */
@@ -227,6 +265,10 @@ bool LBJ_LOG_Write(const lbj_log_rec_t *rec){
         head = LBJ_LOG_BASE;
     nextSeq++;
 
+    /* The viewer keeps no running index of its own: it reads what the flash
+     * holds when it opens, so all a write has to say is "look again". */
+    ringMoved = true;
+
     return true;
 }
 
@@ -263,3 +305,97 @@ void LBJ_LOG_Suspend(void){
 void LBJ_LOG_Resume(void){
     suspended = false;
 }
+
+/* ---- the viewer ---------------------------------------------------------- */
+
+/* One slot back / forward in the ring, wrapping at either end. */
+static uint32_t step_prev(uint32_t a){
+    return (a <= LBJ_LOG_BASE) ? (uint32_t)(LBJ_LOG_END - LBJ_LOG_REC_SIZE)
+                               : (uint32_t)(a - LBJ_LOG_REC_SIZE);
+}
+static uint32_t step_next(uint32_t a){
+    const uint32_t n = a + LBJ_LOG_REC_SIZE;
+    return (n >= LBJ_LOG_END) ? (uint32_t)LBJ_LOG_BASE : n;
+}
+
+/* One slot, read and checked the way the writer wrote it. */
+static bool slot_ok(uint32_t address){
+    lbj_log_flash_t e;
+    PY25Q16_ReadBuffer(address, &e, LBJ_LOG_REC_SIZE);
+    return record_ok(&e);
+}
+
+bool LBJ_LOG_ViewOpen(lbj_log_view_t *v){
+    /* A clear in progress is erasing sector by sector, so anything listed now
+     * could be gone in a moment. Better to say there is nothing yet. */
+    if (clearing)
+        return false;
+
+    if (!ready || ringMoved){
+        ready = true;
+        scan_ring();
+    }
+    if (!storedCount)
+        return false;
+
+    v->pos   = newestAddr;
+    v->idx   = 0u;
+    v->count = storedCount;
+    return true;
+}
+
+void LBJ_LOG_ViewGet(const lbj_log_view_t *v, lbj_log_rec_t *out){
+    lbj_log_flash_t e;
+
+    memset(out, 0, sizeof *out);
+    PY25Q16_ReadBuffer(v->pos, &e, LBJ_LOG_REC_SIZE);
+    if (!record_ok(&e))
+        return;                       /* erased under us: hand back "nothing" */
+
+    out->flags = e.flags;
+    out->dir   = e.dir;
+    out->sec   = e.uptime;
+    out->spd   = e.spd;
+    out->km10  = ((uint32_t)e.km[0] | ((uint32_t)e.km[1] << 8) | ((uint32_t)e.km[2] << 16));
+    out->mdl   = e.mdl;
+    out->dst   = e.dst;
+    out->seq   = e.seq;
+
+    /* Text fields keep the padding the writer put there (0xFF, or a 0 behind a
+     * shorter string): hand the display the same "not there" the live path
+     * uses, an empty string, and a NONE number for a field the report did not
+     * carry. The digits keep one dash per lost nibble. */
+    out->pref[0] = ch_ok(e.pref[0]) ? e.pref[0] : '\0';
+    out->pref[1] = ch_ok(e.pref[1]) ? e.pref[1] : '\0';
+    unpack_bcd(out->trn, e.trn, 6u);
+    unpack_bcd(out->loc, e.loc, 8u);
+    for (uint8_t i = 0; i < 4u; i++)
+        out->rt[i] = ch_ok(e.rt[i]) ? e.rt[i] : '\0';
+
+    if (!(e.flags & LBJ_LOG_F_SPD)) out->spd  = (uint16_t)LBJ_LOG_SPD_NONE;
+    if (!(e.flags & LBJ_LOG_F_KM))  out->km10 = (uint32_t)LBJ_LOG_KM_NONE;
+    if (!(e.flags & LBJ_LOG_F_MDL)) out->mdl  = (uint16_t)LBJ_LOG_MDL_NONE;
+    if (!(e.flags & LBJ_LOG_F_DST)) out->dst  = -1;
+}
+
+/* Step to the neighbouring record, skipping the holes an erase leaves behind.
+ * Bounded by the count, so a ring of nothing but holes still returns. */
+static bool walk(lbj_log_view_t *v, bool older){
+    if (older ? ((uint32_t)v->idx + 1u >= v->count) : (v->idx == 0u))
+        return false;                 /* that was the end of the ring */
+
+    uint32_t a = v->pos;
+    for (uint16_t n = 0; n < v->count; n++){
+        a = older ? step_prev(a) : step_next(a);
+        if (!slot_ok(a))
+            continue;
+        v->pos = a;
+        if (older) v->idx++;
+        else       v->idx--;
+        return true;
+    }
+    return false;
+}
+
+bool LBJ_LOG_ViewOlder(lbj_log_view_t *v){ return walk(v, true);  }
+bool LBJ_LOG_ViewNewer(lbj_log_view_t *v){ return walk(v, false); }

@@ -1952,6 +1952,13 @@ static void MENU_Key_MENU(const bool bKeyPressed, const bool bKeyHeld)
                 gRequestDisplayScreen = DISPLAY_MAIN;
             return;
         }
+        if (m == MENU_LBJHST)
+        {   /* The other pure action: the list of the reports stored in the flash
+             * log. Refused while that log is empty or being cleared. */
+            if (LBJ_OpenList())
+                gRequestDisplayScreen = DISPLAY_MAIN;
+            return;
+        }
 #endif
 
         #ifdef ENABLE_VOICE

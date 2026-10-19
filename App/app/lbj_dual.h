@@ -48,8 +48,14 @@ void LBJ_DrawPopup(void);
 
 /* Open the decode window by hand (the LBJ menu item), showing the newest
  * report. Returns false when nothing has been decoded yet, so the caller can
- * leave the menu where it is. */
+ * leave the menu where it is. With no live history at all the stored-report
+ * list is opened instead - that is what LBJ_OpenList() does. */
 bool LBJ_OpenPopup(void);
+
+/* Open the decode window on the list of reports stored in flash (the LBJHST
+ * menu item). Returns false when the log holds nothing, or while it is being
+ * cleared. */
+bool LBJ_OpenList(void);
 
 /* Key hook: while the popup is up every key event is swallowed, so nothing
  * reaches the radio. Only a fresh press acts - UP/DOWN step through the
