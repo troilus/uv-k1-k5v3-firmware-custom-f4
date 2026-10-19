@@ -527,6 +527,17 @@ int MENU_GetLimits(uint8_t menu_id, int32_t *pMin, int32_t *pMax)
     return 0;
 }
 
+#ifdef ENABLE_FEAT_F4HWN_LBJ
+/* The coordinate half typed into LBJLAT / LBJLON, held until MENU commits it.
+ * The menu zeroes gInputBoxIndex on its way out of an item, before
+ * MENU_AcceptSetting() runs, so by then the box can no longer be asked what was
+ * typed - the digits are remembered here as the field fills up instead.
+ * lbj_pos_edit_len is 0 when there is nothing to commit: never typed, still
+ * being typed, out of range, taken back with EXIT, or just committed. */
+static uint8_t lbj_pos_edit_dig[7];
+static uint8_t lbj_pos_edit_len;
+#endif
+
 void MENU_AcceptSetting(void)
 {
     int32_t        Min;
@@ -1095,25 +1106,25 @@ void MENU_AcceptSetting(void)
                 break;
             case MENU_LBJLAT:
             case MENU_LBJLON:
-            {   /* One half of the primary slot's coordinate, as typed into the
-                 * box. Nothing typed, or no primary to put it in: say so and
-                 * leave the store alone (LBJ_POS_SetLat/Lon refuse an
-                 * out-of-range half the same way). */
+            {   /* One half of the primary slot's coordinate: the digits the box
+                 * was left holding when the field filled up (MENU_Key_0_to_9
+                 * remembered them, the box itself is long gone by now). Nothing
+                 * complete typed, or no primary to put it in: say so and leave
+                 * the store alone (LBJ_POS_SetLat/Lon refuse an out-of-range
+                 * half the same way). */
                 const uint8_t need = (UI_MENU_GetCurrentMenuId() == MENU_LBJLON) ? 7u : 6u;
                 const uint8_t prim = LBJ_POS_Primary();
-                uint8_t       dig[7];
 
-                if (prim >= LBJ_POS_SLOTS || gInputBoxIndex < need)
+                if (prim >= LBJ_POS_SLOTS || lbj_pos_edit_len != need)
                 {
                     gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
                     break;
                 }
 
-                const char *ascii = INPUTBOX_GetAscii();
-                for (uint8_t i = 0; i < need; i++)
-                    dig[i] = (uint8_t)(ascii[i] - '0');
+                lbj_pos_edit_len = 0;   /* one save per typed value */
 
-                if (need == 7u ? !LBJ_POS_SetLon(prim, dig) : !LBJ_POS_SetLat(prim, dig))
+                if (need == 7u ? !LBJ_POS_SetLon(prim, lbj_pos_edit_dig)
+                               : !LBJ_POS_SetLat(prim, lbj_pos_edit_dig))
                     gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
                 break;
             }
@@ -1807,7 +1818,10 @@ static void MENU_Key_0_to_9(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
             gInputBoxIndex = need;         /* the field is full: ignore the rest */
 
         if (gInputBoxIndex < need)
-            return;                        /* still typing */
+        {
+            lbj_pos_edit_len = 0;          /* still typing: nothing to commit yet */
+            return;
+        }
 
         const char *ascii = INPUTBOX_GetAscii();
         for (uint8_t i = 0; i < need; i++)
@@ -1815,8 +1829,14 @@ static void MENU_Key_0_to_9(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
 
         if (need == 7u ? !LBJ_POS_LonOk(dig) : !LBJ_POS_LatOk(dig))
         {
+            lbj_pos_edit_len = 0;
             gInputBoxIndex = 0;
             gBeepToPlay    = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
+        }
+        else
+        {   /* complete and in range: MENU commits exactly these digits */
+            memcpy(lbj_pos_edit_dig, dig, need);
+            lbj_pos_edit_len = need;
         }
         return;
     }
@@ -1975,6 +1995,9 @@ Skip:
                 BACKLIGHT_TurnOn();
 
                 gInputBox[--gInputBoxIndex] = 10;
+                #ifdef ENABLE_FEAT_F4HWN_LBJ
+                    lbj_pos_edit_len = 0;   /* a digit taken back is not a value */
+                #endif
                 gRequestDisplayScreen = DISPLAY_MENU;
             }
 
@@ -2094,6 +2117,9 @@ static void MENU_Key_MENU(const bool bKeyPressed, const bool bKeyHeld)
         {
             gInputBoxIndex      = 0;
             edit_index          = -1;
+        #ifdef ENABLE_FEAT_F4HWN_LBJ
+            lbj_pos_edit_len    = 0;    /* the coordinate boxes start over */
+        #endif
         }
 
         return;
