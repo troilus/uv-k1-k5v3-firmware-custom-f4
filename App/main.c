@@ -173,23 +173,18 @@ void Main(void)
     if (BootMode == BOOT_MODE_F_LOCK)
     {
 
-        gF_LOCK = true;            // flag to say include the hidden menu items
+        gF_LOCK = true;            // flag to say the hidden category (DTMF) is included
         #ifdef ENABLE_FEAT_F4HWN
             gEeprom.KEY_LOCK = 0;
             SETTINGS_SaveSettings();
-            gMenuCursor = UI_MENU_GetMenuIdx(FIRST_HIDDEN_MENU_ITEM);
+            gMenuCat          = MENU_CAT_DTMF;   // the one category the gesture still gates
             gSubMenuSelection = gSetting_F_LOCK;
         #endif
     }
 
-    // count the number of menu items
-    gMenuListCount = 0;
-    while (MenuList[gMenuListCount].name[0] != '\0') {
-        if(!gF_LOCK && MenuList[gMenuListCount].menu_id == FIRST_HIDDEN_MENU_ITEM)
-            break;
-
-        gMenuListCount++;
-    }
+    /* the list the menu opens on: count the items the browser is allowed to
+     * show (see UI_MENU_EnterBrowser in App/ui/menu.c) */
+    UI_MENU_EnterBrowser();
 
     // wait for user to release all butts before moving on
     if (GPIO_IsPttPressed() ||

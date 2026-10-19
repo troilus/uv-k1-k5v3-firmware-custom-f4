@@ -28,6 +28,29 @@ typedef struct {
     uint8_t     menu_id;
 } t_menu_item;
 
+/* The settings menu browser's categories. The order is the order the browser
+ * shows them in: the LBJ category sits second, right behind the channels.
+ * MENU_CAT_ALL is not a category of its own but the whole MenuList in its own
+ * order, and comes last. MENU_CAT_DTMF is the one category that stays hidden:
+ * it needs the hidden menu, the PTT + upper side key gesture at power-on, to be
+ * listed at all - the way every item past the first screenful used to. */
+enum
+{
+    MENU_CAT_CHANNELS = 0,
+    MENU_CAT_LBJ,
+    MENU_CAT_SCAN,
+    MENU_CAT_KEYS,
+    MENU_CAT_POWER,
+    MENU_CAT_DISPLAY,
+    MENU_CAT_TIMERS,
+    MENU_CAT_AUDIO,
+    MENU_CAT_RADIO,
+    MENU_CAT_DTMF,
+    MENU_CAT_SERVICE,
+    MENU_CAT_ALL,
+    MENU_CAT_COUNT
+};
+
 enum
 {
     MENU_SQL = 0,
@@ -192,7 +215,6 @@ enum
 #endif
 };
 
-extern const uint8_t FIRST_HIDDEN_MENU_ITEM;
 extern const t_menu_item MenuList[];
 
 extern const char        gSubMenu_TXP[8][6];
@@ -266,6 +288,13 @@ extern bool              gIsInSubMenu;
                          
 extern uint8_t           gMenuCursor;
 
+/* The browser: gMenuCatView says the category page is up rather than an item
+ * list, gMenuCat is the category it has highlighted - and, with the page down,
+ * the item list being shown. Where each category's list was left is remembered
+ * for the session, not saved across a restart. */
+extern bool              gMenuCatView;
+extern uint8_t           gMenuCat;
+
 extern int32_t           gSubMenuSelection;
                          
 extern char              edit_original[17];
@@ -276,5 +305,11 @@ extern bool              edit_is_uppercase;
 void UI_DisplayMenu(void);
 int UI_MENU_GetCurrentMenuId();
 uint8_t UI_MENU_GetMenuIdx(uint8_t id);
+
+/* the browser: open the category page, open one category's item list, and move
+ * the highlight from one category to the next (or previous) one */
+void UI_MENU_EnterBrowser(void);
+void UI_MENU_EnterCategory(uint8_t cat);
+void UI_MENU_CatStep(int8_t dir);
 
 #endif
