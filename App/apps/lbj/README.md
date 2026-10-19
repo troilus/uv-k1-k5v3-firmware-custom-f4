@@ -8,7 +8,7 @@ Reference: [Sdr-Is-Fun/RTL_SDR_LBJ_RECEIVER](https://github.com/Sdr-Is-Fun/RTL_S
 (the Python chain this app is modelled on) and the APRS RX app of this firmware
 (PA4 sampling, DPLL, overlay-app conventions).
 
-Status: **v0.22, decoding confirmed on-air.** The demodulator and the
+Status: **v0.23, decoding confirmed on-air.** The demodulator and the
 POCSAG/LBJ decoder are validated in `test/model_rx.py` against synthetic frames
 (clean / noise / ±1 % clock / AC-coupled / high-passed); see the tables below.
 The resident firmware also keeps a train log in external flash (menu items
@@ -20,7 +20,9 @@ power-on gesture. Since v0.22 the receiver's own position, which is what the
 distance in the decode window is measured from, is entered from that menu too
 (`LBJPRI` / `LBJLAT` / `LBJLON`), so no overlay app is needed for it any more -
 the LBJ Edit app is deprecated and kept readable as a fallback only
-(`apps/lbjedit/README.md`).
+(`apps/lbjedit/README.md`). Since v0.23 that entry really does store (v0.22
+committed nothing) and the category page shows its neighbours on the row above,
+with the item count under the name.
 
 What v0.2 changed (all mirrored in `test/model_rx.py`):
 
@@ -551,7 +553,8 @@ payload，所以车次/速度/公里标全丢的基础预警照样会到达 —�
 - **分类页改成一行**（v0.21 那版是上/中/下三行）：上一类靠左、当前类**居中反白**、
   下一类靠右，到头绕回；项数不显示了，页码 `n/N` 挪到**右下角**小字。英文分类名
   太长的（12 个组合里有 2 个）那一侧**干脆不画**，不会压到中间那项上；行还是列表里
-  高亮那一行，进出分类不跳。
+  高亮那一行，进出分类不跳。（这一版有两个毛病，v0.23 修：页码画在了屏幕外，
+  项数也没地方显示。）
 - **LED 收到报文立即闪**（不再等 `HandleRxEndBlink()` 那 1 秒）：仍是 **4 组 × 2 下**，
   组内亮 100 / 灭 100、组间灭 500，共 **3.2 秒**；LBJ 信道上"载波消失"的那种闪仍然屏蔽。
 - **`EXIT` 改成"抬起"才切单双信道**（`main00`；`lbjradio` 本来就不切）：按下去只响一声
@@ -559,6 +562,32 @@ payload，所以车次/速度/公里标全丢的基础预警照样会到达 —�
   那一下按键被别人（比如解码窗口）吃掉时，松手也不会误切。
 - 常驻固件新增约 1.2 KB（CI 工件 `firmware-artifact` **87,440 B**、`-artifact9`
   **87,445 B**，v0.21 是 86,245 / 86,228 B，即 **+1,195 / +1,217 B**）。
+  **6 个 overlay 工件不受影响**：这次只碰了 `App/app/**` 与 `App/ui/**`，
+  `App/apps/**` 的 `.c` / `.h` 一个字节没动，CI 的 Build Apps 各变体占用仍是
+  4032 / 3912 / 3940 / 3820 / 4092 / 4032 B。
+
+**v0.23** 修掉 v0.22 的两个毛病，分类页按使用者的要求重排（overlay 仍然一个字节没动，
+`APP_VER` 0.4 不变）：
+
+- **`LBJLAT` / `LBJLON` 以前根本存不进去**：位数填满按 `M`，听到的是双响、flash 一个
+  字节没写，本行照旧 `--` —— 因为"有没有输入"问的是 `gInputBoxIndex`，而设置菜单
+  **离开菜单项时就把这个计数清零了**（`MENU_Key_MENU()` 末尾），那一步发生在
+  `MENU_AcceptSetting()` 之前，于是每次都走"什么都没输入"那条分支。填进去的那半串
+  数字现在由 `MENU_Key_0_to_9()`（还拿着输入框的那一步）记下来，`MENU_AcceptSetting()`
+  用记下来的这份写：**填满且在范围内才写**；正在输入、越界、短按 `EXIT` 退掉一位、
+  刚写完，都不写。`LBJPRI` 本身一直是好的，只是从来没有坐标可显示 —— 五个位看起来
+  都空，v0.23 之后才分得出来。
+- **分类页页码画到了屏幕外**：屏幕只有 7 行（`FRAME_LINES` 7，行号 0..6），v0.22 把
+  `n/N` 画在第 7 行 —— 屏幕上什么都没有，还每次重画都往 `gFrameBuffer` 末尾之后写约
+  28 字节（写进 .bss 里别的变量）。现在画在**最底行**，`UI_MENU_PrintSmallRight()` 也把
+  行号钳在界内，这类越界不会再犯。
+- **分类页重排**：上一类、下一类**挪到名称上面那一行** —— 左边 `< 扫描`、右边
+  `全部 >`，名字多长都不会被挤掉（两边的名字加箭头真的放不下时，先去掉箭头、再去掉
+  右边那个，只有英文那几个长名字会碰上，中文分类永不发生）；当前分类仍**居中反白**
+  在列表高亮那一行，**名称下面是这个分类的项数**（大字居中）；页码 `n/N` 在最底行
+  右下角小字。
+- 常驻固件新增 **175 B**（CI 工件 `firmware-artifact` **87,615 B**、`-artifact9`
+  **87,620 B**，v0.22 是 87,440 / 87,445 B）；RAM 多 8 B（待写的那半串坐标 + 长度）。
   **6 个 overlay 工件不受影响**：这次只碰了 `App/app/**` 与 `App/ui/**`，
   `App/apps/**` 的 `.c` / `.h` 一个字节没动，CI 的 Build Apps 各变体占用仍是
   4032 / 3912 / 3940 / 3820 / 4092 / 4032 B。
