@@ -552,6 +552,9 @@ const t_sidefunction gSubMenu_SIDEFUNCTIONS[] =
     #ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
         {"TONE CALL",       ACTION_OPT_TONECALL},
     #endif
+    #ifdef ENABLE_FEAT_F4HWN_LBJ
+        {"LBJMSG",          ACTION_OPT_LBJMSG},
+    #endif
 #endif
 };
 

@@ -52,6 +52,10 @@
     #include "apps/app_overlay.h"
     static void ACTION_ToneCall(void);
 #endif
+#ifdef ENABLE_FEAT_F4HWN_LBJ
+    #include "app/lbj_dual.h"
+    static void ACTION_LbjMsg(void);
+#endif
 
 #if defined(ENABLE_FMRADIO)
 static void ACTION_Scan_FM(bool bRestart);
@@ -144,6 +148,9 @@ void (*action_opt_table[])(void) = {
 #endif
 #ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
     [ACTION_OPT_TONECALL] = &ACTION_ToneCall,
+#endif
+#ifdef ENABLE_FEAT_F4HWN_LBJ
+    [ACTION_OPT_LBJMSG] = &ACTION_LbjMsg,
 #endif
 };
 
@@ -391,6 +398,9 @@ void ACTION_Handle(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
     #ifdef ENABLE_FEAT_F4HWN_BEAM
             case ACTION_OPT_BEAM:
     #endif
+    #ifdef ENABLE_FEAT_F4HWN_LBJ
+            case ACTION_OPT_LBJMSG:
+    #endif
                 gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
                 return;
 
@@ -414,6 +424,25 @@ static void ACTION_LaunchApp(uint8_t shortcut)
 static void ACTION_ToneCall(void)
 {
     ACTION_LaunchApp(APP_SHORTCUT_TONECALL);
+}
+#endif
+
+#ifdef ENABLE_FEAT_F4HWN_LBJ
+/* The side key / M Long shortcut for the decode window. Exactly what the LBJMSG
+ * menu item does - show the newest report - but reachable without opening the
+ * menu: leave whatever screen we were on (clearing the menu state the way the
+ * UI does) and let LBJ_Tick() flush the window and turn the backlight on.
+ * Refuses while transmitting, and double beeps when there is nothing decoded
+ * yet, the way a failed shortcut launch does. */
+static void ACTION_LbjMsg(void)
+{
+    if (gCurrentFunction == FUNCTION_TRANSMIT || !LBJ_OpenPopup())
+    {
+        gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
+        return;
+    }
+
+    GUI_SelectNextDisplay(DISPLAY_MAIN);
 }
 #endif
 

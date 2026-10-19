@@ -8,7 +8,7 @@ Reference: [Sdr-Is-Fun/RTL_SDR_LBJ_RECEIVER](https://github.com/Sdr-Is-Fun/RTL_S
 (the Python chain this app is modelled on) and the APRS RX app of this firmware
 (PA4 sampling, DPLL, overlay-app conventions).
 
-Status: **v0.18, decoding confirmed on-air.** The demodulator and the
+Status: **v0.19, decoding confirmed on-air.** The demodulator and the
 POCSAG/LBJ decoder are validated in `test/model_rx.py` against synthetic frames
 (clean / noise / ±1 % clock / AC-coupled / high-passed); see the tables below.
 The resident firmware also keeps a train log in external flash (menu items
@@ -430,6 +430,23 @@ payload，所以车次/速度/公里标全丢的基础预警照样会到达 —�
   都在断开，按原逻辑会一直闪，这正是当初"一直闪"的来源）。
 - 实现上 LED 只在 `lbj_dual.c` 一处、每 10 ms 同步一次（`ledService()`）；
   `app.c` 的静噪沿不再直接写灯，避免两边打架把闪灯的灭相掐断。
+
+**v0.19** 把解码窗口挂到按键上（overlay 仍然一个字节没动，`APP_VER` 0.4 不变）：
+
+- **`F1Shrt` / `F1Long` / `F2Shrt` / `F2Long` / `M Long` 五个菜单项多出一个 `LBJMSG` 选项**
+  （`App/ui/menu.c` 的 `gSubMenu_SIDEFUNCTIONS`，和 `TONE CALL` 同一张表，五个菜单项共用，
+  所以一次就都有）。选中后按那个键 = 菜单项 `LBJMSG`：打开解码窗口显示最新一条报文。
+  没有解出过任何报文时**不打开、双响**；发射中和 FM 收音机模式下同样双响拒绝。
+  - 窗口是**手工打开**的（`LBJ_OpenPopup()` 的 `g.pinned`），所以**不受 `LBJPOP` 自动关闭
+    影响**，要按 EXIT 或 PTT 才关 —— 和菜单项打开的行为完全一致。
+  - 在菜单/设置里按也能用：`GUI_SelectNextDisplay(DISPLAY_MAIN)` 会像 EXIT 一样清掉
+    子菜单状态再回到主界面（`ui.c`），窗口随后由 `LBJ_Tick()` 的 `g.dirty` 刷出并点亮背光。
+  - 键盘锁着也能用（侧键和长按 M 本来就走锁键豁免，和 `MONITOR` 一样）；弹窗打开期间按键
+    被窗口独占，所以再按一次不会重复触发，也不会误改设置。
+  - 动作枚举 `ACTION_OPT_LBJMSG` **追加在 `ACTION_OPT_LEN` 之前**（`settings.h`），
+    已存进 EEPROM 的旧值一个都不动；读到的值越界时仍按现有规则回退成该键的默认值
+    （`settings.c`）。`M Long` 的字节只有 7 位，够用。
+  - 常驻固件新增约 60 B（一个动作、一个表项、一个字符串），**6 个 overlay 工件逐字节不变**。
 
 ### 使用步骤
 
