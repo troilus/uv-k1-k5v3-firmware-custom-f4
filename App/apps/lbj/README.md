@@ -8,12 +8,13 @@ Reference: [Sdr-Is-Fun/RTL_SDR_LBJ_RECEIVER](https://github.com/Sdr-Is-Fun/RTL_S
 (the Python chain this app is modelled on) and the APRS RX app of this firmware
 (PA4 sampling, DPLL, overlay-app conventions).
 
-Status: **v0.19, decoding confirmed on-air.** The demodulator and the
+Status: **v0.20, decoding confirmed on-air.** The demodulator and the
 POCSAG/LBJ decoder are validated in `test/model_rx.py` against synthetic frames
 (clean / noise / ±1 % clock / AC-coupled / high-passed); see the tables below.
 The resident firmware also keeps a train log in external flash (menu items
-`LBJLOG` / `LBJCLR`), exported either with `tools/lbj_log.py` or with the
-browser tool in `tools/lbj_log/` (no firmware change).
+`LBJLOG` / `LBJCLR` / `LBJHST`), exported either with `tools/lbj_log.py` or with
+the browser tool in `tools/lbj_log/`, and in v0.20 readable on the radio itself
+(the `LBJHST` list, no PC needed).
 
 What v0.2 changed (all mirrored in `test/model_rx.py`):
 
@@ -450,6 +451,43 @@ payload，所以车次/速度/公里标全丢的基础预警照样会到达 —�
     v0.18 是 83,318 / 83,316 B；RAM 不变）。**6 个 overlay 工件不受影响**：这次没有触碰
     `App/apps/**`，overlay 二进制的源头一个字节没动，CI 的 Build Apps 全绿，各变体在
     4096 B 槽位里的占用是 4092 / 3912 / 3940 / 3820 / 4092 / 4032 B。
+
+**v0.20** 加上**电台上直接看日志**的列表页（overlay 仍然一个字节没动，`APP_VER` 0.4 不变）：
+
+- **新菜单项 `LBJHST`**（`App/ui/menu.c` 的 `MenuList`，紧跟 `LBJCLR` 之后；`MENU_LBJHST`
+  追加在枚举**最后**，已有 id 一个都不动）：选中后直接打开**车次日志列表**，不用连电脑。
+  日志为空、或 `LBJCLR` 正在清空时**不打开**（菜单停在原处）。
+- **列表页是解码窗口的第二页**，没有新增 `DISPLAY_*`，`ui.c` / `main.c` 一行没动。
+  一屏 **5 条**，每条一行，用状态栏那套 3×5 小字（4 px/字，23 字足够）：
+  `序号 车次 速度 距离`；序号按 **最新 = 1** 数，和底部总数同一套；缺的字段画横杠，
+  不会画成 0（车次丢掉记录尾部的 0xF 填充，中间丢的码字仍是一条横杠）。第 6 行
+  `LOG n` 是总条数，第 7 行沿用 overlay app 选择器那套键提示（`MENU`/`EXIT`）。
+- **按需读 flash，不在 RAM 里存副本**：一行一次 32 B 读（约 13 µs），1024 条的列表只占
+  17 B 状态（光标 + 屏首 + 条数）。开机开 `LBJLOG` 时那次全环扫描顺带记下"最新一条"
+  和"有效条数"，写入只把它标脏；没有新记录时打开列表是 O(1)，有新记录才重扫
+  （32 KiB ≈ 11 ms，一次性）。读取一律走 `PY25Q16_ReadBuffer`，和 overlay app 共存的
+  那条路径一样不碰驱动缓存。
+- **三页一个窗口**：实时（RAM 历史）/ 列表 / 存盘详情。UP/DOWN 在实时页翻历史（照旧）、
+  在列表页移动选中行（走到屏幕上下边缘时列表跟着滚，O(1)）、在详情页直接翻存盘记录；
+  `MENU` 切页（实时 → 列表 → 选中那条详情 → 回列表），`EXIT` 哪一页都直接关窗，PTT 照旧。
+- **存盘详情页**和实时页逐行一致，只有第 6 行不同：实时页是解出的地址值和接收强度，
+  记录里没有这两样，改成**导出用的 `#序号`**（CSV 的 `seq` 列）和**写入时刻**
+  `T+时:分:秒`（记录里没有时钟，`uptime` 就是这个数）。距离只按记录里有没有画
+  （记录区分不出"没详情块"和"有详情块但位置无效"）。
+- **新报文不再打断浏览**：窗口已经打开时，新报文不再把光标拨回最新 —— 列表、存盘详情、
+  正在翻的实时历史都停在原处；窗口关着时来报文仍然自动弹在最新的实时页。
+- **`LBJMSG`（含按键快捷方式）在没有 RAM 历史时改开列表**：解出过报文就还是原来的实时页，
+  一条都没有但 flash 里有记录时改开列表，两边都没有才拒绝（菜单项停在原处／双响）。
+- 顺手补的**健壮性修复**：`LBJ_OpenPopup()` / `LBJ_OpenList()` 在 **FM 收音机模式**下直接
+  返回失败。弹窗画在主界面上，FM 模式下本来就看不见，但窗口会独占键盘 —— 以前在 FM 里
+  按到 `LBJMSG`（或挂在侧键上）会把电台"锁"在 FM 上，只有载波沿或重启能救回来。
+- 常驻固件新增约 2 KB（CI 工件 `firmware-artifact` **85,407 B**、`-artifact9` **85,390 B**，
+  v0.19 是 83,347 / 83,343 B，即 +2,060 / +2,047 B）；RAM 只多约 26 B（列表/详情的两个
+ 8 B 光标 + 查看器 7 B 静态量 + 记录结构里多出的 2 B 序号），1024 条记录不占 RAM。
+  **6 个 overlay 工件不受影响**：这次没有触碰 `App/apps/**`，CI 的 Build Apps 各变体占用
+  仍是 4092 / 3912 / 3940 / 3820 / 4092 / 4032 B。增加的这 2 KB 主要来自新的列表页与
+  存盘详情页的绘制与按键分支（`lbj_dual.c` +396 行、`lbj_log.c` +160 行），常驻固件离
+  118 KB 上限仍有约 32 KB 余量。
 
 ### 使用步骤
 
