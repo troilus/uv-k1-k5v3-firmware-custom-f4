@@ -19,6 +19,9 @@
 
 #include "../app/dtmf.h"
 #include "../app/menu.h"
+#ifdef ENABLE_FEAT_F4HWN_LBJ
+    #include "../app/lbj_pos.h"
+#endif
 #include "../bitmaps.h"
 #include "../board.h"
 #include "../dcs.h"
@@ -73,6 +76,9 @@ const t_menu_item MenuList[] =
     {"LBJLOG",      MENU_LBJLOG        }, // append one flash row per decoded train
     {"LBJCLR",      MENU_LBJCLR        }, // clear that log (No/Yes)
     {"LBJHST",      MENU_LBJHST        }, // list the reports stored in that log
+    {"LBJPRI",      MENU_LBJPRI        }, // which position slot the popup uses
+    {"LBJLAT",      MENU_LBJLAT        }, // its latitude, DD MM hh
+    {"LBJLON",      MENU_LBJLON        }, // its longitude, DDD MM hh
 #endif
 #ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
     {"SetCfg",      MENU_SET_CFG       }, // pick the settings bank to boot with
@@ -355,6 +361,9 @@ static const uint8_t gMenuCatOf[] =
 #endif
 #ifdef ENABLE_FEAT_F4HWN_LBJ
     [MENU_LBJHST]           = MENU_CAT_LBJ,
+    [MENU_LBJPRI]           = MENU_CAT_LBJ,
+    [MENU_LBJLAT]           = MENU_CAT_LBJ,
+    [MENU_LBJLON]           = MENU_CAT_LBJ,
 #endif
 };
 
@@ -542,36 +551,48 @@ static void UI_MENU_PrintSmallRight(const char *text, const uint8_t line)
     UI_PrintStringSmallNormal(text, (uint8_t)x, (uint8_t)x, line);
 }
 
-/* The browser page: the category above, the highlighted one (inverted) and the
- * one below it, how many items it holds, and which category of how many. */
+/* The browser page: one row across the middle of the screen - the category
+ * before it on the left, the one after it on the right, wrapping around - with
+ * the highlighted one centred and inverted between them. The names are printed
+ * as they are, so a neighbour that would reach into the highlighted one, or run
+ * off the screen, is left out instead of drawn on top of it (with the longer
+ * English category names that does happen); what is missing there is what the
+ * opposite direction gives. The footer says which category of how many. */
 static void UI_MENU_DrawCategoryPage(void)
 {
-    const char  *name  = cat_name(gMenuCat);
-    unsigned int width = strlen(name) * 8u;
-    char         String[16];
-    unsigned int i;
+    const char        *name   = cat_name(gMenuCat);
+    const char        *prev   = cat_name(cat_neighbour(gMenuCat, -1));
+    const char        *next   = cat_name(cat_neighbour(gMenuCat, +1));
+    const unsigned int w_cur  = strlen(name) * 8u;
+    const unsigned int w_prev = strlen(prev) * 8u;
+    const unsigned int w_next = strlen(next) * 8u;
+    const unsigned int gap    = 8u;
+    const unsigned int x_cur  = (w_cur < LCD_WIDTH) ? ((LCD_WIDTH - w_cur) / 2u) : 0u;
+    char               String[16];
+    unsigned int       i;
 
-    UI_PrintString(cat_name(cat_neighbour(gMenuCat, -1)), 0, 0, 0, 8);
-    UI_PrintString(name,                                  0, 0, 2, 8);
-    UI_PrintString(cat_name(cat_neighbour(gMenuCat, +1)), 0, 0, 4, 8);
+    /* The neighbours, when they fit beside the highlighted one. The row is the
+     * one the item list highlights, so opening a category does not move it. */
+    if (x_cur >= w_prev + gap)
+        UI_PrintString(prev, (uint8_t)(x_cur - gap - w_prev),
+                       (uint8_t)(x_cur - gap - w_prev), 2, 8);
+
+    if (x_cur + w_cur + gap + w_next <= LCD_WIDTH)
+        UI_PrintString(next, (uint8_t)(x_cur + w_cur + gap),
+                       (uint8_t)(x_cur + w_cur + gap), 2, 8);
+
+    UI_PrintString(name, (uint8_t)x_cur, (uint8_t)x_cur, 2, 8);
 
     /* invert the highlighted category, as wide as its name is */
-    if (width > LCD_WIDTH - 2)
-        width = LCD_WIDTH - 2;
-
-    for (i = 0; i < width; i++)
+    for (i = 0; i < w_cur && (x_cur + i) < LCD_WIDTH; i++)
     {
-        gFrameBuffer[2][i] ^= 0xFF;
-        gFrameBuffer[3][i] ^= 0xFF;
+        gFrameBuffer[2][x_cur + i] ^= 0xFF;
+        gFrameBuffer[3][x_cur + i] ^= 0xFF;
     }
 
-    /* how many items the highlighted category holds */
-    sprintf(String, "%u", cat_item_count(gMenuCat));
-    UI_MENU_PrintSmallRight(String, 2);
-
-    /* which category of how many, the way the item list numbers its items */
-    sprintf(String, "%2u.%u", cat_number(gMenuCat), cat_visible_count());
-    UI_PrintStringSmallNormal(String, 2, 0, 6);
+    /* which category of how many, in the bottom right corner */
+    sprintf(String, "%u/%u", cat_number(gMenuCat), cat_visible_count());
+    UI_MENU_PrintSmallRight(String, 7);
 }
 
 const char gSubMenu_TXP[][6] =
@@ -624,6 +645,20 @@ const char gSubMenu_LBJ_CLR[][4] =
 {
     "No",
     "Yes"
+};
+
+/* LBJPRI: which of the five positions the decode window measures a train from.
+ * Entry 0 is "--", no primary at all, so the popup keeps its old distance
+ * source; 1..5 pick the store's slot 0..4 (lbj_pos.c). It starts on whatever the
+ * store already holds. */
+const char gSubMenu_LBJ_PRI[][4] =
+{
+    "--",
+    "1",
+    "2",
+    "3",
+    "4",
+    "5"
 };
 #endif
 
@@ -1859,6 +1894,57 @@ void UI_DisplayMenu(void)
             case MENU_LBJCLR:
                 strcpy(String, gSubMenu_LBJ_CLR[gSubMenuSelection]);
                 break;
+            case MENU_LBJPRI:
+            {   /* Which position slot the decode window measures from. While the
+                 * item is open this is the pending choice, otherwise the store's
+                 * own value - MENU_ShowCurrentSetting() seeds the two alike.
+                 * Clamped, because a frame can still be drawn with whatever the
+                 * item visited before this one left in gSubMenuSelection. */
+                unsigned int sel = 0u;
+
+                if (gSubMenuSelection > 0 &&
+                    gSubMenuSelection < (int32_t)ARRAY_SIZE(gSubMenu_LBJ_PRI))
+                    sel = (unsigned int)gSubMenuSelection;
+
+                strcpy(String, gSubMenu_LBJ_PRI[sel]);
+                break;
+            }
+            case MENU_LBJLAT:
+            case MENU_LBJLON:
+            {   /* One half of that slot's coordinate: what has been typed while
+                 * the box holds something, the stored half otherwise, and dashes
+                 * for a half that was never entered (or is out of range). */
+                uint8_t       dig[LBJ_POS_DIGITS];
+                const uint8_t prim = LBJ_POS_Primary();
+                const bool    lon  = (m == MENU_LBJLON);
+
+                if (gIsInSubMenu && gInputBoxIndex != 0)
+                {
+                    const char *ascii = INPUTBOX_GetAscii();
+
+                    if (lon)
+                        sprintf(String, "%.3s %.2s.%.2s", ascii, ascii + 3, ascii + 5);
+                    else
+                        sprintf(String, "%.2s %.2s.%.2s", ascii, ascii + 2, ascii + 4);
+                }
+                else if (prim < LBJ_POS_SLOTS && LBJ_POS_Get(prim, dig) &&
+                         (lon ? LBJ_POS_LonOk(dig + 6u) : LBJ_POS_LatOk(dig)))
+                {
+                    const uint8_t *d = lon ? dig + 6u : dig;
+
+                    if (lon)
+                        sprintf(String, "%u%u%u %u%u.%u%u", (unsigned)d[0], (unsigned)d[1],
+                                (unsigned)d[2], (unsigned)d[3], (unsigned)d[4],
+                                (unsigned)d[5], (unsigned)d[6]);
+                    else
+                        sprintf(String, "%u%u %u%u.%u%u", (unsigned)d[0], (unsigned)d[1],
+                                (unsigned)d[2], (unsigned)d[3], (unsigned)d[4],
+                                (unsigned)d[5]);
+                }
+                else
+                    strcpy(String, "--");
+                break;
+            }
         #endif
 
         #ifdef ENABLE_FEAT_F4HWN_MULTIBOOT

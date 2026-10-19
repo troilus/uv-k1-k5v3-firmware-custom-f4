@@ -162,9 +162,10 @@ uint8_t APP_ValidateSlot(uint8_t slot, app_header_t *out_header);
 
 /* Read the config bytes an app saved with cfg_save (APP_CONFIG_LOCAL_MAX at
  * most), so resident code can make use of an app's own settings - the LBJ
- * popup reads the position the LBJ Edit app keeps there.  False when the slot
- * holds no validated app, or holds a config belonging to another app (a config
- * survives a slot erase only for the app of the same name). */
+ * popup still reads the position the deprecated LBJ Edit app keeps there when
+ * the LBJ menu has none.  False when the slot holds no validated app, or holds
+ * a config belonging to another app (a config survives a slot erase only for
+ * the app of the same name). */
 bool APP_ReadSlotConfig(uint8_t slot, uint8_t *buf, uint16_t len);
 
 /* Validate, load into the overlay, verify the code CRC, and run the app.

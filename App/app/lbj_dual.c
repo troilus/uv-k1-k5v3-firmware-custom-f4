@@ -48,12 +48,12 @@
 #include "lbj_dec.h"
 #include "lbj_dual.h"
 #include "lbj_log.h"
+#include "lbj_pos.h"
 
 #ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
 #include "apps/app_config_proxy.h"
 #include "apps/app_overlay.h"
 #include "apps/aprs_profile.h"
-#include "apps/lbjedit/lbjedit_pos.h"
 #endif
 #include "app/fm.h"
 #include "audio.h"
@@ -614,32 +614,24 @@ static char *putage(char *o, uint16_t sec){
 /* ---- the receiver's own position -------------------------------------------
  *
  * The popup shows how far the decoded train is, which needs to know where the
- * receiver is. Two places can hold that, and the dedicated one wins:
+ * receiver is. Three places can hold that, the resident one first:
  *
- *   1. the LBJ Edit overlay app, which keeps five positions in its own config
- *      area and lets the user mark one of them the primary
- *      (apps/lbjedit/lbjedit_pos.h);
- *   2. the APRS TX profile (apps/aprs_profile.h), that is the beacon position
- *      the APRS Edit app writes through the configuration proxy - the fallback
- *      for a radio without LBJ Edit, and the only source before it was installed.
+ *   1. the resident store: the five positions the LBJ settings menu edits
+ *      (LBJPRI / LBJLAT / LBJLON), in the firmware's own 4 KiB flash sector
+ *      (lbj_pos.c). This is the one a radio without any overlay app has;
+ *   2. the LBJ Edit overlay app, deprecated but still built: it keeps the very
+ *      same record in its own config area (apps/lbjedit/lbjedit_pos.h), so it
+ *      is read as a fallback and a radio that has it installed behaves as it
+ *      did before the menu took the job over;
+ *   3. the APRS TX profile (apps/aprs_profile.h), the beacon position the APRS
+ *      Edit app writes through the configuration proxy - the fallback for a
+ *      radio without either of the other two.
  *
- * Neither lives in the firmware, so there is no menu and no private flash block
- * of its own, and nothing to keep in step: the readout follows whichever app the
- * user edits, and an unset or invalid LBJ Edit primary simply hands the place
- * back to the APRS TX position.
- *
- * Both stores sit in some app slot, so one sweep finds them and remembers where.
- * A reinstall into another slot bumps APP_SlotRevision() and they are looked for
- * again; the position bytes themselves are re-read every time, so an edit made
- * in either app shows up without a relaunch. */
-#ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
-
-_Static_assert(LBJ_POS_LEN <= APP_CONFIG_LOCAL_MAX,
-               "the LBJ Edit store must fit an app's own config area");
-
-static uint8_t pos_rev   = 0xFFu;  /* APP_SlotRevision() of the last sweep      */
-static uint8_t lbj_slot  = 0xFFu;  /* slot holding the LBJ Edit store, 0xFF none */
-static uint8_t aprs_slot = 0xFFu;  /* slot holding the APRS TX profile, 0xFF none */
+ * The two app stores sit in some app slot, so one sweep finds them and remembers
+ * where. A reinstall into another slot bumps APP_SlotRevision() and they are
+ * looked for again; the position bytes themselves are re-read every time, so an
+ * edit made in either app shows up without a relaunch. A radio that never sets a
+ * position anywhere still shows no distance at all ("--km"). */
 
 /* The 13 digits of one position in 1e-4 degree units, or false when the field
  * was never filled in (erased flash) or is out of range. North/east only: this
@@ -665,6 +657,20 @@ static bool pos_digits(const uint8_t *dig, uint32_t *plat, uint32_t *plon){
     *plon = lon;
     return true;
 }
+
+/* ---- the app fallbacks ----------------------------------------------------
+ *
+ * Only there when overlay apps are built in at all. The LBJ Edit store is the
+ * very same record as the resident one, so it is only ever read here; the APRS
+ * TX profile is the upstream beacon position. */
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
+
+_Static_assert(LBJ_POS_LEN <= APP_CONFIG_LOCAL_MAX,
+               "the LBJ Edit store must fit an app's own config area");
+
+static uint8_t pos_rev   = 0xFFu;  /* APP_SlotRevision() of the last sweep      */
+static uint8_t lbj_slot  = 0xFFu;  /* slot holding the LBJ Edit store, 0xFF none */
+static uint8_t aprs_slot = 0xFFu;  /* slot holding the APRS TX profile, 0xFF none */
 
 /* The primary position of the LBJ Edit store held by this slot. False when the
  * slot holds no store, one of another version, or no usable primary entry. */
@@ -726,23 +732,36 @@ static void pos_scan(void){
     }
 }
 
-/* The receiver's position in 1e-4 degree units, or false when there is none. */
+#endif /* ENABLE_FEAT_F4HWN_OVERLAY_APPS */
+
+/* The receiver's position in 1e-4 degree units, or false when there is none.
+ * The resident store comes first - it is the one the LBJ menu edits - and the
+ * two app stores are what a radio that has one of them installed still reads. */
 static bool pos_get(uint32_t *plat, uint32_t *plon){
+    uint8_t dig[LBJ_POS_DIGITS];
+    const uint8_t prim = LBJ_POS_Primary();
+
+    if (prim < LBJ_POS_SLOTS && LBJ_POS_Get(prim, dig) &&
+        pos_digits(dig, plat, plon))
+        return true;
+
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
     if (pos_rev != APP_SlotRevision()){
         /* An app was installed or erased: look for the two stores again. */
         pos_rev = APP_SlotRevision();
         pos_scan();
     }
 
-    /* The position the user picked for this in LBJ Edit, when there is one */
+    /* The position the user picked for this in the deprecated LBJ Edit app */
     if (lbj_slot < APP_SLOT_COUNT && pos_lbj_read(lbj_slot, plat, plon))
         return true;
 
     /* Otherwise the beacon position APRS Edit keeps for APRS TX */
-    uint8_t dig[LBJ_POS_DIGITS], hemi;
+    uint8_t hemi;
     if (aprs_slot < APP_SLOT_COUNT && pos_slot_read(aprs_slot, dig, &hemi) &&
         !(hemi & 3u) && pos_digits(dig, plat, plon))
         return true;
+#endif
 
     return false;                      /* nothing to measure from: "--km" */
 }
@@ -822,8 +841,6 @@ static int16_t lbj_dist(uint32_t lat, uint32_t lon, uint32_t rlat, uint32_t rlon
     return (int16_t)r;
 }
 
-#endif /* ENABLE_FEAT_F4HWN_OVERLAY_APPS */
-
 /* What a page carries. This is exactly the overlay's own hasdet(), so both
  * versions split the same traffic the same way: a detail block needs at least
  * 30 characters on the detail addresses (1234001/1234002) and only the 65
@@ -859,8 +876,9 @@ static void format(uint32_t addr, uint8_t func, const char *b, uint16_t len){
     else            g.pref[0] = g.pref[1] = '\0';
 
     /* distance to the receiver position: only a report carrying the detail
-     * block says where the train itself is */
-#ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
+     * block says where the train itself is. The resident position store is
+     * always there, so the readout no longer needs an overlay app installed:
+     * pos_get() falls back to the app stores when the menu was never used. */
     g.dst = LBJ_DST_NODET;
     if (has_detail){
         uint32_t flat, flon, rlat, rlon;
@@ -868,9 +886,6 @@ static void format(uint32_t addr, uint8_t func, const char *b, uint16_t len){
         if (lbj_fix(d, dlen, &flat, &flon) && pos_get(&rlat, &rlon))
             g.dst = lbj_dist(flat, flon, rlat, rlon);
     }
-#else
-    g.dst = LBJ_DST_NODET;            /* no overlay app: nothing holds a position */
-#endif
 
     /* the history merge keys: the 6 train digits the short block carries, and
      * the detail block's 8-digit model+number. Each stays empty (and so matches
@@ -965,27 +980,38 @@ static void format(uint32_t addr, uint8_t func, const char *b, uint16_t len){
  *
  * On this mode the LED keeps the radio's ordinary meaning - on while a carrier
  * is being received - and the only extra is the message: a report that is
- * filed gives 2 short flashes. What is muted here (see the LBJ_RxVfoIsLbj()
- * guards in app.c) is the SetEOT "RX ended" blink: an LBJ carrier comes and
- * goes with every burst of a report, so that blink fired all the time and made
- * the light useless for reading a signal.
+ * filed gives the radio's own "carrier went away" blink. What is muted here
+ * (see the LBJ_RxVfoIsLbj() guards in app.c) is that blink's normal trigger,
+ * the SetEOT "RX ended" one: an LBJ carrier comes and goes with every burst of
+ * a report, so it fired all the time and made the light useless for reading a
+ * signal.
  *
  * The LED is therefore driven from this one place, every 10 ms:
  *   - carrier only : on, steady (green on VFO A, green + red on VFO B);
- *   - new report   : off 100 / on 100 / off 100 / on 100 - 2 flashes, the same
- *                    either way whether the carrier is still up or already
- *                    gone - and then back to the carrier state;
+ *   - new report   : 100 ms on / 100 off / 100 on / 500 off, four times over -
+ *                    the eight flashes HandleRxEndBlink() gives a normal
+ *                    channel, at once rather than after its one-second wait -
+ *                    the same either way whether the carrier is still up or
+ *                    already gone, and then back to the carrier state;
  *   - keyed up     : a blink in progress is dropped and only the green is
  *                    taken down (the red TX light is not ours).
- * The phases are the 100 ms steps the radio's own A/B blink uses and the same
- * 2 x flash the LBJ RX overlay app does (lbj_app.c). Not tied to SetEOT: what
- * is announced here is the decoded message.
+ * The steps are the 100 ms ones the radio's own blink uses, so the two look
+ * alike. Not tied to SetEOT: what is announced here is the decoded message.
  *
  * Writing a BK4819 GPIO is a plain register write from the main loop, and the
  * sampler runs in the TIM3 interrupt, so it cannot miss samples because of it
  * (the overlay app's 40 us caution applies to its own sampling loop). */
-#define LBJ_LED_PHASES  4u       /* off, on, off, on (100 ms each)             */
-#define LBJ_LED_TICKS   10u      /* 10 x 10 ms = 100 ms per phase              */
+#define LBJ_LED_PHASES  16u      /* 4 pairs x (on, off, on, gap), see the table */
+
+/* How long each phase lasts, phase 16 (the first, LED on) first: 100 ms on,
+ * 100 off, 100 on, then the 500 ms gap - four times. The last phase is the
+ * 500 ms gap after the last flash, exactly as the radio's own blink ends. */
+static const uint8_t LBJ_LED_TICKS[LBJ_LED_PHASES] = {
+    10u, 10u, 10u, 50u,
+    10u, 10u, 10u, 50u,
+    10u, 10u, 10u, 50u,
+    10u, 10u, 10u, 50u
+};
 
 static void ledBlinkStart(void){
     if (g.ledPhase)              /* a train's two blocks merge into one blink */
@@ -1033,13 +1059,14 @@ static void ledService(void){
         g.ledTick--;
         return;
     }
-    g.ledTick = LBJ_LED_TICKS;
 
-    /* Phases 4..1: off, on, off, on - two flashes; the idle branch above then
-     * puts the LED back to the carrier state. */
-    const bool on = (g.ledPhase & 1u) != 0u;
+    /* Phases 16..1: the first is the LED on, and the table says how long each
+     * one lasts; the idle branch above puts the LED back to the carrier state
+     * once the last has run out. */
+    const bool on = (g.ledPhase & 1u) == 0u;
     BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, on);
     BK4819_ToggleGpioOut(BK4819_GPIO5_PIN1_RED, on && g.ledVfo != 0u);
+    g.ledTick = LBJ_LED_TICKS[LBJ_LED_PHASES - g.ledPhase];
     g.ledPhase--;
 }
 

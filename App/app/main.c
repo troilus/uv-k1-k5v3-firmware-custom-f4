@@ -719,18 +719,23 @@ else if(Key == 9)
     processFKeyFunction(Key, false);
 }
 
+/* Whether the EXIT press a release belongs to was handled here. A short press
+ * acts on its release (below), and this is what keeps a release whose press
+ * went somewhere else - another screen, or the LBJ decode window that swallowed
+ * it - from toggling the RX mode on the way back to the main screen. */
+static bool main_exit_short_press;
+
 static void MAIN_Key_EXIT(bool bKeyPressed, bool bKeyHeld)
 {
     if (!bKeyHeld && bKeyPressed) { // exit key pressed
         gBeepToPlay = BEEP_1KHZ_60MS_OPTIONAL;  // beep when key is pressed
-        if (gInputBoxIndex == 0) {
-            ACTION_RxMode();                    // toggle RX MODE (single/dual channel)
-        }
+        main_exit_short_press = true;           // the release below acts on it
         return;                                 // don't use the key till it's released
     }
 
     if (bKeyHeld) { // exit key held down
         if (bKeyPressed) {
+            main_exit_short_press = false;      // held: the VFO restore is the whole action
             // Restore full VFO state on long press EXIT
             VFO_RestoreBackup();
 
@@ -738,6 +743,17 @@ static void MAIN_Key_EXIT(bool bKeyPressed, bool bKeyHeld)
         }
 
         return;
+    }
+
+    /* Released: this is where a short press takes effect. Acting on the release
+     * rather than on the press means a key held a moment too long only restores
+     * the VFO and does not toggle the RX mode as well; the beep on the press
+     * still says the key went down. */
+    if (main_exit_short_press) {
+        main_exit_short_press = false;
+
+        if (gInputBoxIndex == 0)
+            ACTION_RxMode();                    // toggle RX MODE (single/dual channel)
     }
 
 #ifdef ENABLE_DTMF_CALLING
