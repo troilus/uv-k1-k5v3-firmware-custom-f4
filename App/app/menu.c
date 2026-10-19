@@ -1678,6 +1678,15 @@ static void MENU_Key_0_to_9(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
 
     if (!gIsInSubMenu)
     {
+        if (gMenuCatView)
+        {   /* A number typed in the browser picks the item the flat list has at
+             * that position: switch to All, the way the flat menu always worked,
+             * and let the digit handling below move the cursor there. */
+            UI_MENU_EnterCategory(MENU_CAT_ALL);
+
+            gFlagRefreshSetting = true;
+        }
+
         switch (gInputBoxIndex)
         {
             case 2:
@@ -1890,6 +1899,20 @@ Skip:
             return;
         }
 
+        if (!gMenuCatView)
+        {   /* in a category's item list: EXIT steps back to the browser, and
+             * one more EXIT there leaves the menu - the way the flat menu's
+             * single EXIT used to be two steps now that there is a level
+             * above the items */
+            UI_MENU_EnterBrowser();
+
+            gFlagRefreshSetting   = true;
+            gRequestDisplayScreen = DISPLAY_MENU;
+            gPttWasReleased       = true;
+
+            return;
+        }
+
         #ifdef ENABLE_VOICE
             gAnotherVoiceID = VOICE_ID_CANCEL;
         #endif
@@ -1925,6 +1948,16 @@ static void MENU_Key_MENU(const bool bKeyPressed, const bool bKeyHeld)
 
     if (!gIsInSubMenu)
     {
+        if (gMenuCatView)
+        {   /* the browser page: M opens the item list of the highlighted
+             * category, on the item that list was left on */
+            UI_MENU_EnterCategory(gMenuCat);
+
+            gFlagRefreshSetting = true;
+
+            return;
+        }
+
         const int m = UI_MENU_GetCurrentMenuId();
 
 #ifdef ENABLE_FEAT_F4HWN_LBJ
@@ -2180,6 +2213,17 @@ static void MENU_Key_UP_DOWN(bool bKeyPressed, bool bKeyHeld, int8_t Direction)
 
     if (!gIsInSubMenu)
     {
+        if (gMenuCatView)
+        {   /* the browser page: UP/DOWN walk the categories, not the items */
+            UI_MENU_CatStep(-Direction);
+
+            gFlagRefreshSetting = true;
+
+            gRequestDisplayScreen = DISPLAY_MENU;
+
+            return;
+        }
+
         gMenuCursor = NUMBER_AddWithWraparound(gMenuCursor, -Direction, 0, gMenuListCount - 1);
 
         gFlagRefreshSetting = true;

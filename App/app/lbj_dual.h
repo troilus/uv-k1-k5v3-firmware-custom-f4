@@ -46,10 +46,11 @@ bool LBJ_PopupActive(void);
 void LBJ_ClosePopup(void);
 void LBJ_DrawPopup(void);
 
-/* Open the decode window by hand (the LBJ menu item), showing the newest
- * report. Returns false when nothing has been decoded yet, so the caller can
- * leave the menu where it is. With no live history at all the stored-report
- * list is opened instead - that is what LBJ_OpenList() does. */
+/* Open the decode window by hand (the LBJMSG menu item, and the side key /
+ * M Long action the operator can point at it), showing the newest report.
+ * Returns false when nothing has been decoded yet - the window is not opened at
+ * all then, and the caller refuses the key the way a failed shortcut launch
+ * does. The stored list is a separate menu item of its own, LBJHST. */
 bool LBJ_OpenPopup(void);
 
 /* Open the decode window on the list of reports stored in flash (the LBJHST

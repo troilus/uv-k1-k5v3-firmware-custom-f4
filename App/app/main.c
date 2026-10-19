@@ -48,6 +48,7 @@
 #include "settings.h"
 #include "ui/inputbox.h"
 #include "ui/main.h"
+#include "ui/menu.h"
 #include "ui/ui.h"
 #include <stdlib.h>
 
@@ -872,6 +873,9 @@ static void MAIN_Key_MENU(bool bKeyPressed, bool bKeyHeld)
                     return;
                 }
             #endif
+
+            /* the menu opens on the category browser, never straight in a list */
+            UI_MENU_EnterBrowser();
 
             gFlagRefreshSetting = true;
             gRequestDisplayScreen = DISPLAY_MENU;

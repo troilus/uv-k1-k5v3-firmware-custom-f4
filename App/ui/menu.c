@@ -77,8 +77,10 @@ const t_menu_item MenuList[] =
 #ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
     {"SetCfg",      MENU_SET_CFG       }, // pick the settings bank to boot with
 #endif
-    // hidden menu items from here on
-    // enabled if pressing both the PTT and upper side button at power-on
+    // The rows from here on used to be the hidden menu, the ones the PTT +
+    // upper side key gesture at power-on revealed. The browser filters on the
+    // table below instead, so every one of them is reachable - in the category
+    // it belongs to. Only the DTMF category still waits for that gesture.
     {"F锁",      MENU_F_LOCK        },
     {"RxMode",      MENU_TDR           },
 #ifdef ENABLE_FEAT_F4HWN
@@ -205,7 +207,372 @@ const t_menu_item MenuList[] =
     {"",                              0xff               }  // end of list - DO NOT delete or move this this
 };
 
-const uint8_t FIRST_HIDDEN_MENU_ITEM = MENU_F_LOCK;
+/* Which category each menu id belongs to - the table the browser (UI_DisplayMenu
+ * below) and the key handling (App/app/menu.c MENU_Key_*) run on. It is indexed
+ * by the MENU_* id instead of carried in MenuList so that a menu row never has
+ * to change for a category to move, and so the table is the same on every build:
+ * the ids a build leaves out sit behind the same #ifdefs the menu id enum uses.
+ * An id that is not listed here lands in the first category. */
+static const uint8_t gMenuCatOf[] =
+{
+    [MENU_SQL]              = MENU_CAT_RADIO,
+    [MENU_AM]               = MENU_CAT_CHANNELS,
+    [MENU_STEP]             = MENU_CAT_CHANNELS,
+    [MENU_TXP]              = MENU_CAT_CHANNELS,
+    [MENU_R_DCS]            = MENU_CAT_CHANNELS,
+    [MENU_R_CTCS]           = MENU_CAT_CHANNELS,
+    [MENU_T_DCS]            = MENU_CAT_CHANNELS,
+    [MENU_T_CTCS]           = MENU_CAT_CHANNELS,
+    [MENU_SFT_D]            = MENU_CAT_CHANNELS,
+    [MENU_OFFSET]           = MENU_CAT_CHANNELS,
+    [MENU_TOT]              = MENU_CAT_TIMERS,
+    [MENU_W_N]              = MENU_CAT_CHANNELS,
+#ifndef ENABLE_FEAT_F4HWN
+    [MENU_SCR]              = MENU_CAT_RADIO,
+#endif
+    [MENU_BCL]              = MENU_CAT_CHANNELS,
+#ifdef ENABLE_FEAT_F4HWN
+    [MENU_TX_LOCK]          = MENU_CAT_CHANNELS,
+#endif
+    [MENU_MEM_CH]           = MENU_CAT_CHANNELS,
+    [MENU_DEL_CH]           = MENU_CAT_CHANNELS,
+    [MENU_MEM_NAME]         = MENU_CAT_CHANNELS,
+    [MENU_MDF]              = MENU_CAT_DISPLAY,
+    [MENU_SAVE]             = MENU_CAT_POWER,
+    [MENU_VOX]              = MENU_CAT_RADIO,
+    [MENU_ABR]              = MENU_CAT_DISPLAY,
+    [MENU_ABR_ON_TX_RX]     = MENU_CAT_DISPLAY,
+    [MENU_ABR_MIN]          = MENU_CAT_DISPLAY,
+    [MENU_ABR_MAX]          = MENU_CAT_DISPLAY,
+    [MENU_TDR]              = MENU_CAT_RADIO,
+    [MENU_BEEP]             = MENU_CAT_AUDIO,
+#ifdef ENABLE_VOICE
+    [MENU_VOICE]            = MENU_CAT_AUDIO,
+#endif
+    [MENU_SC_REV]           = MENU_CAT_SCAN,
+    [MENU_AUTOLK]           = MENU_CAT_KEYS,
+    [MENU_LIST_CH]          = MENU_CAT_SCAN,
+    [MENU_STE]              = MENU_CAT_RADIO,
+    [MENU_RP_STE]           = MENU_CAT_RADIO,
+    [MENU_MIC]              = MENU_CAT_AUDIO,
+    [MENU_MIC_BAR]          = MENU_CAT_AUDIO,
+    [MENU_COMPAND]          = MENU_CAT_CHANNELS,
+    [MENU_1_CALL]           = MENU_CAT_KEYS,
+    [MENU_S_LIST]           = MENU_CAT_SCAN,
+    [MENU_S_PRI]            = MENU_CAT_SCAN,
+    [MENU_S_PRI_CH_1]       = MENU_CAT_SCAN,
+    [MENU_S_PRI_CH_2]       = MENU_CAT_SCAN,
+#ifdef ENABLE_ALARM
+    [MENU_AL_MOD]           = MENU_CAT_RADIO,
+#endif
+#ifdef ENABLE_DTMF_CALLING
+    [MENU_ANI_ID]           = MENU_CAT_DTMF,
+#endif
+    [MENU_UPCODE]           = MENU_CAT_DTMF,
+    [MENU_DWCODE]           = MENU_CAT_DTMF,
+    [MENU_PTT_ID]           = MENU_CAT_DTMF,
+    [MENU_D_ST]             = MENU_CAT_DTMF,
+#ifdef ENABLE_DTMF_CALLING
+    [MENU_D_RSP]            = MENU_CAT_DTMF,
+    [MENU_D_HOLD]           = MENU_CAT_DTMF,
+#endif
+    [MENU_D_PRE]            = MENU_CAT_DTMF,
+#ifdef ENABLE_DTMF_CALLING
+    [MENU_D_DCD]            = MENU_CAT_DTMF,
+    [MENU_D_LIST]           = MENU_CAT_DTMF,
+#endif
+    [MENU_D_LIVE_DEC]       = MENU_CAT_DTMF,
+    [MENU_PONMSG]           = MENU_CAT_DISPLAY,
+    [MENU_ROGER]            = MENU_CAT_RADIO,
+    [MENU_VOL]              = MENU_CAT_DISPLAY,
+    [MENU_BAT_TXT]          = MENU_CAT_POWER,
+#ifdef ENABLE_AM_FIX
+    [MENU_AM_FIX]           = MENU_CAT_RADIO,
+#endif
+#ifdef ENABLE_NOAA
+    [MENU_NOAA_S]           = MENU_CAT_RADIO,
+#endif
+    [MENU_RESET]            = MENU_CAT_SERVICE,
+    [MENU_F_LOCK]           = MENU_CAT_SERVICE,
+#ifndef ENABLE_FEAT_F4HWN
+    [MENU_200TX]            = MENU_CAT_SERVICE,
+    [MENU_350TX]            = MENU_CAT_SERVICE,
+    [MENU_500TX]            = MENU_CAT_SERVICE,
+#endif
+    [MENU_350EN]            = MENU_CAT_SERVICE,
+#ifndef ENABLE_FEAT_F4HWN
+    [MENU_SCREN]            = MENU_CAT_SERVICE,
+#endif
+#ifdef ENABLE_F_CAL_MENU
+    [MENU_F_CALI]           = MENU_CAT_SERVICE,
+#endif
+#ifdef ENABLE_FEAT_F4HWN_SLEEP
+    [MENU_SET_OFF]          = MENU_CAT_POWER,
+#endif
+#ifdef ENABLE_FEAT_F4HWN
+    [MENU_SET_PWR]          = MENU_CAT_CHANNELS,
+    [MENU_SET_PTT]          = MENU_CAT_KEYS,
+    [MENU_SET_TOT]          = MENU_CAT_TIMERS,
+    [MENU_SET_EOT]          = MENU_CAT_TIMERS,
+    [MENU_SET_CTR]          = MENU_CAT_DISPLAY,
+    [MENU_SET_INV]          = MENU_CAT_DISPLAY,
+    [MENU_SET_LCK]          = MENU_CAT_KEYS,
+    [MENU_SET_MET]          = MENU_CAT_DISPLAY,
+    [MENU_SET_GUI]          = MENU_CAT_DISPLAY,
+    [MENU_SET_TMR]          = MENU_CAT_TIMERS,
+    #ifdef ENABLE_FEAT_F4HWN_SCAN_FASTER
+        [MENU_SET_SCN]      = MENU_CAT_SCAN,
+    #endif
+    #ifdef ENABLE_FEAT_F4HWN_NARROWER
+        [MENU_SET_NFM]      = MENU_CAT_CHANNELS,
+    #endif
+    #ifdef ENABLE_FEAT_F4HWN_VOL
+        [MENU_SET_VOL]      = MENU_CAT_AUDIO,
+    #endif
+    #ifdef ENABLE_FEAT_F4HWN_RESCUE_OPS
+        [MENU_SET_KEY]      = MENU_CAT_KEYS,
+    #endif
+    [MENU_SET_NAV]          = MENU_CAT_SERVICE,
+    #ifdef ENABLE_FEAT_F4HWN_AUDIO
+        [MENU_SET_AUD]      = MENU_CAT_AUDIO,
+    #endif
+#endif
+    [MENU_BATCAL]           = MENU_CAT_SERVICE,
+    [MENU_F1SHRT]           = MENU_CAT_KEYS,
+    [MENU_F1LONG]           = MENU_CAT_KEYS,
+    [MENU_F2SHRT]           = MENU_CAT_KEYS,
+    [MENU_F2LONG]           = MENU_CAT_KEYS,
+    [MENU_MLONG]            = MENU_CAT_KEYS,
+    [MENU_BATTYP]           = MENU_CAT_SERVICE,
+#ifdef ENABLE_FEAT_F4HWN_LBJ
+    [MENU_LBJ]              = MENU_CAT_LBJ,
+    [MENU_LBJPOP]           = MENU_CAT_LBJ,
+    [MENU_LBJLOG]           = MENU_CAT_LBJ,
+    [MENU_LBJCLR]           = MENU_CAT_LBJ,
+#endif
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
+    [MENU_SET_CFG]          = MENU_CAT_CHANNELS,
+#endif
+#ifdef ENABLE_FEAT_F4HWN_LBJ
+    [MENU_LBJHST]           = MENU_CAT_LBJ,
+#endif
+};
+
+/* The names the browser shows the categories by, in the MENU_CAT_* order above.
+ * The hidden one is named here all the same, it is simply never picked. */
+static const char *const gMenuCatName[MENU_CAT_COUNT] =
+{
+    "信道",     /* MENU_CAT_CHANNELS */
+    "LBJ",      /* MENU_CAT_LBJ */
+    "扫描",     /* MENU_CAT_SCAN */
+    "按键",     /* MENU_CAT_KEYS */
+    "电源",     /* MENU_CAT_POWER */
+    "显示",     /* MENU_CAT_DISPLAY */
+    "定时",     /* MENU_CAT_TIMERS */
+    "音频",     /* MENU_CAT_AUDIO */
+    "电台",     /* MENU_CAT_RADIO */
+    "DTMF",     /* MENU_CAT_DTMF */
+    "服务",     /* MENU_CAT_SERVICE */
+    "全部"      /* MENU_CAT_ALL */
+};
+
+bool    gMenuCatView = false;              /* the category page is up */
+uint8_t gMenuCat = MENU_CAT_CHANNELS;      /* category highlighted / list shown */
+
+static uint8_t gMenuCatCursor[MENU_CAT_COUNT];   /* where each list was left */
+
+/* DTMF is the last category the hidden menu still gates: without the PTT +
+ * upper side key gesture at power-on it is not listed, and its items are not in
+ * All either, the way every item past the first screenful used to be. */
+static bool cat_visible(uint8_t cat)
+{
+    if (cat == MENU_CAT_DTMF && !gF_LOCK)
+        return false;
+
+    return cat < MENU_CAT_COUNT;
+}
+
+static uint8_t cat_of(const t_menu_item *item)
+{
+    const uint8_t id = item->menu_id;
+
+    return (id < ARRAY_SIZE(gMenuCatOf)) ? gMenuCatOf[id] : MENU_CAT_CHANNELS;
+}
+
+/* Does a category hold this item: All holds every item the user is allowed to
+ * see, any other one only the items that belong to it. */
+static bool item_in_cat(const t_menu_item *item, uint8_t cat)
+{
+    const uint8_t c = cat_of(item);
+
+    if (!cat_visible(c))
+        return false;
+
+    return (cat == MENU_CAT_ALL) || (c == cat);
+}
+
+/* The idx-th item of a category (idx is 0 based), NULL when there is none. */
+static const t_menu_item *cat_item(uint8_t cat, uint8_t idx)
+{
+    for (uint8_t i = 0; MenuList[i].name[0] != '\0'; i++)
+    {
+        if (!item_in_cat(&MenuList[i], cat))
+            continue;
+
+        if (idx == 0)
+            return &MenuList[i];
+
+        idx--;
+    }
+
+    return NULL;
+}
+
+/* The row the list draws at a position: the empty row at the end of MenuList
+ * when the position is past it, so the drawing code can print it as it is. */
+static const t_menu_item *view_item(int idx)
+{
+    const t_menu_item *item = (idx >= 0) ? cat_item(gMenuCat, (uint8_t)idx) : NULL;
+
+    return item ? item : &MenuList[ARRAY_SIZE(MenuList) - 1];
+}
+
+/* The row the rest of the firmware takes as "the current menu item". With the
+ * category page up there is none, so it is the one the browser would open. */
+static uint8_t list_cursor(void)
+{
+    if (gMenuCatView && gMenuCat < MENU_CAT_COUNT)
+        return gMenuCatCursor[gMenuCat];
+
+    return gMenuCursor;
+}
+
+static const char *cat_name(uint8_t cat)
+{
+    return (cat < MENU_CAT_COUNT) ? gMenuCatName[cat] : "";
+}
+
+static uint8_t cat_item_count(uint8_t cat)
+{
+    uint8_t n = 0;
+
+    for (uint8_t i = 0; MenuList[i].name[0] != '\0'; i++)
+        if (item_in_cat(&MenuList[i], cat))
+            n++;
+
+    return n;
+}
+
+/* The category next to this one in the browser, wrapping around. */
+static uint8_t cat_neighbour(uint8_t cat, int8_t dir)
+{
+    do
+    {
+        if (dir >= 0)
+            cat = (uint8_t)((cat + 1) % MENU_CAT_COUNT);
+        else
+            cat = (cat == 0) ? (MENU_CAT_COUNT - 1) : (uint8_t)(cat - 1);
+    } while (!cat_visible(cat));
+
+    return cat;
+}
+
+/* Which category of how many is showing, for the footer. */
+static uint8_t cat_number(uint8_t cat)
+{
+    uint8_t n = 0;
+
+    for (uint8_t c = 0; c <= cat && c < MENU_CAT_COUNT; c++)
+        if (cat_visible(c))
+            n++;
+
+    return n;
+}
+
+static uint8_t cat_visible_count(void)
+{
+    uint8_t n = 0;
+
+    for (uint8_t c = 0; c < MENU_CAT_COUNT; c++)
+        if (cat_visible(c))
+            n++;
+
+    return n;
+}
+
+void UI_MENU_CatStep(int8_t dir)
+{
+    gMenuCat = cat_neighbour(gMenuCat, dir);
+}
+
+/* Show one category's item list, MENU_CAT_ALL being the whole flat list. */
+void UI_MENU_EnterCategory(uint8_t cat)
+{
+    const uint8_t count = cat_item_count(cat);
+
+    if (!gMenuCatView && gMenuCat < MENU_CAT_COUNT)
+        gMenuCatCursor[gMenuCat] = gMenuCursor;   /* remember the list we leave */
+
+    gMenuCat       = cat;
+    gMenuCatView   = false;
+    gMenuListCount = count;
+    gMenuCursor    = (gMenuCatCursor[cat] < count) ? gMenuCatCursor[cat] : 0;
+}
+
+/* Show the category page, leaving the item list where it was. */
+void UI_MENU_EnterBrowser(void)
+{
+    if (!gMenuCatView && gMenuCat < MENU_CAT_COUNT)
+        gMenuCatCursor[gMenuCat] = gMenuCursor;
+
+    if (!cat_visible(gMenuCat))
+        gMenuCat = MENU_CAT_CHANNELS;
+
+    gMenuCatView   = true;
+    gMenuListCount = cat_item_count(MENU_CAT_ALL);
+}
+
+/* Small text against the right edge of a page, for the item count. */
+static void UI_MENU_PrintSmallRight(const char *text, const uint8_t line)
+{
+    const unsigned int pitch = ARRAY_SIZE(gFontSmall[0]) + 1u;
+    const unsigned int width = strlen(text) * pitch;
+    const unsigned int x     = (width + 2u < LCD_WIDTH) ? (LCD_WIDTH - 2u - width) : 2u;
+
+    UI_PrintStringSmallNormal(text, (uint8_t)x, (uint8_t)x, line);
+}
+
+/* The browser page: the category above, the highlighted one (inverted) and the
+ * one below it, how many items it holds, and which category of how many. */
+static void UI_MENU_DrawCategoryPage(void)
+{
+    const char  *name  = cat_name(gMenuCat);
+    unsigned int width = strlen(name) * 8u;
+    char         String[16];
+    unsigned int i;
+
+    UI_PrintString(cat_name(cat_neighbour(gMenuCat, -1)), 0, 0, 0, 8);
+    UI_PrintString(name,                                  0, 0, 2, 8);
+    UI_PrintString(cat_name(cat_neighbour(gMenuCat, +1)), 0, 0, 4, 8);
+
+    /* invert the highlighted category, as wide as its name is */
+    if (width > LCD_WIDTH - 2)
+        width = LCD_WIDTH - 2;
+
+    for (i = 0; i < width; i++)
+    {
+        gFrameBuffer[2][i] ^= 0xFF;
+        gFrameBuffer[3][i] ^= 0xFF;
+    }
+
+    /* how many items the highlighted category holds */
+    sprintf(String, "%u", cat_item_count(gMenuCat));
+    UI_MENU_PrintSmallRight(String, 2);
+
+    /* which category of how many, the way the item list numbers its items */
+    sprintf(String, "%2u.%u", cat_number(gMenuCat), cat_visible_count());
+    UI_PrintStringSmallNormal(String, 2, 0, 6);
+}
 
 const char gSubMenu_TXP[][6] =
 {
@@ -564,17 +931,35 @@ const uint8_t gSubMenu_SIDEFUNCTIONS_size = ARRAY_SIZE(gSubMenu_SIDEFUNCTIONS);
 bool    gIsInSubMenu;
 uint8_t gMenuCursor;
 int UI_MENU_GetCurrentMenuId() {
-    if(gMenuCursor < ARRAY_SIZE(MenuList))
-        return MenuList[gMenuCursor].menu_id;
-
-    return MenuList[ARRAY_SIZE(MenuList)-1].menu_id;
+    return view_item(list_cursor())->menu_id;
 }
 
 uint8_t UI_MENU_GetMenuIdx(uint8_t id)
 {
-    for(uint8_t i = 0; i < ARRAY_SIZE(MenuList); i++)
-        if(MenuList[i].menu_id == id)
+    uint8_t i;
+
+    for(i = 0; i < gMenuListCount; i++)
+        if(view_item(i)->menu_id == id)
             return i;
+
+    /* Not in the list that is showing: switch to the category that holds it and
+     * answer with its position there, so a caller that only wants the cursor to
+     * land on an item (the CSS scan) always finds it. */
+    for(i = 0; i < ARRAY_SIZE(MenuList); i++)
+        if(MenuList[i].menu_id == id)
+        {
+            uint8_t n = 0;
+            uint8_t k;
+
+            UI_MENU_EnterCategory(cat_of(&MenuList[i]));
+
+            for(k = 0; k < i; k++)
+                if(item_in_cat(&MenuList[k], gMenuCat))
+                    n++;
+
+            return n;
+        }
+
     return 0;
 }
 
@@ -660,11 +1045,20 @@ void UI_DisplayMenu(void)
 
     UI_DisplayClear();
 
+    if (gMenuCatView)
+    {   /* the browser replaces the item list: pick a category, M opens it */
+        UI_MENU_DrawCategoryPage();
+
+        BACKLIGHT_TurnOn();
+        ST7565_BlitFullScreen();
+        return;
+    }
+
 #ifndef ENABLE_CUSTOM_MENU_LAYOUT
     for (i = 0; i < 3; i++)
         if (gMenuCursor > 0 || i > 0)
             if ((gMenuListCount - 1) != gMenuCursor || i != 2)
-                UI_PrintString(MenuList[gMenuCursor + i - 1].name, 0, 0, i * 2, 8);
+                UI_PrintString(view_item(gMenuCursor + i - 1)->name, 0, 0, i * 2, 8);
 
     // invert the current menu list item pixels
     for (i = 0; i < (8 * menu_list_width); i++)
@@ -696,24 +1090,24 @@ void UI_DisplayMenu(void)
             {   // leading menu items - small text
                 const int k = menu_index + i - 2;
                 if (k < 0)
-                    UI_PrintStringSmallNormal(MenuList[gMenuListCount + k].name, 0, 0, i);  // wrap-a-round
+                    UI_PrintStringSmallNormal(view_item(gMenuListCount + k)->name, 0, 0, i);  // wrap-a-round
                 else if (k >= 0 && k < (int)gMenuListCount)
-                    UI_PrintStringSmallNormal(MenuList[k].name, 0, 0, i);
+                    UI_PrintStringSmallNormal(view_item(k)->name, 0, 0, i);
                 i++;
             }
 
             // current menu item - keep big n fat
             if (menu_index >= 0 && menu_index < (int)gMenuListCount)
-                UI_PrintString(MenuList[menu_index].name, 0, 0, 2, 8);
+                UI_PrintString(view_item(menu_index)->name, 0, 0, 2, 8);
             i++;
 
             while (i < 4)
             {   // trailing menu item - small text
                 const int k = menu_index + i - 2;
                 if (k >= 0 && k < (int)gMenuListCount)
-                    UI_PrintStringSmallNormal(MenuList[k].name, 0, 0, 1 + i);
+                    UI_PrintStringSmallNormal(view_item(k)->name, 0, 0, 1 + i);
                 else if (k >= (int)gMenuListCount)
-                    UI_PrintStringSmallNormal(MenuList[gMenuListCount - k].name, 0, 0, 1 + i);  // wrap-a-round
+                    UI_PrintStringSmallNormal(view_item(gMenuListCount - k)->name, 0, 0, 1 + i);  // wrap-a-round
                 i++;
             }
 
@@ -726,7 +1120,7 @@ void UI_DisplayMenu(void)
         else if (menu_index >= 0 && menu_index < (int)gMenuListCount)
         {   // current menu item
 //          strcat(String, ":");
-            UI_PrintString(MenuList[menu_index].name, 0, 0, 0, 8);
+            UI_PrintString(view_item(menu_index)->name, 0, 0, 0, 8);
 //          UI_PrintStringSmallNormal(String, 0, 0, 0);
         }
 

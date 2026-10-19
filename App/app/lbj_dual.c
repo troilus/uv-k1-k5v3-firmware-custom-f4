@@ -1469,11 +1469,15 @@ void LBJ_ClosePopup(void){
     g.dismissed = true;              /* stay dismissed until the carrier drops */
 }
 
-/* Manually open the decode window (the LBJ menu item): unlike a received report
- * nothing re-arms it, so it simply stays until EXIT or PTT - the LBJPOP timeout
- * does not apply to it (see g.pinned) - and the newest report is shown. With no
- * live history at all the stored list is what the operator gets instead.
- * Refuses when there is neither.
+/* Manually open the decode window (the LBJMSG menu item, and the side key or M
+ * Long action the operator can point at it): unlike a received report nothing
+ * re-arms it, so it simply stays until EXIT or PTT - the LBJPOP timeout does not
+ * apply to it (see g.pinned) - and the newest report is shown.
+ *
+ * With nothing decoded yet there is no window to show, so the open is refused
+ * and the menu item stays put (the side key double beeps). It never falls back
+ * to the stored list: that is what the separate LBJHST menu item is for, and a
+ * key the operator pointed at the live window must not end up on another screen.
  *
  * FM mode is refused outright: the window is drawn over the main screen, so a
  * popup opened there could swallow the keypad without ever being visible. */
@@ -1481,7 +1485,7 @@ bool LBJ_OpenPopup(void){
     if (gFmRadioMode)
         return false;
     if (!g.count)
-        return LBJ_OpenList();       /* nothing decoded yet: what is stored */
+        return false;                /* nothing decoded yet: nothing to show */
     g.cur       = 0;
     g.view      = LBJ_VIEW_LIVE;
     g.popup     = true;
@@ -1491,10 +1495,10 @@ bool LBJ_OpenPopup(void){
     return true;
 }
 
-/* The other way in, and what an empty live history falls back to: the list of
- * reports stored in the flash log (the LBJHST menu item). Refused while the log
- * is being cleared - a list of records that are about to go is worse than no
- * list - and while the ring holds nothing. */
+/* The other way in, and the only one for the list: the reports stored in the
+ * flash log (the LBJHST menu item). Refused while the log is being cleared - a
+ * list of records that are about to go is worse than no list - and while the
+ * ring holds nothing. */
 bool LBJ_OpenList(void){
     if (gFmRadioMode)
         return false;
