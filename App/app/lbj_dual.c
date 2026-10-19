@@ -1368,7 +1368,10 @@ static bool history_merge(uint32_t addr, uint8_t func, uint16_t len, uint8_t err
         g.rec[0].dst = g.dst;
         g.rec[0].mdl = g.mdl;
     }
-    g.cur = 0;                       /* a fresh report always shows the newest */
+    /* The cursor is deliberately left where it is: when a window is already up
+     * the operator may be paging, and a report arriving must not take the page
+     * away from them. page_commit() puts it back on the newest when the window
+     * is closed (or opened), which is the only place that needs to. */
     return true;
 }
 
