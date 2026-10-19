@@ -547,39 +547,54 @@ static void UI_MENU_PrintSmallRight(const char *text, const uint8_t line)
     const unsigned int pitch = ARRAY_SIZE(gFontSmall[0]) + 1u;
     const unsigned int width = strlen(text) * pitch;
     const unsigned int x     = (width + 2u < LCD_WIDTH) ? (LCD_WIDTH - 2u - width) : 2u;
+    const uint8_t      row   = (line < FRAME_LINES) ? line : (FRAME_LINES - 1u);
 
-    UI_PrintStringSmallNormal(text, (uint8_t)x, (uint8_t)x, line);
+    UI_PrintStringSmallNormal(text, (uint8_t)x, (uint8_t)x, row);
 }
 
-/* The browser page: one row across the middle of the screen - the category
- * before it on the left, the one after it on the right, wrapping around - with
- * the highlighted one centred and inverted between them. The names are printed
- * as they are, so a neighbour that would reach into the highlighted one, or run
- * off the screen, is left out instead of drawn on top of it (with the longer
- * English category names that does happen); what is missing there is what the
- * opposite direction gives. The footer says which category of how many. */
+/* The browser page. The neighbours sit on the row above the highlighted name -
+ * the category before it on the left behind a "<", the one after it on the
+ * right ahead of a ">" - and the highlighted one stays on the row the item list
+ * highlights, centred and inverted, so opening a category does not move it.
+ * Under its name is how many items it holds, and the bottom right corner says
+ * which category of how many. The neighbours are set in the same font the names
+ * are, so a Chinese name reads here as it does in the list; only the longer
+ * English names are wide enough to run out of screen, and then the arrows go
+ * first and the right hand name after them. */
 static void UI_MENU_DrawCategoryPage(void)
 {
-    const char        *name   = cat_name(gMenuCat);
-    const char        *prev   = cat_name(cat_neighbour(gMenuCat, -1));
-    const char        *next   = cat_name(cat_neighbour(gMenuCat, +1));
-    const unsigned int w_cur  = strlen(name) * 8u;
-    const unsigned int w_prev = strlen(prev) * 8u;
-    const unsigned int w_next = strlen(next) * 8u;
-    const unsigned int gap    = 8u;
-    const unsigned int x_cur  = (w_cur < LCD_WIDTH) ? ((LCD_WIDTH - w_cur) / 2u) : 0u;
+    const char        *name  = cat_name(gMenuCat);
+    const char        *prev  = cat_name(cat_neighbour(gMenuCat, -1));
+    const char        *next  = cat_name(cat_neighbour(gMenuCat, +1));
+    const unsigned int w_cur = strlen(name) * 8u;
+    const unsigned int x_cur = (w_cur < LCD_WIDTH) ? ((LCD_WIDTH - w_cur) / 2u) : 0u;
+    unsigned int       w_prev = strlen(prev) * 8u;
+    unsigned int       w_next = strlen(next) * 8u;
+    unsigned int       arrow  = 8u;                 /* the "<" and ">" columns */
     char               String[16];
     unsigned int       i;
 
-    /* The neighbours, when they fit beside the highlighted one. The row is the
-     * one the item list highlights, so opening a category does not move it. */
-    if (x_cur >= w_prev + gap)
-        UI_PrintString(prev, (uint8_t)(x_cur - gap - w_prev),
-                       (uint8_t)(x_cur - gap - w_prev), 2, 8);
+    if (w_prev + arrow + w_next + arrow > LCD_WIDTH)
+    {
+        arrow = 0u;
+        if (w_prev + w_next > LCD_WIDTH)
+            w_next = 0u;                            /* cannot have both names */
+    }
 
-    if (x_cur + w_cur + gap + w_next <= LCD_WIDTH)
-        UI_PrintString(next, (uint8_t)(x_cur + w_cur + gap),
-                       (uint8_t)(x_cur + w_cur + gap), 2, 8);
+    if (arrow)
+        UI_PrintString("<", 0u, 0u, 0u, 8);
+
+    if (w_prev)
+        UI_PrintString(prev, (uint8_t)arrow, (uint8_t)arrow, 0u, 8);
+
+    if (w_next)
+    {
+        const uint8_t x_next = (uint8_t)(LCD_WIDTH - w_next - arrow);
+        UI_PrintString(next, x_next, x_next, 0u, 8);
+    }
+
+    if (arrow)
+        UI_PrintString(">", (uint8_t)(LCD_WIDTH - arrow), (uint8_t)(LCD_WIDTH - arrow), 0u, 8);
 
     UI_PrintString(name, (uint8_t)x_cur, (uint8_t)x_cur, 2, 8);
 
@@ -590,9 +605,18 @@ static void UI_MENU_DrawCategoryPage(void)
         gFrameBuffer[3][x_cur + i] ^= 0xFF;
     }
 
+    /* how many items it holds, centred under its name */
+    sprintf(String, "%u", cat_item_count(gMenuCat));
+    {
+        const unsigned int w_items = strlen(String) * 8u;
+        const unsigned int x_items = (x_cur + (w_cur / 2u) >= (w_items / 2u))
+                                   ? (x_cur + (w_cur / 2u) - (w_items / 2u)) : 0u;
+        UI_PrintString(String, (uint8_t)x_items, (uint8_t)x_items, 4, 8);
+    }
+
     /* which category of how many, in the bottom right corner */
     sprintf(String, "%u/%u", cat_number(gMenuCat), cat_visible_count());
-    UI_MENU_PrintSmallRight(String, 7);
+    UI_MENU_PrintSmallRight(String, FRAME_LINES - 1u);
 }
 
 const char gSubMenu_TXP[][6] =
