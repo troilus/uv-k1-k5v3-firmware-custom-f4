@@ -143,7 +143,15 @@ static struct {
     bool shortcuts_cached;
     uint8_t shortcut_slots[APP_SHORTCUT_COUNT];   /* per position, 0xFF = none */
     uint8_t slot_revision;
+    /* Hand-off mailbox (RAM only): the slot to launch next, plus one (0 =
+     * none); the message, its length and the sender's slot; whether the
+     * running app was launched by a hand-off it has not read yet. */
+    uint8_t handoff_next;
+    uint8_t handoff_from;
+    uint8_t handoff_len;   /* never above APP_HANDOFF_MAX */
+    bool    handoff_unread;
     uint8_t cfg_buf[APP_CONFIG_PROXY_MAX];
+    uint8_t handoff_buf[APP_HANDOFF_MAX];
 } app_state;
 
 /* ---- ABI wrappers: the few resident calls that are not a direct signature match ---- */
@@ -554,6 +562,171 @@ static uint64_t app_idivmod(int32_t n, int32_t d)
     return ((uint64_t)(uint32_t)r << 32) | (uint32_t)q;
 }
 
+/* ---- API level 3: number formatting ----
+ * One resident copy of the decimal formatter nearly every app carried: the
+ * digits come out least significant first, one division each, then are copied
+ * back in order. Not NUL-terminated, returns the end. */
+static char *app_append_u32(char *dst, uint32_t u)
+{
+    char digits[10];
+    char *p = digits + sizeof(digits);
+    do {
+        const uint64_t qr = app_udivmod(u, 10u);
+        *--p = (char)('0' + (uint32_t)(qr >> 32));
+        u = (uint32_t)qr;
+    } while (u);
+    do
+        *dst++ = *p++;
+    while (p < digits + sizeof(digits));
+    return dst;
+}
+
+static char *app_append_i32(char *dst, int32_t v)
+{
+    uint32_t u = (uint32_t)v;
+    if (v < 0) {
+        *dst++ = '-';
+        u = 0u - u;
+    }
+    return app_append_u32(dst, u);
+}
+
+/* ---- API level 3: the frequency as the main screen draws it ----
+ * ui/main.c with ENABLE_BIG_FREQ: below 1 GHz, "144.800" in the big digits,
+ * then the last two digits ("00") in the small font on the lower line, right
+ * after them (95 px in all); from 1 GHz, the whole string in the normal font
+ * (80 px). The drawing routines do not clip, so x is held where both fit. */
+#define APP_FREQ_X_MAX  (128u - 95u)
+
+static void app_draw_frequency(uint32_t f_10hz, uint8_t x, uint8_t line)
+{
+    char s[16];
+    const uint64_t mhz = app_udivmod(f_10hz, 100000u);
+    uint32_t rest = (uint32_t)(mhz >> 32);
+    char *o = app_append_u32(s, (uint32_t)mhz);
+    *o++ = '.';
+    for (char *d = o + 5; d > o; ) {
+        const uint64_t qr = app_udivmod(rest, 10u);
+        *--d = (char)('0' + (uint32_t)(qr >> 32));
+        rest = (uint32_t)qr;
+    }
+    o[5] = '\0';
+    if (x > APP_FREQ_X_MAX)
+        x = APP_FREQ_X_MAX;
+    if ((uint32_t)mhz >= 1000u) {
+        UI_PrintString(s, x, 0, line, 8);
+        return;
+    }
+    o += 3;                          /* the last two digits */
+    UI_PrintStringSmallNormal(o, (uint8_t)(x + (o - s - 1) * 13 + 3), 0, (uint8_t)(line + 1u));
+    *o = '\0';
+    UI_DisplayFrequency(s, x, line, false);
+}
+
+/* ---- API level 3: RX audio capture on PA4 ----
+ * The sequence the PA4 apps proved on the radio (EPIRB 406 first): PA4 has no
+ * DC reference of its own, so the MCU DAC (channel 1, output buffer off,
+ * software trigger) holds it at mid-scale for the whole capture; the ADC reads
+ * channel 4 with the sample time the battery channel 8 was given. One app
+ * runs at a time, so the snapshot lives here instead of in each overlay. */
+#define APP_AFC_ADC_CH_PA4  4u
+#define APP_AFC_SMP4_POS    12u
+#define APP_AFC_SMP8_POS    24u
+#define APP_AFC_DAC_BIAS    ((1u << 0) | (1u << 1) | (1u << 2) | (7u << 3))  /* EN1 BOFF1 TEN1 TSEL1=111 */
+#define APP_AFC_BIAS_CODE   2048u
+
+static struct {
+    uint32_t moder, rcc, dac, dhr, sqr3, smpr3;
+    bool     open;
+} app_afc;
+
+static void app_afc_select_pa4(void)
+{
+    ADC1->SMPR3 = (app_afc.smpr3 & ~(7u << APP_AFC_SMP4_POS)) |
+                  (((app_afc.smpr3 >> APP_AFC_SMP8_POS) & 7u) << APP_AFC_SMP4_POS);
+    ADC1->SQR3  = (app_afc.sqr3 & ~0x1Fu) | APP_AFC_ADC_CH_PA4;
+}
+
+static void app_afc_select_battery(void)
+{
+    ADC1->SQR3  = app_afc.sqr3;
+    ADC1->SMPR3 = app_afc.smpr3;
+}
+
+static void app_af_capture_open(void)
+{
+    if (app_afc.open)
+        return;
+    app_afc.moder = GPIOA->MODER;
+    app_afc.rcc   = RCC->APBENR1;
+    app_afc.dac   = DAC1->CR;
+    app_afc.dhr   = DAC1->DHR12R1;
+    app_afc.sqr3  = ADC1->SQR3;
+    app_afc.smpr3 = ADC1->SMPR3;
+    app_afc.open  = true;
+    GPIOA->MODER  = app_afc.moder | (3u << 8);      /* PA4 analog */
+    RCC->APBENR1  = app_afc.rcc | RCC_APBENR1_DACEN;
+    DAC1->CR      = APP_AFC_DAC_BIAS;
+    DAC1->DHR12R1 = APP_AFC_BIAS_CODE;
+    DAC1->SWTRIGR = 1u;                             /* DHR -> DOR */
+    app_afc_select_pa4();
+}
+
+static uint16_t app_af_capture_sample(void)
+{
+    ADC1->CR2 |= ADC_CR2_SWSTART | ADC_CR2_EXTTRIG;
+    for (uint16_t n = 0; !(ADC1->SR & ADC_SR_EOC) && n < 2000u; n++) {}
+    return (uint16_t)(ADC1->DR & 0x0FFFu);
+}
+
+static void app_af_capture_close(void)
+{
+    if (!app_afc.open)
+        return;
+    app_afc.open = false;
+    app_afc_select_battery();
+    DAC1->CR      = app_afc.dac;
+    DAC1->DHR12R1 = app_afc.dhr;
+    RCC->APBENR1  = app_afc.rcc;
+    GPIOA->MODER  = app_afc.moder;
+}
+
+/* ---- API level 3: 48 MHz cycle clock ----
+ * Re-read the tick until it is stable around the SysTick read. A reload the
+ * interrupt has not served yet leaves the tick one behind: then count it and
+ * take a fresh, post-reload phase.
+ * At every launch the count is set APP_CYC_DIAGNOSTIC_WRAP_S seconds before
+ * its 32-bit wrap, as Linux starts jiffies before theirs: an app that compares
+ * it without a signed difference fails a few seconds after it starts, every
+ * run, instead of once in a while depending on radio uptime. */
+#define APP_CYC_HZ                 48000000u
+#define APP_CYC_DIAGNOSTIC_WRAP_S  10u
+_Static_assert(APP_CYC_DIAGNOSTIC_WRAP_S > 0u &&
+               APP_CYC_DIAGNOSTIC_WRAP_S <= INT32_MAX / APP_CYC_HZ,
+               "the diagnostic wrap must fit the signed deadline window");
+#define APP_CYC_DIAGNOSTIC_START \
+    (0u - APP_CYC_HZ * APP_CYC_DIAGNOSTIC_WRAP_S)
+static uint32_t app_cyc_base;
+
+static uint32_t app_cycles_raw(void)
+{
+    uint32_t tick, val;
+    do {
+        tick = SCHEDULER_GetTick10ms();
+        val  = SysTick->VAL;
+    } while (tick != SCHEDULER_GetTick10ms());
+    if (SCB->ICSR & SCB_ICSR_PENDSTSET_Msk) {
+        val = SysTick->VAL;
+        tick++;
+    }
+    return tick * (SysTick->LOAD + 1u) + (SysTick->LOAD - val);
+}
+
+static uint32_t app_cycles_48mhz(void)
+{
+    return app_cycles_raw() + app_cyc_base;
+}
+
 /* ---- v2 battery / backlight ---- */
 static void app_draw_battery(void)
 {
@@ -562,6 +735,24 @@ static void app_draw_battery(void)
 static void app_battery_sample(void)
 {
     BATTERY_GetReadings(false);
+}
+
+/* BOARD_ADC_GetBatteryInfo() converts whatever channel the ADC is set to, so
+ * with a capture open it would read the RX audio as the battery voltage. It
+ * calls these two around every conversion: the battery channel 8 for the
+ * read, then PA4 back. Any resident battery read is covered that way, not
+ * only the battery_sample() service. */
+bool APP_AfCaptureYieldAdc(void)
+{
+    if (!app_afc.open)
+        return false;
+    app_afc_select_battery();
+    return true;
+}
+
+void APP_AfCaptureResumeAdc(void)
+{
+    app_afc_select_pa4();
 }
 
 /* The ABI passes (line, active); v5.5.0 draws the shared MAIN scope with no
@@ -715,6 +906,68 @@ static void app_config_proxy_resolve(void)
         app_state.cfg_proxy_len     = proxy.target_len;
         return;
     }
+}
+
+/* ---- hand-off (API level 3) ----
+ * handoff() only resolves the target and stages the message; the launch happens
+ * in APP_LaunchOverlay once the running app has returned and its config is
+ * committed, so the overlay is never overwritten under the running code. */
+_Static_assert(APP_HANDOFF_MAX >= 1u && APP_HANDOFF_MAX <= UINT8_MAX,
+               "hand-off lengths are uint8_t: a larger mailbox would wrap the clamp");
+
+/* A header's NUL-padded name against a C string, like strncmp over
+ * APP_NAME_LEN: never reads name past its NUL, nor past APP_NAME_LEN bytes. */
+static bool app_name_is(const char field[APP_NAME_LEN], const char *name)
+{
+    for (uint8_t i = 0; i < APP_NAME_LEN; i++) {
+        if (field[i] != name[i])
+            return false;
+        if (name[i] == '\0')
+            return true;
+    }
+    return true;
+}
+
+static bool app_handoff(const char *name, const void *msg, uint8_t len)
+{
+    /* The last call wins: start from an empty mailbox, which a failed call
+     * leaves as is.  It also drops a message this app has not read. */
+    app_state.handoff_next   = 0;
+    app_state.handoff_len    = 0;
+    app_state.handoff_unread = false;
+    const uint32_t overlay_vma = (uint32_t)PY25Q16_OverlayBuffer();
+    for (uint8_t slot = 0; slot < APP_SLOT_COUNT; slot++) {
+        app_header_t h;
+        if (app_read_validated_header(slot, &h) != APP_OK ||
+            h.link_vma != overlay_vma || !app_name_is(h.name, name))
+            continue;
+        if (len > APP_HANDOFF_MAX)
+            len = APP_HANDOFF_MAX;   /* bounds the copy into handoff_buf */
+        if (len)
+            memcpy(app_state.handoff_buf, msg, len);
+        app_state.handoff_len  = len;
+        app_state.handoff_from = app_state.run_slot;
+        app_state.handoff_next = slot + 1u;
+        return true;
+    }
+    return false;
+}
+
+static int16_t app_handoff_read(void *buf, uint8_t max, char *from)
+{
+    if (!app_state.handoff_unread)
+        return -1;
+    app_state.handoff_unread = false;   /* read once */
+    const uint8_t len = app_state.handoff_len;
+    const uint8_t n = len < max ? len : max;   /* bounds the copy into the app's buf */
+    if (n)
+        memcpy(buf, app_state.handoff_buf, n);
+    if (from) {
+        PY25Q16_ReadBuffer(APP_SLOT_BASE(app_state.handoff_from) +
+                           offsetof(app_header_t, name), from, APP_NAME_LEN);
+        from[APP_NAME_LEN] = '\0';
+    }
+    return len;
 }
 
 uint8_t APP_ValidateSlot(uint8_t slot, app_header_t *out_header)
@@ -955,9 +1208,27 @@ static const app_api_t app_api = {
     .sys_stack_free_now  = STACK_FreeNow,
     .sys_stack_free_min  = STACK_FreeMinimum,
 #endif
+    .append_i32          = app_append_i32,
+    .af_capture_open     = app_af_capture_open,
+    .af_capture_sample   = app_af_capture_sample,
+    .af_capture_close    = app_af_capture_close,
+    .cycles_48mhz        = app_cycles_48mhz,
+    .draw_frequency      = app_draw_frequency,
+    .append_u32          = app_append_u32,
+    /* Outside the block above: the hand-off is a loader service, available
+     * wherever overlay apps are (this whole file), with or without the
+     * system information; inside it, an app would call a NULL pointer. */
+    .handoff             = app_handoff,
+    .handoff_read        = app_handoff_read,
 };
 
-uint8_t APP_LaunchOverlay(uint8_t slot)
+/* Hand-off guards: a chain of apps that hand off to each other for ever (a
+ * bug, or two apps that each start the other) would otherwise only end with
+ * the battery or the user's patience. */
+#define APP_HANDOFF_FAST_10MS 30u   /* 300 ms */
+#define APP_HANDOFF_FAST_HOPS 8u
+
+static uint8_t app_launch(uint8_t slot)
 {
     app_header_t h;
     uint8_t rc = app_read_validated_header(slot, &h);
@@ -1059,7 +1330,11 @@ uint8_t APP_LaunchOverlay(uint8_t slot)
     RADIO_SetupRegisters(true);
 
     app_entry_t entry = (app_entry_t)(((uint32_t)ws + h.entry_off) | 1u);
+    app_cyc_base = APP_CYC_DIAGNOSTIC_START - app_cycles_raw();
     entry(&app_api);
+
+    /* A capture the app left open must not keep PA4 and the DAC. */
+    app_af_capture_close();
 
     /* First thing after the app: nothing has drawn over its last screen yet. */
     if (h.flags & APP_FLAG_SAVE_SCREEN)
@@ -1130,6 +1405,50 @@ uint8_t APP_LaunchOverlay(uint8_t slot)
     LBJ_LOG_Resume();
 #endif
     return APP_OK;
+}
+
+bool APP_WaitKeyRelease(void)
+{
+    uint8_t stable = 0;
+    uint8_t exit_left = 100;   /* polls of EXIT down before it counts as held */
+    while (stable < 10u) {
+        const KEY_Code_t key = KEYBOARD_Poll();
+        if (!GPIO_IsPttPressed() && key == KEY_INVALID)
+            stable++;
+        else
+            stable = 0;
+        if (key == KEY_EXIT && exit_left)
+            exit_left--;
+        SYSTEM_DelayMs(10);
+        APP_ModalBacklightTick(true);
+    }
+    return !exit_left;
+}
+
+uint8_t gAppLastSlot;
+
+/* Run the app, then each app it hands off to, in a loop (no recursion, so no
+ * stack growth).  Returns the result of the last app of the chain, which
+ * gAppLastSlot names: the one that ended it, or a hand-off target
+ * that failed to launch.  A runaway-chain guard returns APP_CHAIN_ABORTED. */
+uint8_t APP_LaunchOverlay(uint8_t slot)
+{
+    uint8_t fast_hops = 0;
+    app_state.handoff_unread = false;   /* a menu or shortcut launch carries no message */
+    for (;;) {
+        gAppLastSlot = slot;
+        app_state.handoff_next = 0;
+        const uint32_t started = SCHEDULER_GetTick10ms();
+        const uint8_t rc = app_launch(slot);
+        if (rc != APP_OK || !app_state.handoff_next)
+            return rc;
+        slot = app_state.handoff_next - 1u;
+        fast_hops = SCHEDULER_GetTick10ms() - started < APP_HANDOFF_FAST_10MS ? fast_hops + 1u : 0u;
+        /* The key that ended the sender must not reach the target as a press. */
+        if (APP_WaitKeyRelease() || fast_hops >= APP_HANDOFF_FAST_HOPS)
+            return APP_CHAIN_ABORTED;
+        app_state.handoff_unread = true;   /* until read, or the target's own handoff() */
+    }
 }
 
 uint8_t APP_SlotErase(uint8_t slot)

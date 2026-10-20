@@ -2,7 +2,7 @@ name: Build Firmware
 
 on:
   push:
-    branches: [ main00, main ]
+    branches: [ main00, main, api-level3 ]
     paths:
       - 'App/**'
       - '!App/apps/**'

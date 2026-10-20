@@ -21,6 +21,9 @@
     #include "app/fm.h"
 #endif
 #include "board.h"
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
+    #include "apps/app_overlay.h"
+#endif
 #include "py32f071_ll_bus.h"
 #include "py32f071_ll_gpio.h"
 #include "py32f071_ll_rcc.h"
@@ -168,6 +171,11 @@ void BOARD_ADC_Init(void)
 
 void BOARD_ADC_GetBatteryInfo(uint16_t *pVoltage, uint16_t *pCurrent)
 {
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
+    /* An open app capture holds the ADC on PA4: take the battery channel back
+     * for this conversion and give PA4 back afterwards. */
+    const bool capture = APP_AfCaptureYieldAdc();
+#endif
 #ifdef ENABLE_FEAT_F4HWN_LBJ
     /* The LBJ sampler owns ADC PA4; give the battery channel back for the
      * conversion and hand PA4 over again afterwards. */
@@ -182,6 +190,10 @@ void BOARD_ADC_GetBatteryInfo(uint16_t *pVoltage, uint16_t *pCurrent)
     *pCurrent = 0;
 #ifdef ENABLE_FEAT_F4HWN_LBJ
     LBJ_AdcEnd();
+#endif
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
+    if (capture)
+        APP_AfCaptureResumeAdc();
 #endif
 }
 
