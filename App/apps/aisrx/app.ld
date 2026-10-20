@@ -1,7 +1,6 @@
-/* Overlay-app link script (POC). See App/apps/aprsrx/app.ld for the rationale. */
-
+/* AIS RX overlay link script. Code, data and BSS share the 4 KiB overlay. */
 APP_VMA    = DEFINED(APP_VMA) ? APP_VMA : 0x20000280;
-APP_LENGTH = 0x1000;       /* 4 KiB sector-cache overlay                        */
+APP_LENGTH = 0x1000;
 
 ENTRY(app_main)
 
@@ -11,7 +10,7 @@ MEMORY {
 
 SECTIONS {
     .app APP_VMA : {
-        KEEP(*(.text.entry))      /* app_main pinned to offset 0 */
+        KEEP(*(.text.entry))
         *(.text .text.*)
         *(.rodata .rodata.*)
         . = ALIGN(4);
@@ -27,5 +26,5 @@ SECTIONS {
     ASSERT(__app_end <= APP_VMA + APP_LENGTH,
            "AIS RX overlay app overflows the 4 KiB overlay")
 
-    /DISCARD/ : { *(.ARM.exidx*) *(.ARM.extab*) *(.ARM.attributes) *(.eh_frame*) *(.comment) *(.note.*) }
+    /DISCARD/ : { *(.ARM.exidx*) *(.ARM.extab*) *(.eh_frame*) *(.comment) *(.note.*) }
 }
