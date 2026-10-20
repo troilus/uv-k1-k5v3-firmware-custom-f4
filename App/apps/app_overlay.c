@@ -42,6 +42,7 @@
 #include "app/rxtx_log.h"
 #endif
 #ifdef ENABLE_FEAT_F4HWN_LBJ
+#include "app/lbj_dual.h"
 #include "app/lbj_log.h"
 #endif
 #include "ui/helper.h"
@@ -1251,6 +1252,12 @@ static uint8_t app_launch(uint8_t slot)
     RXTX_LOG_Suspend();
 #endif
 #ifdef ENABLE_FEAT_F4HWN_LBJ
+    /* The app owns PA4 and the MCU DAC while it runs, so hand the ADC back
+     * first: samplerStop() restores the ADC, GPIO and DAC set-up it changed,
+     * which is what the app's af_capture_open() snapshots. Stopping it while
+     * it is still running would leave the app reading the sampler's PA4.
+     * LBJ_Tick() re-arms it by itself once the app has returned. */
+    LBJ_StopSampler();
     /* The LBJ log writes through the same 4 KiB sector cache the app is about
      * to run from, so it is held off for the app's lifetime. */
     LBJ_LOG_Suspend();
