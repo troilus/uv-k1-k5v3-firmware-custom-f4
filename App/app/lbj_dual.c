@@ -70,6 +70,7 @@
 #include "settings.h"
 #include "ui/helper.h"
 #include "ui/status.h"
+#include "ui/ui.h"
 
 /* ---- LBJ channel: 821.2375 MHz (frequency unit = 10 Hz; _1GHz_in_KHz) ---- */
 #define LBJ_FREQ_HZ10   82123750u
@@ -1549,7 +1550,11 @@ bool LBJ_OpenList(void){
  * MENU turns the page: the live report shows the stored list, the list shows
  * the detail of the report it has marked, and that detail goes back to the
  * list. EXIT closes the window from wherever it is, so the list is never more
- * than one key away from the radio. */
+ * than one key away from the radio.
+ *
+ * Only the main screen draws the window, so only there does it own the keypad:
+ * on any other screen it stays armed and the screen keeps its keys (see the
+ * check below). */
 bool LBJ_HandleKey(uint8_t key, bool pressed, bool held){
     if (key == KEY_PTT){                 /* PTT closes the popup and stops the sampler, still transmits */
         LBJ_ClosePopup();
@@ -1557,6 +1562,13 @@ bool LBJ_HandleKey(uint8_t key, bool pressed, bool held){
         return false;
     }
     if (!g.popup)
+        return false;
+    /* The window is drawn by the main screen only (UI_DisplayMain). On the
+     * settings menu, the scanner, FM or a copy it would swallow the keypad
+     * without ever being visible, which reads as a dead key. Let that screen
+     * keep its keys: the window stays armed and appears when the main screen
+     * is back, or times out per LBJPOP. */
+    if (gScreenToDisplay != DISPLAY_MAIN)
         return false;
     if (!pressed || held)                 /* held or released: eat it, but do not step again */
         return true;
