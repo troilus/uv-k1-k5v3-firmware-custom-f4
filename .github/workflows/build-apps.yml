@@ -2,7 +2,7 @@ name: Build Apps
 
 on:
   push:
-    branches: [ main00, main, api-level3 ]
+    branches: [ main00, main ]
     paths:
       - 'App/apps/**'
       - 'compile-app.sh'
