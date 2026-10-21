@@ -47,28 +47,58 @@
 #include "welcome.h"
 
 
+/* Rows main00 already shows in Chinese. The Chinese build (ENABLE_CN_FONT)
+ * uses exactly those words; every other row stays as main00 has it. */
+#ifdef ENABLE_CN_FONT
+#define MT_AM "模式"
+#define MT_STEP "步进"
+#define MT_TXP "功率"
+#define MT_W_N "宽窄带"
+#define MT_MEM_CH "存信道"
+#define MT_DEL_CH "删信道"
+#define MT_MEM_NAME "信道名"
+#define MT_VOL "信息"
+#define MT_F_LOCK "F锁"
+#define MT_SET_INV "反色"
+#else
+#define MT_AM "Mode"
+#define MT_STEP "Step"
+#define MT_TXP "Power"
+#define MT_W_N "W/N"
+#define MT_MEM_CH "ChSave"
+#define MT_DEL_CH "ChDele"
+#define MT_MEM_NAME "ChName"
+#define MT_VOL "SysInf"
+#define MT_F_LOCK "F Lock"
+#define MT_SET_INV "SetInv"
+#endif
+
 const t_menu_item MenuList[] =
 {
 //   text,          menu ID
     {"SQL",         MENU_SQL           },
-    {"Mode",        MENU_AM            }, // was "AM"
-    {"Step",        MENU_STEP          },
-    {"Power",       MENU_TXP           }, // was "TXP"
+    {MT_AM,        MENU_AM            }, // was "AM"
+    {MT_STEP,        MENU_STEP          },
+    {MT_TXP,       MENU_TXP           }, // was "TXP"
     {"RxDCS",       MENU_R_DCS         }, // was "R_DCS"
     {"RxCTCS",      MENU_R_CTCS        }, // was "R_CTCS"
     {"TxDCS",       MENU_T_DCS         }, // was "T_DCS"
     {"TxCTCS",      MENU_T_CTCS        }, // was "T_CTCS"
     {"TxDir",      MENU_SFT_D         }, // was "SFT_D"
     {"TxOffs",      MENU_OFFSET        }, // was "OFFSET"
-    {"W/N",         MENU_W_N           },
-    {"ChSave",      MENU_MEM_CH        }, // was "MEM-CH"
-    {"ChDele",      MENU_DEL_CH        }, // was "DEL-CH"
-    {"ChName",      MENU_MEM_NAME      },
+    {MT_W_N,         MENU_W_N           },
+    {MT_MEM_CH,      MENU_MEM_CH        }, // was "MEM-CH"
+    {MT_DEL_CH,      MENU_DEL_CH        }, // was "DEL-CH"
+    {MT_MEM_NAME,      MENU_MEM_NAME      },
     {"VOX",         MENU_VOX           },
 #ifdef ENABLE_FEAT_F4HWN
-    {"SysInf",    MENU_VOL           }, // was "VOL"
+    {MT_VOL,    MENU_VOL           }, // was "VOL"
 #else
+    #ifdef ENABLE_CN_FONT
+    {"电压",      MENU_VOL           }, // was "VOL"
+    #else
     {"BatVol",    MENU_VOL           }, // was "VOL"
+    #endif
 #endif
 #ifdef ENABLE_FEAT_F4HWN_LBJ
     {"LBJMSG",      MENU_LBJ           }, // last visible item: opens the decode window
@@ -88,7 +118,7 @@ const t_menu_item MenuList[] =
     // upper side key gesture at power-on revealed. The browser filters on the
     // table below instead, so every one of them is reachable - in the category
     // it belongs to. Only the DTMF category still waits for that gesture.
-    {"F Lock",      MENU_F_LOCK        },
+    {MT_F_LOCK,      MENU_F_LOCK        },
     {"RxMode",      MENU_TDR           },
 #ifdef ENABLE_FEAT_F4HWN
     {"SetPwr",      MENU_SET_PWR       },
@@ -96,7 +126,7 @@ const t_menu_item MenuList[] =
     {"SetTOT",      MENU_SET_TOT       },
     {"SetEOT",      MENU_SET_EOT       },
     {"SetCtr",      MENU_SET_CTR       },
-    {"SetInv",      MENU_SET_INV       },
+    {MT_SET_INV,      MENU_SET_INV       },
     {"SetLck",      MENU_SET_LCK       },
     {"SetMet",      MENU_SET_MET       },
     {"SetGUI",      MENU_SET_GUI       },
@@ -373,6 +403,20 @@ static const uint8_t gMenuCatOf[] =
  * The hidden one is named here all the same, it is simply never picked. */
 static const char *const gMenuCatName[MENU_CAT_COUNT] =
 {
+#ifdef ENABLE_CN_FONT
+    "信道",     /* MENU_CAT_CHANNELS */
+    "LBJ",      /* MENU_CAT_LBJ */
+    "扫描",     /* MENU_CAT_SCAN */
+    "按键",     /* MENU_CAT_KEYS */
+    "电源",     /* MENU_CAT_POWER */
+    "显示",     /* MENU_CAT_DISPLAY */
+    "定时",     /* MENU_CAT_TIMERS */
+    "音频",     /* MENU_CAT_AUDIO */
+    "电台",     /* MENU_CAT_RADIO */
+    "DTMF",     /* MENU_CAT_DTMF */
+    "服务",     /* MENU_CAT_SERVICE */
+    "全部"      /* MENU_CAT_ALL */
+#else
     "Channels", /* MENU_CAT_CHANNELS */
     "LBJ",      /* MENU_CAT_LBJ */
     "Scan",     /* MENU_CAT_SCAN */
@@ -385,6 +429,7 @@ static const char *const gMenuCatName[MENU_CAT_COUNT] =
     "DTMF",     /* MENU_CAT_DTMF */
     "Service",  /* MENU_CAT_SERVICE */
     "All"       /* MENU_CAT_ALL */
+#endif
 };
 
 bool    gMenuCatView = false;              /* the category page is up */
@@ -817,9 +862,15 @@ const char gSubMenu_RX_TX[][6] =
 
 const char gSubMenu_BAT_TXT[][12] =
 {
+#ifdef ENABLE_CN_FONT
+    "无",
+    "电压",
+    "百分比",
+#else
     "NONE",
     "VOLTAGE",
     "PERCENT",
+#endif
     "BOTH"
 };
 
