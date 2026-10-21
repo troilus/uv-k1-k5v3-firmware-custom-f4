@@ -225,6 +225,7 @@
                 "ENABLE_FEAT_F4HWN_LBJ": true,
                 "ENABLE_FEAT_F4HWN_LBJ_TX_LOCK": true,
                 "ENABLE_SWD": false,
+                "ENABLE_DTMF_CALLING": false,
                 "EDITION_STRING": "LBJRadio",
                 "TARGET": "lbjradio"
             }
