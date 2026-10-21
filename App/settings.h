@@ -332,6 +332,12 @@ typedef struct {
      * so a radio that never stored the byte writes nothing), 1 = on. It lives
      * in the settings byte behind LBJPOP (0x00A0C6, see settings.c). */
     uint8_t               LBJ_LOG_ENABLE;
+    /* LBJNUM: how the popup prints the 8-digit registration. 0 = FULL (all
+     * eight digits, the old behaviour), 1 = SIMPLE (four digits: the last four
+     * for a locomotive, digits 4..7 for an EMU whose model code starts with 3).
+     * It lives in the settings byte behind LBJLOG (0x00A0C7, see settings.c);
+     * 0xFF reads as 0, so a radio that never stored one keeps the old row. */
+    uint8_t               LBJ_NUM_FORMAT;
 #endif
 } EEPROM_Config_t;
 

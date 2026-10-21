@@ -222,6 +222,11 @@ enum
     MENU_LBJPRI,
     MENU_LBJLAT,
     MENU_LBJLON,
+    /* LBJNUM: how row3 prints the 8-digit registration. FULL keeps all eight
+     * digits (the old behaviour); SIMPLE prints four - the last four for a
+     * locomotive, digits 4..7 for an EMU (model code 3xx). Appended last so no
+     * existing id moves. */
+    MENU_LBJNUM,
 #endif
 };
 
@@ -234,6 +239,7 @@ extern const char        gSubMenu_OFF_ON[2][4];
 extern const char        gSubMenu_LBJ_POP[5][4];
 extern const char        gSubMenu_LBJ_CLR[2][4];
 extern const char        gSubMenu_LBJ_PRI[6][4];
+extern const char        gSubMenu_LBJ_NUM[2][7];
 extern const char        gSubMenu_NA[4];
 extern const char        gSubMenu_TOT[11][7];
 extern const char* const gSubMenu_RXMode[4];

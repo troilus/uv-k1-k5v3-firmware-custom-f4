@@ -600,6 +600,30 @@ static const char *type_name(uint16_t c){
     }
 }
 
+/* The registration column, as LBJNUM asks for it. FULL is the old row: a space
+ * and all eight model+number digits. SIMPLE keeps four digits behind a '-':
+ * digits 4..7 for an EMU (model code starts with 3), the last four for every
+ * other train. */
+static char *putloc(char *o, const char *loc){
+    if (gEeprom.LBJ_NUM_FORMAT == 0u){
+        *o = ' ';
+        memcpy(o + 1, loc, 8u);
+        return o + 9;
+    }
+    const uint8_t first = (loc[0] == '3') ? 3u : 4u;
+    *o = '-';
+    memcpy(o + 1, loc + first, 4u);
+    return o + 5;
+}
+
+/* "<model><separator><digits>" from the 8-digit registration: the model name
+ * plus what putloc() chose to print. */
+static char *putl3(char *o, const char *loc){
+    const char *nm = type_name((uint16_t)digv(loc, 3u));
+    if (nm) o = put(o, nm); else o = put(o, "--");
+    return putloc(o, loc);
+}
+
 /* "<age>" - 12s below a minute, 3m20s up to 99 min, 99m+ after that. */
 static char *putage(char *o, uint16_t sec){
     if (sec < 60u){ o = putu(o, sec); *o++ = 's'; return o; }
@@ -950,13 +974,10 @@ static void format(uint32_t addr, uint8_t func, const char *b, uint16_t len){
     else                                    *o++ = '-';
     *o = '\0';
 
-    /* row3: model name + the 8-digit code/registration */
+    /* row3: model name + the 8-digit code/registration (LBJNUM may shorten it) */
     o = g.l3;
     if (has_detail){
-        const char *nm = type_name((uint16_t)digv(d + 4u, 3u));
-        if (nm) o = put(o, nm); else o = put(o, "--");
-        *o++ = ' ';
-        for (uint8_t i = 4u; i < 12u && i < dlen; i++) *o++ = d[i];
+        o = putl3(o, d + 4u);
     } else {
         o = putdash(o, 7u);
     }
@@ -1515,6 +1536,10 @@ bool LBJ_OpenPopup(void){
     if (!g.count)
         return false;                /* nothing decoded yet: nothing to show */
     g.cur       = 0;
+    /* Opened by hand after LBJNUM may have changed: rebuild the newest report's
+     * registration row so the window shows the format chosen in the menu. */
+    if (g.rec[0].loc[0])
+        *putl3(g.rec[0].l3, g.rec[0].loc) = '\0';
     g.view      = LBJ_VIEW_LIVE;
     g.popup     = true;
     g.pinned    = true;              /* opened by hand: it never times out */
@@ -1818,15 +1843,17 @@ static void drawLogDetail(void){
         UI_PrintStringSmallBold(s, 0, 0, 2);
     }
 
-    /* row3: the model name and the registration */
+    /* row3: the model name and the registration (LBJNUM may shorten it) */
     {
         char *o = s;
-        const char *nm = (r.flags & LBJ_LOG_F_MDL) ? type_name(r.mdl) : 0;
-        if (nm) o = put(o, nm); else o = putdash(o, 2);
-        *o++ = ' ';
         if (r.flags & LBJ_LOG_F_LOC)
-            for (uint8_t i = 0; i < 8u; i++) *o++ = r.loc[i];
-        else o = putdash(o, 8);
+            o = putl3(o, r.loc);
+        else {
+            const char *nm = (r.flags & LBJ_LOG_F_MDL) ? type_name(r.mdl) : 0;
+            if (nm) o = put(o, nm); else o = putdash(o, 2);
+            *o++ = ' ';
+            o = putdash(o, 8);
+        }
         *o = '\0';
         UI_PrintStringSmallBold(s, 0, 0, 3);
     }
