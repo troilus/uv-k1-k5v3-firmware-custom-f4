@@ -40,8 +40,8 @@ main00 只构建一个 LBJ 收音机固件：
     产物名       说明
     LBJRADIO9    英文，显示车次以 9 开头的报文，TX 锁，仅 CI artifact
 
-中文内嵌字体和 TX/CN 组合在 `lbjradio` 分支构建。`archive/` 里只放该分支的
-两个 **不锁 TX** 版本：
+中文内嵌字体和 TX/CN 组合在 `lbjradio` 分支构建。`archive/` 里当前版本只放
+该分支的两个 **不锁 TX** 版本：
 
     LBJRADIO.<版本>.bin      英文，不锁 TX
     LBJRADIO-cn.<版本>.bin   中文，不锁 TX
