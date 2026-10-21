@@ -31,20 +31,22 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # LBJRadio: the TX-locked build (F Lock pinned to CN, TXLock forced on).
-        # LBJRadioTX: the same radio with that TX-lock forcing compiled out, so
-        # TX stays user-controllable. The plain artifact name hides the reports
-        # whose train number starts with 9, the "9" suffixed one shows
-        # everything (only the locked LBJRadio gets both flavours).
+        # Four LBJRadio builds, all hiding reports whose train number starts
+        # with 9 (there is no "show 9" build on this branch).
         #
-        # "archive" is the name the .bin is committed under in the main00
-        # branch's archive/ folder; only the plain, non-TX LBJRadio goes in.
-        # The "9" flavour stays a CI artifact, and LBJRadioTX (same radio with
-        # the TX-lock forcing compiled out) is a CI artifact only as well.
+        #   preset:  LBJRadio = TX locked (F Lock pinned to CN, TXLock forced
+        #            on); LBJRadioTX = same radio with TX left to the operator.
+        #   cn:      ENABLE_CN_FONT - the Chinese build: the characters the
+        #            firmware uses are compiled into the image (no external
+        #            font to flash) and the LBJ popup is in Chinese.
+        #   archive: the name the .bin is committed under in main00's archive/
+        #            folder. Only the two TX-unlocked builds are archived; the
+        #            two TX-locked builds stay CI artifacts.
         include:
-          - { preset: LBJRadio,   hide9: 'ON',  suffix: '',  bin: 'lbjradio.bin',    archive: 'LBJRADIO'   }
-          - { preset: LBJRadio,   hide9: 'OFF', suffix: '9', bin: 'lbjradio.bin',    archive: ''           }
-          - { preset: LBJRadioTX, hide9: 'ON',  suffix: '',  bin: 'lbjradio.tx.bin', archive: ''           }
+          - { preset: LBJRadio,   hide9: 'ON', cn: 'OFF', suffix: '',    bin: 'lbjradio.bin',    archive: ''            }
+          - { preset: LBJRadio,   hide9: 'ON', cn: 'ON',  suffix: '-cn', bin: 'lbjradio.bin',    archive: ''            }
+          - { preset: LBJRadioTX, hide9: 'ON', cn: 'OFF', suffix: '',    bin: 'lbjradio.tx.bin', archive: 'LBJRADIO'    }
+          - { preset: LBJRadioTX, hide9: 'ON', cn: 'ON',  suffix: '-cn', bin: 'lbjradio.tx.bin', archive: 'LBJRADIO-cn' }
 
     steps:
     - name: Checkout code
@@ -53,7 +55,9 @@ jobs:
     - name: Compile ${{ matrix.preset }}${{ matrix.suffix }}
       run: |
         chmod +x compile-with-docker.sh
-        ./compile-with-docker.sh ${{ matrix.preset }} -DENABLE_LBJ_HIDE9=${{ matrix.hide9 }}
+        ./compile-with-docker.sh ${{ matrix.preset }} \
+          -DENABLE_LBJ_HIDE9=${{ matrix.hide9 }} \
+          -DENABLE_CN_FONT=${{ matrix.cn }}
 
     - name: Upload firmware artifact
       uses: actions/upload-artifact@v4
@@ -61,9 +65,9 @@ jobs:
         name: firmware-${{ matrix.preset }}${{ matrix.suffix }}
         path: build/${{ matrix.preset }}/*.bin
 
-    # The archive lives on main00. Only the builds started elsewhere feed it:
-    # main00 never archives its own run, and the "9" flavour (no "archive"
-    # name) is left out on purpose.
+    # The archive lives on main00. Only the two TX-unlocked builds feed it
+    # (the TX-locked builds have no "archive" name). A run on main00 never
+    # archives its own build.
     - name: Checkout main00 for the archive
       if: matrix.archive != '' && github.ref_name != 'main00'
       uses: actions/checkout@v4
@@ -87,5 +91,12 @@ jobs:
           echo "archive already up to date"
         else
           git commit -m "Archive ${{ matrix.archive }} ${version} firmware"
-          git push
+          # The two archived builds run side by side; if the other one pushed
+          # first, rebase onto it and try again.
+          ok=0
+          for attempt in 1 2 3; do
+            if git push; then ok=1; break; fi
+            git pull --rebase --autostash origin main00
+          done
+          test "$ok" = 1
         fi
