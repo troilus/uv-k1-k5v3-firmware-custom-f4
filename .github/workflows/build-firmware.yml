@@ -62,11 +62,23 @@ jobs:
           -DENABLE_LBJ_TX_LOCK=${{ matrix.tx }} \
           -DENABLE_CN_FONT=${{ matrix.cn }}
 
+    # Where the preset writes the image is CMake's business; pick the file out
+    # of the tree instead of hard-coding the build directory.
+    - name: Locate the image
+      id: image
+      run: |
+        set -euo pipefail
+        bin=$(find build -name '${{ matrix.bin }}' -type f | head -1)
+        echo "::warning::built ${bin:-<none>}"
+        find build -name '*.bin' -type f -exec ls -l {} \; | while read -r l; do echo "::warning::$l"; done
+        test -n "$bin"
+        echo "path=$bin" >> "$GITHUB_OUTPUT"
+
     - name: Upload firmware artifact
       uses: actions/upload-artifact@v4
       with:
         name: firmware-${{ matrix.name }}
-        path: build/LBJRadio/${{ matrix.bin }}
+        path: ${{ steps.image.outputs.path }}
 
     # The archive lives on main00. Only the two TX locked builds feed it (no
     # "archive" name on the others). A run on main00 archives too: the bot only
@@ -86,7 +98,7 @@ jobs:
         set -euo pipefail
         version=$(python3 -c "import json;ps=json.load(open('CMakePresets.json'))['configurePresets'];print(next(p['cacheVariables']['VERSION_STRING_2'] for p in ps if p['name']=='default'))")
         mkdir -p archive-repo/archive
-        cp "build/LBJRadio/${{ matrix.bin }}" "archive-repo/archive/${{ matrix.archive }}.${version}.bin"
+        cp "${{ steps.image.outputs.path }}" "archive-repo/archive/${{ matrix.archive }}.${version}.bin"
         cd archive-repo
         git config user.name  "github-actions[bot]"
         git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -95,5 +107,12 @@ jobs:
           echo "archive already up to date"
         else
           git commit -m "Archive ${{ matrix.archive }} ${version} firmware"
-          git push
+          # The two archived builds run side by side; if the other one pushed
+          # first, rebase onto it and try again.
+          ok=0
+          for attempt in 1 2 3; do
+            if git push; then ok=1; break; fi
+            git pull --rebase --autostash origin main00
+          done
+          test "$ok" = 1
         fi

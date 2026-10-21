@@ -228,6 +228,7 @@
         {
             "name": "LBJRadio",
             "inherits": "default",
+            "binaryDir": "${sourceDir}/build/LBJRadio",
             "cacheVariables": {
                 "ENABLE_SPECTRUM": true,
                 "ENABLE_FMRADIO": true,
