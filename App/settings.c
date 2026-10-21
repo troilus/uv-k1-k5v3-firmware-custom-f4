@@ -304,6 +304,8 @@ gEeprom.FreqChannel[1]   = IS_FREQ_CHANNEL(Data16[5]) ? Data16[5] : (FREQ_CHANNE
     /* LBJLOG. Same story: 0xFF reads as 0 = off, so nothing is logged until the
      * operator turns it on. */
     gEeprom.LBJ_LOG_ENABLE                 = (Data[6] < 2) ? Data[6] : 0;
+    /* LBJNUM. Same story again: 0xFF reads as 0 = FULL, the old behaviour. */
+    gEeprom.LBJ_NUM_FORMAT                 = (Data[7] < 2) ? Data[7] : 0;
 #endif
 
     // 0ED0..0ED7
@@ -1043,6 +1045,7 @@ void SETTINGS_SaveSettings(void)
     #ifdef ENABLE_FEAT_F4HWN_LBJ
         State[5] = gEeprom.LBJ_POPUP_TIME;      /* 0x00A0C5, unused until now */
         State[6] = gEeprom.LBJ_LOG_ENABLE;      /* 0x00A0C6, unused until now */
+        State[7] = gEeprom.LBJ_NUM_FORMAT;      /* 0x00A0C7, unused until now */
     #endif
 
     // 0x0ED0

@@ -79,6 +79,7 @@ const t_menu_item MenuList[] =
     {"LBJPRI",      MENU_LBJPRI        }, // which position slot the popup uses
     {"LBJLAT",      MENU_LBJLAT        }, // its latitude, DD MM hh
     {"LBJLON",      MENU_LBJLON        }, // its longitude, DDD MM hh
+    {"LBJNUM",      MENU_LBJNUM        }, // registration: FULL 8 digits or SIMPLE 4
 #endif
 #ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
     {"SetCfg",      MENU_SET_CFG       }, // pick the settings bank to boot with
@@ -364,6 +365,7 @@ static const uint8_t gMenuCatOf[] =
     [MENU_LBJPRI]           = MENU_CAT_LBJ,
     [MENU_LBJLAT]           = MENU_CAT_LBJ,
     [MENU_LBJLON]           = MENU_CAT_LBJ,
+    [MENU_LBJNUM]           = MENU_CAT_LBJ,
 #endif
 };
 
@@ -683,6 +685,15 @@ const char gSubMenu_LBJ_PRI[][4] =
     "3",
     "4",
     "5"
+};
+
+/* LBJNUM: how row3 prints the 8-digit registration. FULL keeps the whole
+ * model+number code, the way it always did; SIMPLE keeps only four digits -
+ * the last four for a locomotive, digits 4..7 for an EMU (model code 3xx). */
+const char gSubMenu_LBJ_NUM[][7] =
+{
+    "FULL",
+    "SIMPLE"
 };
 #endif
 
@@ -1933,6 +1944,9 @@ void UI_DisplayMenu(void)
                 strcpy(String, gSubMenu_LBJ_PRI[sel]);
                 break;
             }
+            case MENU_LBJNUM:
+                strcpy(String, gSubMenu_LBJ_NUM[gSubMenuSelection]);
+                break;
             case MENU_LBJLAT:
             case MENU_LBJLON:
             {   /* One half of that slot's coordinate: what has been typed while
