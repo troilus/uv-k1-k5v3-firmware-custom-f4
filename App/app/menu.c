@@ -496,6 +496,10 @@ int MENU_GetLimits(uint8_t menu_id, int32_t *pMin, int32_t *pMax)
                 //*pMin = 0;
                 *pMax = ARRAY_SIZE(gSubMenu_LBJ_PRI) - 1;
                 break;
+            case MENU_LBJNUM:
+                //*pMin = 0;
+                *pMax = ARRAY_SIZE(gSubMenu_LBJ_NUM) - 1;
+                break;
         #endif
 
         case MENU_VOL: {
@@ -1104,6 +1108,9 @@ void MENU_AcceptSetting(void)
                                        ? (uint8_t)(gSubMenuSelection - 1)
                                        : LBJ_POS_NONE);
                 break;
+            case MENU_LBJNUM:
+                gEeprom.LBJ_NUM_FORMAT = gSubMenuSelection;
+                break;
             case MENU_LBJLAT:
             case MENU_LBJLON:
             {   /* One half of the primary slot's coordinate: the digits the box
@@ -1641,6 +1648,9 @@ void MENU_ShowCurrentSetting(void)
                 gSubMenuSelection = (prim < LBJ_POS_SLOTS) ? (int32_t)(prim + 1u) : 0;
                 break;
             }
+            case MENU_LBJNUM:
+                gSubMenuSelection = gEeprom.LBJ_NUM_FORMAT;
+                break;
         #endif
 
         default:

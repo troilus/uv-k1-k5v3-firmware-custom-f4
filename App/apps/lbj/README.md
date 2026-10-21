@@ -23,6 +23,10 @@ is needed for it any more - the LBJ Edit app is deprecated and kept readable as
 a fallback only (`apps/lbjedit/README.md`). Since v0.23 that entry really does
 store (v0.22 committed nothing) and the category page shows its neighbours on
 the row above, with the item count under the name - see `USAGE.md` §6.1/§6.3.
+The `LBJNUM` item chooses the registration on row 3 of the decode window and of
+the flash-log detail: `FULL` keeps all eight digits (the default, and what the
+log record and exports always keep), `SIMPLE` prints four - the last four for a
+locomotive (`HXD1D-0002`), digits 4..7 for an EMU (`CR400BF-5387`).
 
 **使用说明（面向使用者）**：固件版 / LBJ RX App 版 / 经纬度（v0.22 起在固件菜单里填）/ 导出，见
 [`USAGE.md`](USAGE.md)。开发细节在下面。
