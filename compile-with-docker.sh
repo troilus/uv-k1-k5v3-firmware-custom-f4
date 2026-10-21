@@ -57,7 +57,7 @@ build_preset() {
   docker run --rm \
     -u $(id -u):$(id -g) \
     -v "$PWD":/src -w /src "$IMAGE" \
-    bash -c "set -eo pipefail; \
+    bash -c "set -eox pipefail; \
              which arm-none-eabi-gcc && arm-none-eabi-gcc --version && \
              cmake --preset ${preset} ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"} | tee /tmp/configure.log && \
              build_dir=\$(sed -n 's/^-- Build files have been written to: //p' /tmp/configure.log | tail -1) && \

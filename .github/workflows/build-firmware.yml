@@ -63,9 +63,9 @@ jobs:
           -DENABLE_LBJ_TX_LOCK=${{ matrix.tx }} \
           -DENABLE_CN_FONT=${{ matrix.cn }} 2>&1 | tee /tmp/ci.log
         rc=${PIPESTATUS[0]}
+        echo "::warning::compile rc=$rc"
+        echo "::warning::log=$(tail -c 3500 /tmp/ci.log | tr '\n' '|')"
         if [ "$rc" -ne 0 ]; then
-          echo "::error::compile rc=$rc"
-          echo "::error::$(tail -c 3000 /tmp/ci.log | tr '\n' '|')"
           exit "$rc"
         fi
         # A green step always means the image exists.
