@@ -55,7 +55,7 @@ build_preset() {
     -v "$PWD":/src -w /src "$IMAGE" \
     bash -c "which arm-none-eabi-gcc && arm-none-eabi-gcc --version && \
              cmake --preset ${preset} ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"} && \
-             cmake --build --preset ${preset} -j"
+             cmake --build build/${preset} -j"
   echo "✅ Done: ${preset}"
 }
 
