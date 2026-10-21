@@ -24,31 +24,13 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    # The archive step below pushes to the main00 branch, so the default
-    # read-only GITHUB_TOKEN would not be enough.
-    permissions:
-      contents: write
     strategy:
       fail-fast: false
       matrix:
-        # Four LBJRadio builds. Every one hides the reports whose train number
-        # starts with 9 (there is no "show all" build any more).
-        #
-        #   tx:      ENABLE_LBJ_TX_LOCK - forces F Lock=CN and TXLock on and
-        #            pins both menu items (TX only on 409-410 / 144-148 /
-        #            430-440 MHz). OFF is the same radio with TX left to the
-        #            operator.
-        #   cn:      ENABLE_CN_FONT - the Chinese build: the characters the
-        #            firmware uses are compiled into the image (no external
-        #            font to flash) and the LBJ popup is in Chinese.
-        #   archive: the name the .bin is committed under in the main00
-        #            branch's archive/ folder. Only the TX locked builds are
-        #            archived; the two TX variants stay CI artifacts.
+        # main00 carries the single "show 9" firmware. The Chinese and TX-lock
+        # variants live on the lbjradio branch; this branch never builds them.
         include:
-          - { name: LBJRADIO,    tx: 'ON',  cn: 'OFF', archive: 'LBJRADIO'    }
-          - { name: LBJRADIOtx,  tx: 'OFF', cn: 'OFF', archive: ''            }
-          - { name: LBJRADIOcn,  tx: 'ON',  cn: 'ON',  archive: 'LBJRADIO-cn' }
-          - { name: LBJRADIOcntx,tx: 'OFF', cn: 'ON',  archive: ''            }
+          - { name: LBJRADIO9, hide9: 'OFF' }
 
     steps:
     - name: Checkout code
@@ -58,49 +40,10 @@ jobs:
       run: |
         chmod +x compile-with-docker.sh
         ./compile-with-docker.sh LBJRadio \
-          -DENABLE_LBJ_HIDE9=ON \
-          -DENABLE_LBJ_TX_LOCK=${{ matrix.tx }} \
-          -DENABLE_CN_FONT=${{ matrix.cn }}
+          -DENABLE_LBJ_HIDE9=${{ matrix.hide9 }}
 
     - name: Upload firmware artifact
       uses: actions/upload-artifact@v4
       with:
         name: firmware-${{ matrix.name }}
         path: build/LBJRadio/lbjradio.bin
-
-    # The archive lives on main00. Only the two TX locked builds feed it (no
-    # "archive" name on the others). A run on main00 archives too: the bot only
-    # commits under archive/, and the paths filter above does not match it, so
-    # that commit does not start another run.
-    - name: Checkout main00 for the archive
-      if: matrix.archive != ''
-      uses: actions/checkout@v4
-      with:
-        ref: main00
-        path: archive-repo
-        fetch-depth: 0
-
-    - name: Archive firmware to main00
-      if: matrix.archive != ''
-      run: |
-        set -euo pipefail
-        version=$(python3 -c "import json;ps=json.load(open('CMakePresets.json'))['configurePresets'];print(next(p['cacheVariables']['VERSION_STRING_2'] for p in ps if p['name']=='default'))")
-        mkdir -p archive-repo/archive
-        cp build/LBJRadio/lbjradio.bin "archive-repo/archive/${{ matrix.archive }}.${version}.bin"
-        cd archive-repo
-        git config user.name  "github-actions[bot]"
-        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-        git add archive
-        if git diff --cached --quiet; then
-          echo "archive already up to date"
-        else
-          git commit -m "Archive ${{ matrix.archive }} ${version} firmware"
-          # The two archived builds run side by side; if the other one pushed
-          # first, rebase onto it and try again.
-          ok=0
-          for attempt in 1 2 3; do
-            if git push; then ok=1; break; fi
-            git pull --rebase --autostash origin main00
-          done
-          test "$ok" = 1
-        fi

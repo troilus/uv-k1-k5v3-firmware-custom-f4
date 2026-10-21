@@ -32,36 +32,22 @@
 31. 字符大小优化, 中文字库：https://gitee.com/oldlicn/uv-k1_font-tool
 32. 增加6.1.0 APP功能
 
-中文版固件（内置字库，不用刷字库）
---------------------------------
+main00 固件
+-----------
 
-`archive/LBJRADIO-cn.<版本>.bin` 是中文版 LBJ 收音机固件：菜单和 LBJ 弹窗都是
-中文。它把用到的汉字直接编译进固件（菜单 40 个 16×16 大字 + 约 280 个 8×8
-小字，共约 3.5 KiB），**不用再跑 `tools/font_write.py` 刷字库**，没刷过字库的
-机器上也能正常显示。
+main00 只构建一个 LBJ 收音机固件：
 
-* 字模来自 `UV-K1_FontTool_v1.0/字体部分/16x16.FON` / `8x8.FON`，由
-  `tools/mkcnfont.py` 抽取：菜单源码里的字进 16×16 表，其余（弹窗标签、
-  车次报文里的线路名用字）进 8×8 表。要加字就写进 `App/cn_chars.txt`，
-  再跑一次 `python tools/mkcnfont.py` 重新生成 `App/ui/cn_font.c`。
-* 线路名最多 4 个字。字表里没有的字退成拼音首字母（不会画成方块，也不会去读
-  外部字库），所以偶尔看到单字母是正常的。
-* 弹窗固定字段是中文：车次 / 速度 / 公里 / 线路 / 上行 / 下行 / 退出；
-  数字和单位仍是 `km/h`、`km`。
-* `tools/lbj_log.py` 两种日志都认：英文版存 4 个拼音首字母，中文版存 4 个
-  汉字的 12 位压缩码（见该脚本文件头的格式说明）。
-* 中文版和英文版都不再显示车次以 9 开头的报文（没有"全部显示"的版本）。
+    产物名       说明
+    LBJRADIO9    英文，显示车次以 9 开头的报文，TX 锁，仅 CI artifact
 
-四个构建（CI 产物）：
+中文内嵌字体和 TX/CN 组合在 `lbjradio` 分支构建。`archive/` 里只放该分支的
+两个 **不锁 TX** 版本：
 
-    产物名          语言   TX
-    LBJRADIO        英文   锁   归档 archive/LBJRADIO.<版本>.bin
-    LBJRADIOtx      英文   不锁
-    LBJRADIO-cn     中文   锁   归档 archive/LBJRADIO-cn.<版本>.bin
-    LBJRADIOcntx    中文   不锁
+    LBJRADIO.<版本>.bin      英文，不锁 TX
+    LBJRADIO-cn.<版本>.bin   中文，不锁 TX
 
-"锁"= `ENABLE_LBJ_TX_LOCK`：F Lock 固定 CN、TXLock 常开，两个菜单项都改不动，
-只能在 409-410 / 144-148 / 430-440 MHz 发射（LBJ 接收不受影响）。
+main00 不再构建中文版，也不再把 LBJ 变体归档；需要的固件请从 lbjradio 的
+CI artifact 或上面的 archive 文件取。
 
 中文字库（地址已搬家，注意！）
 ----------------------------
