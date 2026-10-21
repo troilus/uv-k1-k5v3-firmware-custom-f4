@@ -68,10 +68,12 @@ jobs:
         name: firmware-${{ matrix.name }}
         path: build/LBJRadio/${{ matrix.bin }}
 
-    # The archive lives on main00. Only the builds started elsewhere feed it,
-    # and only the two TX locked ones (no "archive" name on the others).
+    # The archive lives on main00. Only the two TX locked builds feed it (no
+    # "archive" name on the others). A run on main00 archives too: the bot only
+    # commits under archive/, and the paths filter above does not match it, so
+    # that commit does not start another run.
     - name: Checkout main00 for the archive
-      if: matrix.archive != '' && github.ref_name != 'main00'
+      if: matrix.archive != ''
       uses: actions/checkout@v4
       with:
         ref: main00
@@ -79,7 +81,7 @@ jobs:
         fetch-depth: 0
 
     - name: Archive firmware to main00
-      if: matrix.archive != '' && github.ref_name != 'main00'
+      if: matrix.archive != ''
       run: |
         set -euo pipefail
         version=$(python3 -c "import json;ps=json.load(open('CMakePresets.json'))['configurePresets'];print(next(p['cacheVariables']['VERSION_STRING_2'] for p in ps if p['name']=='default'))")
