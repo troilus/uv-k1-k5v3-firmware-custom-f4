@@ -57,15 +57,10 @@ jobs:
     - name: Compile ${{ matrix.name }}
       run: |
         chmod +x compile-with-docker.sh
-        set +e
         ./compile-with-docker.sh LBJRadio \
           -DENABLE_LBJ_HIDE9=ON \
           -DENABLE_LBJ_TX_LOCK=${{ matrix.tx }} \
-          -DENABLE_CN_FONT=${{ matrix.cn }} 2>&1 | tee build.log
-        rc=${PIPESTATUS[0]}
-        echo "::warning::exit=$rc tree=$(ls build 2>/dev/null | tr '\n' ' ')"
-        echo "::warning::$(tail -c 3000 build.log | tr '\n' '|')"
-        exit $rc
+          -DENABLE_CN_FONT=${{ matrix.cn }}
 
     # Where the preset writes the image is CMake's business; pick the file out
     # of the tree instead of hard-coding the build directory.
@@ -74,8 +69,7 @@ jobs:
       run: |
         set -euo pipefail
         bin=$(find build -name '${{ matrix.bin }}' -type f | head -1)
-        echo "::warning::built ${bin:-<none>}"
-        find build -name '*.bin' -type f -exec ls -l {} \; | while read -r l; do echo "::warning::$l"; done
+        echo "image: ${bin:-<none>}"
         test -n "$bin"
         echo "path=$bin" >> "$GITHUB_OUTPUT"
 
