@@ -8,9 +8,10 @@
  *   16x16 : 32 B, column-major, bytes 0..15 = top page, 16..31 = bottom page
  *    8x8  :  8 B, column-major, one page
  *
- * Sorted by GB2312 code, binary searched. A code that is not in the set has no
- * glyph here; the drawing code then leaves a blank cell (the Chinese build
- * never reads the external flash font, so it works without one flashed).
+ * Sorted by GB2312 index, binary searched. A raw GB2312 pair that is not in
+ * the set has no glyph here; the drawing code then leaves a blank cell (the
+ * Chinese build never reads the external flash font, so it works without one
+ * flashed).
  */
 #ifndef APP_UI_CN_FONT_H
 #define APP_UI_CN_FONT_H

@@ -170,9 +170,10 @@ HEADER = """\
  *   16x16 : 32 B, column-major, bytes 0..15 = top page, 16..31 = bottom page
  *    8x8  :  8 B, column-major, one page
  *
- * Sorted by GB2312 code, binary searched. A code that is not in the set has no
- * glyph here; the drawing code then leaves a blank cell (the Chinese build
- * never reads the external flash font, so it works without one flashed).
+ * Sorted by GB2312 index, binary searched. A raw GB2312 pair that is not in
+ * the set has no glyph here; the drawing code then leaves a blank cell (the
+ * Chinese build never reads the external flash font, so it works without one
+ * flashed).
  */
 #ifndef APP_UI_CN_FONT_H
 #define APP_UI_CN_FONT_H
@@ -236,13 +237,24 @@ static uint16_t cn_find(const uint16_t *codes, uint16_t n, uint16_t code){
     return n;
 }
 
+/* The tables are sorted by the GB2312 index, but the drawing code hands over
+ * the raw GB2312 pair (e.g. 0xB3B5 for 车). Convert here so both callers use
+ * the same representation. A byte outside the GB2312 range has no glyph. */
+static uint16_t cn_index(uint16_t code){
+    const uint8_t hi = (uint8_t)(code >> 8);
+    const uint8_t lo = (uint8_t)code;
+    if (hi < 0xA1u || hi > 0xF7u || lo < 0xA1u || lo > 0xFEu)
+        return 0xFFFFu;
+    return (uint16_t)((uint16_t)(hi - 0xA1u) * 94u + (lo - 0xA1u));
+}
+
 const uint8_t *CN_FONT_Glyph16(uint16_t code){
-    const uint16_t i = cn_find(cnCodes16, CN_FONT_COUNT16, code);
+    const uint16_t i = cn_find(cnCodes16, CN_FONT_COUNT16, cn_index(code));
     return (i < CN_FONT_COUNT16) ? &cnGlyph16[(uint32_t)i * CN_FONT_GLYPH16] : 0;
 }
 
 const uint8_t *CN_FONT_Glyph8(uint16_t code){
-    const uint16_t i = cn_find(cnCodes8, CN_FONT_COUNT8, code);
+    const uint16_t i = cn_find(cnCodes8, CN_FONT_COUNT8, cn_index(code));
     return (i < CN_FONT_COUNT8) ? &cnGlyph8[(uint32_t)i * CN_FONT_GLYPH8] : 0;
 }
 """)
