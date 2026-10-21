@@ -8,6 +8,7 @@ set -euo pipefail
 #   ./compile-with-docker.sh Custom
 #   ./compile-with-docker.sh Bandscope -DENABLE_SPECTRUM=ON
 #   ./compile-with-docker.sh Broadcast -DENABLE_FEAT_F4HWN_GAME=ON -DENABLE_NOAA=ON
+#   ./compile-with-docker.sh LBJRadio -DENABLE_CN_FONT=ON -DENABLE_LBJ_TX_LOCK=OFF
 #   ./compile-with-docker.sh All
 # Default preset: "Custom"
 # ---------------------------------------------
@@ -22,9 +23,9 @@ EXTRA_ARGS=("$@")
 # ---------------------------------------------
 # Validate preset name
 # ---------------------------------------------
-if [[ ! "$PRESET" =~ ^(Custom|Bandscope|Broadcast|Basic|RescueOps|Game|Fusion|All)$ ]]; then
+if [[ ! "$PRESET" =~ ^(Custom|Bandscope|Broadcast|Basic|RescueOps|Game|Fusion|LBJRadio|All)$ ]]; then
   echo "❌ Unknown preset: '$PRESET'"
-  echo "Valid presets are: Custom, Bandscope, Broadcast, Basic, RescueOps, Game, Fusion, All"
+  echo "Valid presets are: Custom, Bandscope, Broadcast, Basic, RescueOps, Game, Fusion, LBJRadio, All"
   exit 1
 fi
 

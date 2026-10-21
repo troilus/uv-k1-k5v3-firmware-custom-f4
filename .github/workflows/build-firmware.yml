@@ -24,26 +24,74 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # The archive step below pushes to the main00 branch, so the default
+    # read-only GITHUB_TOKEN would not be enough.
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
-        # Two artifacts: the plain name hides the reports whose train number
-        # starts with 9, the "9" suffixed one shows everything.
+        # Four LBJRadio builds. Every one hides the reports whose train number
+        # starts with 9 (there is no "show all" build any more).
+        #
+        #   tx:      ENABLE_LBJ_TX_LOCK - forces F Lock=CN and TXLock on and
+        #            pins both menu items (TX only on 409-410 / 144-148 /
+        #            430-440 MHz). OFF is the same radio with TX left to the
+        #            operator.
+        #   cn:      ENABLE_CN_FONT - the Chinese build: the characters the
+        #            firmware uses are compiled into the image (no external
+        #            font to flash) and the LBJ popup is in Chinese.
+        #   archive: the name the .bin is committed under in the main00
+        #            branch's archive/ folder. Only the TX locked builds are
+        #            archived; the two TX variants stay CI artifacts.
         include:
-          - { hide9: 'ON',  suffix: ''  }
-          - { hide9: 'OFF', suffix: '9' }
+          - { name: LBJRADIO,    tx: 'ON',  cn: 'OFF', bin: 'lbjradio.bin',    archive: 'LBJRADIO'    }
+          - { name: LBJRADIOtx,  tx: 'OFF', cn: 'OFF', bin: 'lbjradio.bin',    archive: ''            }
+          - { name: LBJRADIOcn,  tx: 'ON',  cn: 'ON',  bin: 'lbjradio.bin',    archive: 'LBJRADIO-cn' }
+          - { name: LBJRADIOcntx,tx: 'OFF', cn: 'ON',  bin: 'lbjradio.bin',    archive: ''            }
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Compile Fusion${{ matrix.suffix }}
+    - name: Compile ${{ matrix.name }}
       run: |
         chmod +x compile-with-docker.sh
-        ./compile-with-docker.sh Fusion -DENABLE_LBJ_HIDE9=${{ matrix.hide9 }}
+        ./compile-with-docker.sh LBJRadio \
+          -DENABLE_LBJ_HIDE9=ON \
+          -DENABLE_LBJ_TX_LOCK=${{ matrix.tx }} \
+          -DENABLE_CN_FONT=${{ matrix.cn }}
 
     - name: Upload firmware artifact
       uses: actions/upload-artifact@v4
       with:
-        name: firmware-artifact${{ matrix.suffix }}
-        path: build/Fusion/f4hwn.fusion.bin
+        name: firmware-${{ matrix.name }}
+        path: build/LBJRadio/${{ matrix.bin }}
+
+    # The archive lives on main00. Only the builds started elsewhere feed it,
+    # and only the two TX locked ones (no "archive" name on the others).
+    - name: Checkout main00 for the archive
+      if: matrix.archive != '' && github.ref_name != 'main00'
+      uses: actions/checkout@v4
+      with:
+        ref: main00
+        path: archive-repo
+        fetch-depth: 0
+
+    - name: Archive firmware to main00
+      if: matrix.archive != '' && github.ref_name != 'main00'
+      run: |
+        set -euo pipefail
+        version=$(python3 -c "import json;ps=json.load(open('CMakePresets.json'))['configurePresets'];print(next(p['cacheVariables']['VERSION_STRING_2'] for p in ps if p['name']=='default'))")
+        mkdir -p archive-repo/archive
+        cp "build/LBJRadio/${{ matrix.bin }}" "archive-repo/archive/${{ matrix.archive }}.${version}.bin"
+        cd archive-repo
+        git config user.name  "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git add archive
+        if git diff --cached --quiet; then
+          echo "archive already up to date"
+        else
+          git commit -m "Archive ${{ matrix.archive }} ${version} firmware"
+          git push
+        fi

@@ -73,6 +73,15 @@
                 "ENABLE_FEAT_F4HWN_SCAN_FASTER": false,
                 "ENABLE_FEAT_F4HWN_BEAM": false,
                 "ENABLE_FEAT_F4HWN_LOGO": false,
+                "ENABLE_FEAT_F4HWN_LBJ": false,
+                "ENABLE_FEAT_F4HWN_MULTIBOOT": false,
+                "ENABLE_FEAT_F4HWN_MULTIBOOT_OVERLAY": false,
+                "ENABLE_FEAT_F4HWN_EXT_FLASH_RW": false,
+                "ENABLE_FEAT_F4HWN_OVERLAY_APPS": false,
+                "ENABLE_FEAT_F4HWN_OVERLAY_INFO": false,
+                "ENABLE_LBJ_HIDE9": false,
+                "ENABLE_LBJ_TX_LOCK": false,
+                "ENABLE_CN_FONT": false,
                 "ENABLE_AGC_SHOW_DATA": false,
                 "ENABLE_UART_RW_BK_REGS": false,
                 "ENABLE_SWD": false,
@@ -215,6 +224,45 @@
                 "EDITION_STRING": "Fusion",
                 "TARGET": "f4hwn.fusion"
             }
+        },
+        {
+            "name": "LBJRadio",
+            "inherits": "default",
+            "cacheVariables": {
+                "ENABLE_SPECTRUM": true,
+                "ENABLE_FMRADIO": true,
+                "ENABLE_VOX": false,
+                "ENABLE_AIRCOPY": false,
+                "ENABLE_FEAT_F4HWN_SCREENSHOT": true,
+                "ENABLE_FEAT_F4HWN_GAME": false,
+                "ENABLE_FEAT_F4HWN_PMR": false,
+                "ENABLE_FEAT_F4HWN_OVERLAY_APPS": true,
+                "ENABLE_FEAT_F4HWN_OVERLAY_INFO": true,
+                "ENABLE_FEAT_F4HWN_GMRS_FRS_MURS": false,
+                "ENABLE_FEAT_F4HWN_RESCUE_OPS": false,
+                "ENABLE_FEAT_F4HWN_VOL": true,
+                "ENABLE_FEAT_F4HWN_AUDIO": false,
+                "ENABLE_FEAT_F4HWN_AUDIO_SCOPE": true,
+
+                "ENABLE_FEAT_F4HWN_SCAN_PROGRESS": true,
+                "ENABLE_FEAT_F4HWN_SCAN_FASTER": false,
+                "ENABLE_FEAT_F4HWN_BEAM": false,
+
+                "ENABLE_FEAT_F4HWN_QRCODE": true,
+                "ENABLE_FEAT_F4HWN_MEM": true,
+                "ENABLE_FEAT_F4HWN_LOGO": true,
+                "ENABLE_FEAT_F4HWN_LBJ": true,
+                "ENABLE_FEAT_F4HWN_MULTIBOOT": true,
+                "ENABLE_FEAT_F4HWN_MULTIBOOT_OVERLAY": true,
+                "ENABLE_FEAT_F4HWN_EXT_FLASH_RW": true,
+                "ENABLE_SWD": true,
+
+                "ENABLE_LBJ_HIDE9": true,
+                "ENABLE_LBJ_TX_LOCK": true,
+
+                "EDITION_STRING": "LBJRadio",
+                "TARGET": "lbjradio"
+            }
         }
     ],
     "buildPresets": [
@@ -245,6 +293,10 @@
         {
             "name": "Fusion",
             "configurePreset": "Fusion"
+        },
+        {
+            "name": "LBJRadio",
+            "configurePreset": "LBJRadio"
         }
     ]
 }

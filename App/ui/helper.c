@@ -20,6 +20,9 @@
 #include "driver/py25q16.h"
 #include "external/printf/printf.h"
 #include "font.h"
+#ifdef ENABLE_CN_FONT
+#include "ui/cn_font.h"
+#endif
 #include "ui/helper.h"
 #include "ui/inputbox.h"
 #include "misc.h"
@@ -35,6 +38,32 @@
  * tools/font_write.py (the old FontTool still targets the old base). */
 #define FLASH_FONT16_BASE  0x18E000
 #define FLASH_FONT8_BASE   0x1CE000
+
+/* One GB2312 character as a dot matrix, in the 1-bit-per-row column-major
+ * layout the drawing loops below expect: 16 columns for the top page then 16
+ * for the bottom page (big), 8 columns (small).
+ *
+ * The normal build reads it out of the external flash font, which the user has
+ * to write with tools/font_write.py first. The Chinese LBJRadio build
+ * (ENABLE_CN_FONT) carries the characters it needs inside the image and does
+ * not touch the flash at all, so it works on a radio that never had a font
+ * flashed; a character the image does not carry draws as a blank cell. */
+static bool cn_fetch_glyph(uint16_t code, uint8_t *out, bool big)
+{
+#ifdef ENABLE_CN_FONT
+    const uint8_t *glyph = big ? CN_FONT_Glyph16(code) : CN_FONT_Glyph8(code);
+    if (glyph == 0)
+        return false;
+    memcpy(out, glyph, big ? FONT16_SIZE : FONT8_SIZE);
+    return true;
+#else
+    const uint32_t index = (uint32_t)((code >> 8) - 0xA1) * 94u + (uint32_t)(code & 0xFF) - 0xA1;
+    PY25Q16_ReadBuffer((big ? FLASH_FONT16_BASE : FLASH_FONT8_BASE) +
+                       index * (big ? FONT16_SIZE : FONT8_SIZE),
+                       out, big ? FONT16_SIZE : FONT8_SIZE);
+    return true;
+#endif
+}
 
 
 void UI_GenerateChannelString(char *pString, const uint16_t Channel)
@@ -90,12 +119,11 @@ void UI_PrintStringBuffer(const char *pString, uint8_t * buffer, uint32_t char_w
             uint8_t hi = (uint8_t)pString[i];
             uint8_t lo = (uint8_t)pString[i + 1];
             if (lo >= 0xA1 && lo <= 0xFE) {
-                uint32_t idx = (hi - 0xA1) * 94 + (lo - 0xA1);
-                uint32_t addr = FLASH_FONT8_BASE + idx * FONT8_SIZE;
                 uint8_t cnDot[FONT8_SIZE];
-                PY25Q16_ReadBuffer(addr, cnDot, FONT8_SIZE);
-                const uint32_t offset = i * char_spacing + 1;
-                memcpy(buffer + offset + 3, cnDot, FONT8_SIZE);
+                if (cn_fetch_glyph((uint16_t)((hi << 8) | lo), cnDot, false)) {
+                    const uint32_t offset = i * char_spacing + 1;
+                    memcpy(buffer + offset + 3, cnDot, FONT8_SIZE);
+                }
             }
             i++;
         }
@@ -123,12 +151,11 @@ void UI_PrintString(const char *pString, uint8_t Start, uint8_t End, uint8_t Lin
             uint8_t hi = (uint8_t)pString[i];
             uint8_t lo = (uint8_t)pString[i + 1];
             if (lo >= 0xA1 && lo <= 0xFE) {
-                uint32_t idx = (hi - 0xA1) * 94 + (lo - 0xA1);
-                uint32_t addr = FLASH_FONT16_BASE + idx * FONT16_SIZE;
                 uint8_t cnDot[FONT16_SIZE];
-                PY25Q16_ReadBuffer(addr, cnDot, FONT16_SIZE);
-                memcpy(gFrameBuffer[Line + 0] + ofs, cnDot + 0, 16);
-                memcpy(gFrameBuffer[Line + 1] + ofs, cnDot + 16, 16);
+                if (cn_fetch_glyph((uint16_t)((hi << 8) | lo), cnDot, true)) {
+                    memcpy(gFrameBuffer[Line + 0] + ofs, cnDot + 0, 16);
+                    memcpy(gFrameBuffer[Line + 1] + ofs, cnDot + 16, 16);
+                }
             }
             i++;
         }

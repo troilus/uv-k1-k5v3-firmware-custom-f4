@@ -34,7 +34,7 @@
 /* Presence bits for lbj_log_rec_t.flags: one per field the report actually
  * carried. The direction is not one of these - it has a byte of its own (see
  * LBJ_LOG_DIR_*), because "the frame header did not say" is a third state that
- * a single presence bit could not hold. 0x80 is reserved. */
+ * a single presence bit could not hold. */
 #define LBJ_LOG_F_TRN   0x01u
 #define LBJ_LOG_F_SPD   0x02u
 #define LBJ_LOG_F_KM    0x04u
@@ -43,11 +43,22 @@
 #define LBJ_LOG_F_RT    0x20u
 #define LBJ_LOG_F_DST   0x40u
 
+/* On flash only: the route field is four 12-bit character codes packed into
+ * rt[4] and the two reserved bytes, not four ASCII initials. Written by the
+ * Chinese build, understood by both; never handed back in
+ * lbj_log_rec_t.flags. lbj_log.c has the encoding. */
+#define LBJ_LOG_F_RT_PACKED 0x80u
+
 /* lbj_log_rec_t.dir, exactly what the popup shows: func 1 is down, func 3 is
  * up, anything else is the "??" the row prints. */
 #define LBJ_LOG_DIR_NONE  0u
 #define LBJ_LOG_DIR_DN    1u
 #define LBJ_LOG_DIR_UP    2u
+
+/* The route name. The English build stores the four pinyin initials ("JGX");
+ * the Chinese build stores the four characters themselves as GB2312 pairs.
+ * Both fit, terminator included, in LBJ_LOG_RT_LEN. */
+#define LBJ_LOG_RT_LEN 9u
 
 /* One train, in the terms the decoder speaks. Strings are '\0' padded (and are
  * empty when the report did not carry that half); the numbers use the NONE
@@ -62,7 +73,7 @@ typedef struct {
     uint32_t km10;       /* km post in 0.1 km units (5 BCD digits)         */
     uint16_t mdl;        /* model code 0..999 -> type_name()               */
     char     loc[8];     /* 8-digit registration                           */
-    char     rt[4];      /* route initials, e.g. "JGX"                     */
+    char     rt[LBJ_LOG_RT_LEN]; /* route name, see above                  */
     int16_t  dst;        /* distance, tenths of km; < 0 = unknown kind     */
     uint16_t seq;        /* the ordinal the record carries in the flash, i.e.
                           * the export's "seq" column. Only the viewer fills it

@@ -368,6 +368,9 @@ gEeprom.FreqChannel[1]   = IS_FREQ_CHANNEL(Data16[5]) ? Data16[5] : (FREQ_CHANNE
     // 0F40..0F47
     PY25Q16_ReadBuffer(0x00A150, Data, 8);
     gSetting_F_LOCK            = (Data[0] < F_LOCK_LEN) ? Data[0] : F_LOCK_DEF;
+#ifdef ENABLE_LBJ_TX_LOCK
+    gSetting_F_LOCK            = F_LOCK_CN;    /* [LBJ] F Lock forced to CN on every boot */
+#endif
 #ifndef ENABLE_FEAT_F4HWN
     gSetting_350TX             = (Data[1] < 2) ? Data[1] : false;  // was true
 #endif
