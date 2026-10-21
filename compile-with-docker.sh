@@ -50,12 +50,21 @@ build_preset() {
   echo ""
   echo "=== 🚀 Building preset: ${preset} ==="
   echo "---------------------------------------------"
+  # Configure, then build with ninja directly: "cmake --build" inside the
+  # container's cmake 3.25 can return success without running ninja, which
+  # leaves no image behind and only shows up much later as a missing file.
+  # ninja -C always prints what it does and fails loudly.
   docker run --rm \
     -u $(id -u):$(id -g) \
     -v "$PWD":/src -w /src "$IMAGE" \
-    bash -c "which arm-none-eabi-gcc && arm-none-eabi-gcc --version && \
-             cmake --preset ${preset} ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"} && \
-             cmake --build build/${preset} -j"
+    bash -c "set -eo pipefail; \
+             which arm-none-eabi-gcc && arm-none-eabi-gcc --version && \
+             cmake --preset ${preset} ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"} | tee /tmp/configure.log && \
+             build_dir=\$(sed -n 's/^-- Build files have been written to: //p' /tmp/configure.log | tail -1) && \
+             echo \"build dir: \$build_dir\" && \
+             test -f \"\$build_dir/build.ninja\" && \
+             ninja -C \"\$build_dir\" && \
+             ls -l \"\$build_dir\"/*.bin"
   echo "✅ Done: ${preset}"
 }
 

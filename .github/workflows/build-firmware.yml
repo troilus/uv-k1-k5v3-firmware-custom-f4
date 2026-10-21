@@ -45,10 +45,10 @@ jobs:
         #            branch's archive/ folder. Only the TX locked builds are
         #            archived; the two TX variants stay CI artifacts.
         include:
-          - { name: LBJRADIO,    tx: 'ON',  cn: 'OFF', bin: 'lbjradio.bin',    archive: 'LBJRADIO'    }
-          - { name: LBJRADIOtx,  tx: 'OFF', cn: 'OFF', bin: 'lbjradio.bin',    archive: ''            }
-          - { name: LBJRADIOcn,  tx: 'ON',  cn: 'ON',  bin: 'lbjradio.bin',    archive: 'LBJRADIO-cn' }
-          - { name: LBJRADIOcntx,tx: 'OFF', cn: 'ON',  bin: 'lbjradio.bin',    archive: ''            }
+          - { name: LBJRADIO,    tx: 'ON',  cn: 'OFF', archive: 'LBJRADIO'    }
+          - { name: LBJRADIOtx,  tx: 'OFF', cn: 'OFF', archive: ''            }
+          - { name: LBJRADIOcn,  tx: 'ON',  cn: 'ON',  archive: 'LBJRADIO-cn' }
+          - { name: LBJRADIOcntx,tx: 'OFF', cn: 'ON',  archive: ''            }
 
     steps:
     - name: Checkout code
@@ -57,35 +57,19 @@ jobs:
     - name: Compile ${{ matrix.name }}
       run: |
         chmod +x compile-with-docker.sh
-        set +e
         ./compile-with-docker.sh LBJRadio \
           -DENABLE_LBJ_HIDE9=ON \
           -DENABLE_LBJ_TX_LOCK=${{ matrix.tx }} \
-          -DENABLE_CN_FONT=${{ matrix.cn }} > /tmp/build.log 2>&1
-        rc=$?
-        echo "::warning::compile rc=$rc"
-        echo "::warning::log tail: $(tail -c 3500 /tmp/build.log | tr '\n' '|')"
-        exit $rc
-
-    # Where the preset writes the image is CMake's business; pick the file out
-    # of the tree instead of hard-coding the build directory.
-    - name: Locate the image
-      id: image
-      if: always()
-      run: |
-        set -euo pipefail
-        echo "::warning::tree: $(find build -maxdepth 2 2>&1 | head -40 | tr '\n' ' ')"
-        echo "::warning::bins: $(find . -name '*.bin' 2>&1 | head -20 | tr '\n' ' ')"
-        bin=$(find build -name '${{ matrix.bin }}' -type f | head -1)
-        echo "image: ${bin:-<none>}"
-        test -n "$bin"
-        echo "path=$bin" >> "$GITHUB_OUTPUT"
+          -DENABLE_CN_FONT=${{ matrix.cn }}
+        # The script fails if the image was not produced; this is just for the
+        # log, so a green step always means build/LBJRadio/lbjradio.bin exists.
+        ls -l build/LBJRadio/lbjradio.bin
 
     - name: Upload firmware artifact
       uses: actions/upload-artifact@v4
       with:
         name: firmware-${{ matrix.name }}
-        path: ${{ steps.image.outputs.path }}
+        path: build/LBJRadio/lbjradio.bin
 
     # The archive lives on main00. Only the two TX locked builds feed it (no
     # "archive" name on the others). A run on main00 archives too: the bot only
@@ -105,7 +89,7 @@ jobs:
         set -euo pipefail
         version=$(python3 -c "import json;ps=json.load(open('CMakePresets.json'))['configurePresets'];print(next(p['cacheVariables']['VERSION_STRING_2'] for p in ps if p['name']=='default'))")
         mkdir -p archive-repo/archive
-        cp "${{ steps.image.outputs.path }}" "archive-repo/archive/${{ matrix.archive }}.${version}.bin"
+        cp build/LBJRadio/lbjradio.bin "archive-repo/archive/${{ matrix.archive }}.${version}.bin"
         cd archive-repo
         git config user.name  "github-actions[bot]"
         git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
