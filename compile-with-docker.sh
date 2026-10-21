@@ -49,12 +49,12 @@ build_preset() {
   echo ""
   echo "=== 🚀 Building preset: ${preset} ==="
   echo "---------------------------------------------"
+  # The configure/build steps live in tools/ci-build.sh and run inside the
+  # container, so nothing is nested in several layers of shell quoting.
   docker run --rm \
     -u $(id -u):$(id -g) \
     -v "$PWD":/src -w /src "$IMAGE" \
-    bash -c "which arm-none-eabi-gcc && arm-none-eabi-gcc --version && \
-             cmake --preset ${preset} ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"} && \
-             cmake --build --preset ${preset} -j"
+    bash /src/tools/ci-build.sh "${preset}" ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}
   echo "✅ Done: ${preset}"
 }
 
