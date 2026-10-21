@@ -177,24 +177,19 @@ static dem_t g_dm;
 
 /* The labels the detail rows start with. The English build writes the short
  * ASCII ones; the Chinese build (ENABLE_CN_FONT) writes the Chinese names, each
- * character two 7 px bytes wide, so "速度 " is 35 px where "SPD " was 28. The
- * train row's label only goes in when the row has the whole width - i.e. when
- * no distance is drawn at the right - and then the train text starts at
- * LBJ_X_TRN. */
+ * character two 7 px bytes wide, so "速度 " is 35 px where "SPD " was 28. Row 0
+ * carries no label in either build: the train number starts at x=0, which keeps
+ * the distance readout at the right of the same row intact. */
 #ifdef ENABLE_CN_FONT
-#define LBJ_LBL_TRN  "车次 "
 #define LBJ_LBL_SPD  "速度 "
 #define LBJ_LBL_KM   "公里 "
 #define LBJ_LBL_RT   "线路 "
 #define LBJ_LBL_EXIT "退出"
-#define LBJ_X_TRN    35u
 #else
-#define LBJ_LBL_TRN  ""
 #define LBJ_LBL_SPD  "SPD "
 #define LBJ_LBL_KM   "KM "
 #define LBJ_LBL_RT   "LINE "
 #define LBJ_LBL_EXIT "EXIT"
-#define LBJ_X_TRN    0u
 #endif
 
 /* The window has more than one page: the live decode (what a received report,
@@ -1258,9 +1253,21 @@ void lbj_emit_msg(const lbj_rx_t *r, const char *bcd, uint16_t len){
     g.pgTick = g.tick10;
 }
 
-/* Replace any non-printable byte so the font routine never sees one. */
+/* Replace any byte the font routine cannot draw so it never sees one. A GB2312
+ * pair (high 0xA1..0xF7, low 0xA1..0xFE) is kept as it is: that is what the
+ * popup's labels and route names are made of, and the drawing code reads the
+ * pair. A lone high byte has no pair, so it becomes a dot like any other. */
 static void sanitize(char *s){
-    for (; *s; s++){ uint8_t c = (uint8_t)*s; if (c < 0x20u || c > 0x7Eu) *s = '.'; }
+    while (*s){
+        const uint8_t c = (uint8_t)*s;
+        const uint8_t n = (uint8_t)s[1];
+        if (c >= 0xA1u && c <= 0xF7u && n >= 0xA1u && n <= 0xFEu){
+            s += 2;
+            continue;
+        }
+        if (c < 0x20u || c > 0x7Eu) *s = '.';
+        s++;
+    }
 }
 
 static void copyline(char *dst, uint8_t cap, const char *src){
@@ -1871,13 +1878,7 @@ static void drawLogDetail(void){
         o = putdir(o, (r.dir == LBJ_LOG_DIR_DN) ? 1u
                     : ((r.dir == LBJ_LOG_DIR_UP) ? 3u : 0u));
         *o = '\0';
-        if (r.flags & LBJ_LOG_F_DST){
-            UI_PrintStringSmallBold(s, 0, 0, 0);
-        } else {
-            /* the full width is free: the "车次" label fits in front */
-            UI_PrintStringSmallBold(LBJ_LBL_TRN, 0, 0, 0);
-            UI_PrintStringSmallBold(s, LBJ_X_TRN, 0, 0);
-        }
+        UI_PrintStringSmallBold(s, 0, 0, 0);
     }
     if (r.flags & LBJ_LOG_F_DST){
         char *o = s;
@@ -1978,26 +1979,13 @@ void LBJ_DrawPopup(void){
      * and the readout (up to 7) always fit the 128 px row. */
     {
         char l0[15];
-#ifdef ENABLE_CN_FONT
-        /* The "车次" label only goes in when neither the verdict nor the
-         * distance shares the row: then the train text has the full width. */
-        const bool labelled = (r->dst == LBJ_DST_NODET) && !r->err && !r->cor;
-        copyline(l0, (uint8_t)((r->err || r->cor) ? 11u : (labelled ? 14u : 12u)), r->l0);
-#else
-        const bool labelled = false;
         copyline(l0, (uint8_t)((r->err || r->cor) ? 11u : 12u), r->l0);
-#endif
         uint8_t n = 0;
         while (l0[n]) n++;
         if (r->err)      l0[n++] = '!';
         else if (r->cor) l0[n++] = '*';
         l0[n] = '\0';
-        if (labelled){
-            UI_PrintStringSmallBold(LBJ_LBL_TRN, 0, 0, 0);
-            UI_PrintStringSmallBold(l0, LBJ_X_TRN, 0, 0);
-        } else {
-            UI_PrintStringSmallBold(l0, 0, 0, 0);
-        }
+        UI_PrintStringSmallBold(l0, 0, 0, 0);
     }
     if (r->dst != LBJ_DST_NODET){
         char *o = s;

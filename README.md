@@ -35,19 +35,18 @@
 main00 固件
 -----------
 
-main00 只构建一个 LBJ 收音机固件：
+main00 构建四个 LBJ 收音机固件（车次以 9 开头的报文一律不显示，没有“全部显示”
+版本；DTMF 呼叫功能关闭）：
 
-    产物名       说明
-    LBJRADIO9    英文，显示车次以 9 开头的报文，TX 锁，仅 CI artifact
+    产物名         语言   TX      归档
+    LBJRADIO       英文   锁定    archive/LBJRADIO.<版本>.bin
+    LBJRADIOtx     英文   不锁    CI artifact
+    LBJRADIOcn     中文   锁定    archive/LBJRADIO-cn.<版本>.bin
+    LBJRADIOcntx   中文   不锁    CI artifact
 
-中文内嵌字体和 TX/CN 组合在 `lbjradio` 分支构建。`archive/` 里当前版本只放
-该分支的两个 **不锁 TX** 版本：
+`archive/` 里只放两个锁 TX 的版本。
 
-    LBJRADIO.<版本>.bin      英文，不锁 TX
-    LBJRADIO-cn.<版本>.bin   中文，不锁 TX
-
-main00 不再构建中文版，也不再把 LBJ 变体归档；需要的固件请从 lbjradio 的
-CI artifact 或上面的 archive 文件取。
+中文内嵌字体和 TX/CN 组合在 `lbjradio` 分支构建。
 
 中文字库（地址已搬家，注意！）
 ----------------------------

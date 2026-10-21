@@ -258,6 +258,8 @@
                 "ENABLE_FEAT_F4HWN_EXT_FLASH_RW": true,
                 "ENABLE_SWD": false,
 
+                "ENABLE_DTMF_CALLING": false,
+
                 "ENABLE_LBJ_HIDE9": true,
                 "ENABLE_LBJ_TX_LOCK": true,
                 "ENABLE_CN_FONT": false,
