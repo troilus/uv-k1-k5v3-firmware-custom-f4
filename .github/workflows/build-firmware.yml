@@ -27,10 +27,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Two artifacts: the plain name hides the reports whose train number
-        # starts with 9, the "9" suffixed one shows everything.
+        # One artifact: the "9" build, i.e. the one that shows the reports whose
+        # train number starts with 9. The Chinese and TX variants live on the
+        # lbjradio branch; this branch builds nothing else.
         include:
-          - { hide9: 'ON',  suffix: ''  }
           - { hide9: 'OFF', suffix: '9' }
 
     steps:
