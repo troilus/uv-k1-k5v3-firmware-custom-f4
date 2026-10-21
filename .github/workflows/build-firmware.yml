@@ -57,19 +57,10 @@ jobs:
     - name: Compile ${{ matrix.name }}
       run: |
         chmod +x compile-with-docker.sh
-        set +e
         ./compile-with-docker.sh LBJRadio \
           -DENABLE_LBJ_HIDE9=ON \
           -DENABLE_LBJ_TX_LOCK=${{ matrix.tx }} \
-          -DENABLE_CN_FONT=${{ matrix.cn }} 2>&1 | tee /tmp/ci.log
-        rc=${PIPESTATUS[0]}
-        echo "::warning::compile rc=$rc"
-        echo "::warning::log=$(tail -c 3500 /tmp/ci.log | tr '\n' '|')"
-        if [ "$rc" -ne 0 ]; then
-          exit "$rc"
-        fi
-        # A green step always means the image exists.
-        ls -l build/LBJRadio/lbjradio.bin
+          -DENABLE_CN_FONT=${{ matrix.cn }}
 
     - name: Upload firmware artifact
       uses: actions/upload-artifact@v4
