@@ -69,6 +69,9 @@
 #include "radio.h"
 #include "settings.h"
 #include "ui/helper.h"
+#ifdef ENABLE_CN_FONT
+#include "ui/cn_font.h"
+#endif
 #include "ui/status.h"
 #include "ui/ui.h"
 
@@ -162,6 +165,38 @@ static dem_t g_dm;
 /* ---- state ---- */
 #define LBJ_HISTORY   8u          /* decoded reports kept for paging back     */
 
+/* The route name as the popup prints it: four characters. The English build
+ * keeps their pinyin initials (4 bytes plus the terminator); the Chinese build
+ * keeps the GB2312 pairs themselves, so the font can draw them (8 bytes plus
+ * the terminator). */
+#ifdef ENABLE_CN_FONT
+#define LBJ_RT_BYTES  9
+#else
+#define LBJ_RT_BYTES  5
+#endif
+
+/* The labels the detail rows start with. The English build writes the short
+ * ASCII ones; the Chinese build (ENABLE_CN_FONT) writes the Chinese names, each
+ * character two 7 px bytes wide, so "速度 " is 35 px where "SPD " was 28. The
+ * train row's label only goes in when the row has the whole width - i.e. when
+ * no distance is drawn at the right - and then the train text starts at
+ * LBJ_X_TRN. */
+#ifdef ENABLE_CN_FONT
+#define LBJ_LBL_TRN  "车次 "
+#define LBJ_LBL_SPD  "速度 "
+#define LBJ_LBL_KM   "公里 "
+#define LBJ_LBL_RT   "线路 "
+#define LBJ_LBL_EXIT "退出"
+#define LBJ_X_TRN    35u
+#else
+#define LBJ_LBL_TRN  ""
+#define LBJ_LBL_SPD  "SPD "
+#define LBJ_LBL_KM   "KM "
+#define LBJ_LBL_RT   "LINE "
+#define LBJ_LBL_EXIT "EXIT"
+#define LBJ_X_TRN    0u
+#endif
+
 /* The window has more than one page: the live decode (what a received report,
  * the LBJMSG item or a shortcut shows), the list of the reports stored in
  * flash, and the detail of one of those. */
@@ -183,7 +218,7 @@ typedef struct {
     uint8_t  sh;                  /* a short block has been seen for this entry */
     char     trn[7];              /* train digits   (short block), "" if unknown */
     char     loc[9];              /* 8-digit registration (detail), "" if unknown */
-    char     rt[5];               /* route name initials, e.g. "JGX"         */
+    char     rt[LBJ_RT_BYTES];    /* route name: initials, or GB2312 in CN    */
     char     pref[3];             /* train prefix currently baked into row0  */
     char     l0[14], l1[18], l2[14], l3[20];
     /* the same numbers the rows show, kept separately for the LBJ log: the row
@@ -215,7 +250,7 @@ static struct {
     bool     dismissed;           /* popup dismissed until the carrier drops  */
     bool     pinned;              /* the LBJ menu item opened it: no timeout  */
     char     pref[3];             /* 2-char train prefix of the page being formatted */
-    char     rt[5];               /* route initials of the report being formatted */
+    char     rt[LBJ_RT_BYTES];    /* route name of the report being formatted */
     int16_t  dst;                 /* distance of the report being formatted   */
     char     trn[7];              /* train digits of the report being formatted */
     char     loc[9];              /* registration of the report being formatted */
@@ -379,13 +414,22 @@ static void decode_pref(const char *d){
     g.pref[2] = '\0';
 }
 
+/* The direction of a report, as row0 prints it after the train number. */
+static char *putdir(char *o, uint8_t func){
+#if defined(ENABLE_CN_FONT)
+    return put(o, (func == 1u) ? "下行" : ((func == 3u) ? "上行" : "??"));
+#else
+    return put(o, (func == 1u) ? "DN" : ((func == 3u) ? "UP" : "??"));
+#endif
+}
+
 static char *puttrain(char *o, const char *sb, uint8_t func, bool have){
     if (g.pref[0]) *o++ = g.pref[0];        /* this page's train prefix, K/T/D/C... */
     if (g.pref[1]) *o++ = g.pref[1];
     if (!have){ *o++ = '-'; *o++ = '-'; }
     else for (uint8_t i = 0; i < 6u; i++) if (sb[i] != ' ') *o++ = sb[i];
     *o++ = ' ';
-    return put(o, (func == 1u) ? "DN" : ((func == 3u) ? "UP" : "??"));
+    return putdir(o, func);
 }
 
 /* Route name = up to 4 GB2312 characters in the detail block's [14:30). GB2312
@@ -405,6 +449,23 @@ static char cn_initial(uint8_t hi, uint8_t lo){
         k = i;
     }
     return "ABCDEFGHJKLMNOPQRSTWXYZ"[k];
+}
+
+/* One route character, appended as the popup prints it. The English build has
+ * no Chinese font (the external one carries only what the user flashed) and
+ * draws the pinyin initial above; the Chinese build keeps the character and
+ * lets the built-in font draw it, falling back to the initial for a character
+ * its table does not carry - never a block, and no flash read. */
+static char *putroute(char *o, uint8_t hi, uint8_t lo){
+#ifdef ENABLE_CN_FONT
+    if (CN_FONT_Glyph8((uint16_t)((hi << 8) | lo)) != 0){
+        *o++ = (char)hi;
+        *o++ = (char)lo;
+        return o;
+    }
+#endif
+    *o++ = cn_initial(hi, lo);
+    return o;
 }
 
 /* True when none of the n characters is a decimal digit: the short block was
@@ -946,7 +1007,8 @@ static void format(uint32_t addr, uint8_t func, const char *b, uint16_t len){
     o = g.l0; o = puttrain(o, sb, func, have_short);
     *o = '\0';
 
-    /* route name initials (the popup draws them as "LINE xxx") */
+    /* route name: the pinyin initials, or the characters themselves in the
+     * Chinese build (the popup draws them after "LINE"/"线路") */
     o = g.rt;
     if (has_detail){
         for (uint8_t m = 0; m < 4u; m++){
@@ -955,21 +1017,21 @@ static void format(uint32_t addr, uint8_t func, const char *b, uint16_t len){
             const uint8_t hi = (uint8_t)((nib(d[k]) << 4) | nib(d[k + 1u]));
             const uint8_t lo = (uint8_t)((nib(d[k + 2u]) << 4) | nib(d[k + 3u]));
             if (!hi || !lo) break;
-            *o++ = cn_initial(hi, lo);
+            o = putroute(o, hi, lo);
         }
     }
     *o = '\0';
 
     /* row1: speed. A lost or unsent speed is a dash, never a 0, while the
      * blanks a transmitter leaves in the unused hundreds are zeros (bcdpad). */
-    o = g.l1; o = put(o, "SPD ");
+    o = g.l1; o = put(o, LBJ_LBL_SPD);
     if (have_short && bcdpad(sb + 6u, 3u)) o = putu(o, digv(sb + 6u, 3u));
     else                                   *o++ = '-';
     o = put(o, " km/h");
     *o = '\0';
 
     /* row2: position km, same rule as the speed */
-    o = g.l2; o = put(o, "KM ");
+    o = g.l2; o = put(o, LBJ_LBL_KM);
     if (have_short && bcdpad(sb + 10u, 5u)) o = putkm(o, sb + 10u);
     else                                    *o++ = '-';
     *o = '\0';
@@ -1366,8 +1428,8 @@ static bool history_merge(uint32_t addr, uint8_t func, uint16_t len, uint8_t err
                 o = puttrain(o, g.sess, func, false);
                 *o = '\0';
                 copyline(g.rec[0].pref, (uint8_t)sizeof g.rec[0].pref, g.pref);
-                copyline(g.rec[0].l1, (uint8_t)sizeof g.rec[0].l1, "SPD - km/h");
-                copyline(g.rec[0].l2, (uint8_t)sizeof g.rec[0].l2, "KM -");
+                o = g.rec[0].l1; o = put(o, LBJ_LBL_SPD); o = put(o, "- km/h"); *o = '\0';
+                o = g.rec[0].l2; o = put(o, LBJ_LBL_KM);  *o++ = '-';            *o = '\0';
             }
         }
     } else if (hit != 0u){
@@ -1458,7 +1520,7 @@ static void log_build(lbj_log_rec_t *o, const lbj_rec_t *e){
     o->pref[1] = e->pref[1];
     for (uint8_t i = 0; i < 6u && e->trn[i]; i++) o->trn[i] = e->trn[i];
     for (uint8_t i = 0; i < 8u && e->loc[i]; i++) o->loc[i] = e->loc[i];
-    for (uint8_t i = 0; i < 4u && e->rt[i];  i++) o->rt[i]  = e->rt[i];
+    for (uint8_t i = 0; i + 1u < LBJ_LOG_RT_LEN && e->rt[i]; i++) o->rt[i] = e->rt[i];
     o->spd  = e->spd;
     o->km10 = e->km10;
     o->mdl  = e->mdl;
@@ -1806,10 +1868,16 @@ static void drawLogDetail(void){
         if (!n){ *o++ = '-'; *o++ = '-'; }
         else for (uint8_t i = 0; i < n; i++) *o++ = r.trn[i];
         *o++ = ' ';
-        o = put(o, (r.dir == LBJ_LOG_DIR_DN) ? "DN"
-                 : ((r.dir == LBJ_LOG_DIR_UP) ? "UP" : "??"));
+        o = putdir(o, (r.dir == LBJ_LOG_DIR_DN) ? 1u
+                    : ((r.dir == LBJ_LOG_DIR_UP) ? 3u : 0u));
         *o = '\0';
-        UI_PrintStringSmallBold(s, 0, 0, 0);
+        if (r.flags & LBJ_LOG_F_DST){
+            UI_PrintStringSmallBold(s, 0, 0, 0);
+        } else {
+            /* the full width is free: the "车次" label fits in front */
+            UI_PrintStringSmallBold(LBJ_LBL_TRN, 0, 0, 0);
+            UI_PrintStringSmallBold(s, LBJ_X_TRN, 0, 0);
+        }
     }
     if (r.flags & LBJ_LOG_F_DST){
         char *o = s;
@@ -1826,7 +1894,7 @@ static void drawLogDetail(void){
 
     /* row1: speed */
     {
-        char *o = put(s, "SPD ");
+        char *o = put(s, LBJ_LBL_SPD);
         if (r.flags & LBJ_LOG_F_SPD) o = putu(o, r.spd);
         else *o++ = '-';
         o = put(o, " km/h");
@@ -1836,7 +1904,7 @@ static void drawLogDetail(void){
 
     /* row2: km post */
     {
-        char *o = put(s, "KM ");
+        char *o = put(s, LBJ_LBL_KM);
         if (r.flags & LBJ_LOG_F_KM) o = putkm10(o, r.km10);
         else *o++ = '-';
         *o = '\0';
@@ -1858,11 +1926,11 @@ static void drawLogDetail(void){
         UI_PrintStringSmallBold(s, 0, 0, 3);
     }
 
-    /* row4: route initials, or a dash */
+    /* row4: the route name, or a dash */
     {
-        char *o = put(s, "LINE ");
+        char *o = put(s, LBJ_LBL_RT);
         if ((r.flags & LBJ_LOG_F_RT) && r.rt[0]){
-            for (uint8_t i = 0; i < 4u && r.rt[i]; i++) *o++ = r.rt[i];
+            o = put(o, r.rt);
         } else *o++ = '-';
         *o = '\0';
         UI_PrintStringSmallBold(s, 0, 0, 4);
@@ -1887,7 +1955,7 @@ static void drawLogDetail(void){
         *o = '\0';
         UI_PrintStringSmallNormal(s, POP_PAGEX, 0, POP_FOOTER);
     }
-    UI_PrintStringSmallBold("EXIT", POP_EXITX, 0, POP_FOOTER);
+    UI_PrintStringSmallBold(LBJ_LBL_EXIT, POP_EXITX, 0, POP_FOOTER);
 
     ST7565_BlitStatusLine();
     ST7565_BlitFullScreen();
@@ -1909,14 +1977,27 @@ void LBJ_DrawPopup(void){
      * to 10 characters when a verdict follows - 11 otherwise - so the verdict
      * and the readout (up to 7) always fit the 128 px row. */
     {
-        char l0[13];
+        char l0[15];
+#ifdef ENABLE_CN_FONT
+        /* The "车次" label only goes in when neither the verdict nor the
+         * distance shares the row: then the train text has the full width. */
+        const bool labelled = (r->dst == LBJ_DST_NODET) && !r->err && !r->cor;
+        copyline(l0, (uint8_t)((r->err || r->cor) ? 11u : (labelled ? 14u : 12u)), r->l0);
+#else
+        const bool labelled = false;
         copyline(l0, (uint8_t)((r->err || r->cor) ? 11u : 12u), r->l0);
+#endif
         uint8_t n = 0;
         while (l0[n]) n++;
         if (r->err)      l0[n++] = '!';
         else if (r->cor) l0[n++] = '*';
         l0[n] = '\0';
-        UI_PrintStringSmallBold(l0, 0, 0, 0);
+        if (labelled){
+            UI_PrintStringSmallBold(LBJ_LBL_TRN, 0, 0, 0);
+            UI_PrintStringSmallBold(l0, LBJ_X_TRN, 0, 0);
+        } else {
+            UI_PrintStringSmallBold(l0, 0, 0, 0);
+        }
     }
     if (r->dst != LBJ_DST_NODET){
         char *o = s;
@@ -1935,10 +2016,10 @@ void LBJ_DrawPopup(void){
     UI_PrintStringSmallBold(r->l2, 0, 0, 2);
     UI_PrintStringSmallBold(r->l3, 0, 0, 3);
 
-    /* route line: the ASCII initials of the line name, or a dash */
+    /* route line: the pinyin initials of the line name - or the characters
+     * themselves in the Chinese build - and a dash when there is none */
     {
-        char *o = s;
-        o = put(o, "LINE ");
+        char *o = put(s, LBJ_LBL_RT);
         if (r->rt[0]) o = put(o, r->rt); else *o++ = '-';
         *o = '\0';
         UI_PrintStringSmallBold(s, 0, 0, 4);
@@ -1972,7 +2053,7 @@ void LBJ_DrawPopup(void){
         *o = '\0';
         UI_PrintStringSmallNormal(s, POP_TIMEX, 0, POP_FOOTER);
     }
-    UI_PrintStringSmallBold("EXIT", POP_EXITX, 0, POP_FOOTER);
+    UI_PrintStringSmallBold(LBJ_LBL_EXIT, POP_EXITX, 0, POP_FOOTER);
 
     ST7565_BlitStatusLine();
     ST7565_BlitFullScreen();

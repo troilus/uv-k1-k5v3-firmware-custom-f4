@@ -1,0 +1,43 @@
+# Characters the LBJRadio Chinese build carries inside the firmware image.
+#
+# One block of text (any line breaks, '#' starts a comment). Every character
+# here gets a glyph in App/ui/cn_font.c - regenerate with:
+#
+#     python tools/mkcnfont.py
+#
+# The menu names and the popup labels are picked up from the sources
+# automatically, so this file is only needed for text the firmware does not
+# spell out itself: the route names an LBJ report carries (up to 4 GB2312
+# characters in the detail block).
+#
+# It follows the same rule as the generated table: only what is actually used.
+# The lines below are the trunk and regional line names Chinese railways use;
+# their characters cover the names the reports carry. A character that is not
+# here falls back to its pinyin initial (never a block, and no flash read), so
+# a smaller list costs readability, not correctness.
+#
+# The list also decides the size of the image: every character is 8 bytes of
+# dot matrix plus 2 bytes of index, and the 118 KiB flash region is nearly
+# full. Keep it to line names.
+
+# ---- trunk and regional lines --------------------------------------------
+京广 京沪 京九 京哈 京包 京通 京承 京原 京秦 京山 津浦 沪宁 沪杭 浙赣 湘桂 黔桂
+成渝 成昆 宝成 宝中 阳安 襄渝 焦柳 焦新 新月 陇海 兰新 包兰 兰青 青藏 南昆 内昆
+水红 昆河 广大 大丽 滇藏 川黔 贵昆 湘黔 鹰厦 峰福 赣龙 漳泉 广梅汕 三茂 黎湛
+河茂 宁芜 合宁 宣杭 皖赣 铜九 武九 大沙 石太 石德 胶济 蓝烟 兖石 新兖 菏日
+邯济 沈大 沈丹 长图 长白 牡佳 滨洲 滨绥 哈大 平齐 通让 大郑 集通 集二 包白
+神朔 朔黄 大秦 迁曹 通霍 齐北 富嫩 林密 勃七 汤林 嫩林 伊加 牙林 朝乌 汉丹
+达成 遂渝 渝怀 渝利 宜万 汉宜 长荆 孟宝 漯阜 阜淮 淮南 宁西 合武 合蚌 杭深
+温福 甬台温 福厦 厦深 龙厦 向莆 南广 贵广 云桂 津秦 哈齐 长珲 丹大 吉图珲
+京沈 京张 张呼 大西 西成 西兰 兰渝 成贵 渝贵 西康 渝万 郑万 郑徐 郑西 京雄
+雄商 商合杭 合安 安九 黄黄 昌九 昌赣 赣深 广汕 汕汕 梅汕 深茂 江湛 湛海
+海南环岛 沪苏通 盐通 连盐 连镇 徐宿淮盐 青连 青荣 石济 石武 武广 广深 广珠
+珠机 佛莞 穗深 莞惠 广佛肇 长株潭 武咸 武黄 武冈 汉孝 郑开 郑焦 郑机 太焦
+侯月 阳涉 邯长 南疆 北疆 精伊霍 奎北 克塔 乌准 哈罗 格库 和若 喀和 拉日 拉林
+成雅 成自 绵遂 内自 渝昆 丽香 大临 玉磨 弥蒙 南防 黎钦 钦北 防东 玉铁 洛湛
+岑茂 罗定 春罗 韶赣 赣韶 阜六 宿淮 平禹 禹亳 商阜 萧甬 金温 金台 衢宁 衢丽
+杭黄 杭绍台 杭温 商杭 湖杭 沪昆 宁安 宁启 宁淮 宁滁 宁马 宁扬 扬马 通苏嘉甬
+苏锡常 盐泰锡常宜 沪通 沪乍杭 金建 建衢 黄衢 九景衢 景德镇 合福 福平 兴泉
+浦梅 南三龙 龙龙 赣瑞龙 瑞梅 蒙华 浩吉 瓦日 唐呼 张唐 蒙冀 集包 包西 神延
+延黄 黄韩侯 侯阎 太中银 太兴 宁静 中南部 通道 洛宜 洛襄 安卫 江汉 大冶 铜大
+合九 芜铜 宁铜

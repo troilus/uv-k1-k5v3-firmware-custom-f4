@@ -10,21 +10,37 @@
 
 每条记录只存"这列车"的信息（一次报文一条，短块 + 详情块合并成一条）：
 
-    [0]      flags   b0..b6 = 车次/速度/公里标/车型/车号/线路/距离 有效（b7 保留）
+    [0]      flags   b0..b6 = 车次/速度/公里标/车型/车号/线路/距离 有效，
+                     b7 = 线路字段是压缩的汉字码（见 [17..20]）
     [1..2]   车次前缀（ASCII，如 "K"、"T"，可为空）
     [3..5]   车次数字 6 位 BCD（半字节 0xF = 缺）
     [6..7]   速度 u16（km/h，0xFFFF = 未知）
     [8..10]  公里标 u24（0.1 km，0xFFFFFF = 未知）
     [11..12] 车型码 u16（0xFFFF = 未知，见下表）
     [13..16] 车号 8 位 BCD（半字节 0xF = 缺）
-    [17..20] 线路 4 个 ASCII（拼音首字母，如 "JGX"）
+    [17..20] 线路 4 个 ASCII（拼音首字母，如 "JGX"）；中文版固件存的是
+             4 个 12 位的汉字码，占 [17..20] + [28..29]（见下）
     [21..22] 距离 i16（0.1 km，<0 = 未知/无详情块）
     [23]     方向（0 = 未知，1 = 下行 DN，2 = 上行 UP，与机上的 ??/DN/UP 一致）
     [24..25] sequence u16（同一次开机内递增）
     [26..27] uptime u16（收到该车次时的开机秒数）
-    [28..29] 保留（0xFF）
+    [28..29] 中文版的线路码低 16 位；英文版为保留（0xFF）
     [30]     CRC8（前 30 字节，初值 0x5A，多项式 0x31）
     [31]     commit = 0xA5（最后写，最后写入才算一条完整的记录）
+
+中文固件（ENABLE_CN_FONT）的线路字段
+------------------------------------
+英文固件把线路名写成最多 4 个拼音首字母；中文固件写 4 个汉字本身，放不下
+8 个字节，所以每条记录把 4 个汉字压成 4 个 12 位码，正好 48 位，占
+[17..20] 和 [28..29] 这 6 个字节，flags 的 b7 置位以示区别：
+
+    0x000..0xEAA  GB2312 一级汉字（按拼音排序）的序号
+                  (hi-0xB0)*94 + (lo-0xA1)，0xEAA = 3754 = 最后一个一级汉字
+    0xF00..0xF5F  回退的 ASCII 字符：码值 - 0xF00 + 0x20
+    0xFFF         这一位没有字
+
+0xF00 以上到 0xFFF 之间除 ASCII 段外都不用。英文固件写的记录没有 b7，
+按 4 个 ASCII 首字母读，两种记录这个脚本都认。
 
 固件为了省擦写，是"攒着"写的：一列车的两个块合进一条，安静 10 秒（或来了
 下一列车）才落盘。所以刚收到、还没安静下来的一列车可能在 RAM 里；断电会丢
@@ -64,6 +80,30 @@ COMMIT = 0xA5
 
 F_TRN, F_SPD, F_KM, F_MDL, F_LOC, F_RT, F_DST = (
     0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40)
+F_RT_PACKED = 0x80
+
+# 中文固件的线路码（见文件头的说明）
+RT_NONE, RT_ASCII = 0xFFF, 0xF00
+
+
+def _route(rec):
+    """线路字段：英文版是 4 个 ASCII 首字母，中文版是 4 个 12 位汉字码。"""
+    if not (rec[0] & F_RT):
+        return ""
+    if not (rec[0] & F_RT_PACKED):
+        return bytes(c for c in rec[17:21]
+                     if c not in (0, 0xFF)).decode("ascii", "replace")
+    bits = int.from_bytes(rec[17:21] + rec[28:30], "little")
+    out = []
+    for i in range(4):
+        c = (bits >> (12 * i)) & 0xFFF
+        if c == RT_NONE:
+            continue
+        if RT_ASCII <= c < RT_ASCII + 0x60:
+            out.append(chr(c - RT_ASCII + 0x20))
+        elif c < 3755:
+            out.append(bytes((0xB0 + c // 94, 0xA1 + c % 94)).decode("gb2312"))
+    return "".join(out)
 
 DIR_NONE, DIR_DN, DIR_UP = 0, 1, 2
 
@@ -136,7 +176,7 @@ def parse_record(rec: bytes):
 
     trn = "".join(str(d) for d in _bcd(rec[3:6], 6) if d is not None)
     loc = "".join(str(d) for d in _bcd(rec[13:17], 8) if d is not None)
-    rt = bytes(c for c in rec[17:21] if c not in (0, 0xFF)).decode("ascii", "replace")
+    rt = _route(rec)
 
     spd = struct.unpack_from("<H", rec, 6)[0]
     km = rec[8] | (rec[9] << 8) | (rec[10] << 16)
