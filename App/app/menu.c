@@ -500,6 +500,10 @@ int MENU_GetLimits(uint8_t menu_id, int32_t *pMin, int32_t *pMax)
                 //*pMin = 0;
                 *pMax = ARRAY_SIZE(gSubMenu_LBJ_NUM) - 1;
                 break;
+            case MENU_LBJRT:
+                //*pMin = 0;
+                *pMax = ARRAY_SIZE(gSubMenu_LBJ_RT) - 1;
+                break;
         #endif
 
         case MENU_VOL: {
@@ -1111,6 +1115,13 @@ void MENU_AcceptSetting(void)
             case MENU_LBJNUM:
                 gEeprom.LBJ_NUM_FORMAT = gSubMenuSelection;
                 break;
+            case MENU_LBJRT:
+                /* Only the way the popup prints a route name changes: a history
+                 * entry keeps the characters of the report and the flash log
+                 * keeps the form it was written in, so nothing is dropped here
+                 * - neither LBJHST nor the eight-entry decode window. */
+                gEeprom.LBJ_RT_FORMAT = gSubMenuSelection;
+                break;
             case MENU_LBJLAT:
             case MENU_LBJLON:
             {   /* One half of the primary slot's coordinate: the digits the box
@@ -1650,6 +1661,9 @@ void MENU_ShowCurrentSetting(void)
             }
             case MENU_LBJNUM:
                 gSubMenuSelection = gEeprom.LBJ_NUM_FORMAT;
+                break;
+            case MENU_LBJRT:
+                gSubMenuSelection = gEeprom.LBJ_RT_FORMAT;
                 break;
         #endif
 

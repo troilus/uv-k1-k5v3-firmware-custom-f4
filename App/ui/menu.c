@@ -80,6 +80,7 @@ const t_menu_item MenuList[] =
     {"LBJLAT",      MENU_LBJLAT        }, // its latitude, DD MM hh
     {"LBJLON",      MENU_LBJLON        }, // its longitude, DDD MM hh
     {"LBJNUM",      MENU_LBJNUM        }, // registration: FULL 8 digits or SIMPLE 4
+    {"线路名",        MENU_LBJRT         }, // route name: 中文 characters or 拼音 initials
 #endif
 #ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
     {"SetCfg",      MENU_SET_CFG       }, // pick the settings bank to boot with
@@ -366,6 +367,7 @@ static const uint8_t gMenuCatOf[] =
     [MENU_LBJLAT]           = MENU_CAT_LBJ,
     [MENU_LBJLON]           = MENU_CAT_LBJ,
     [MENU_LBJNUM]           = MENU_CAT_LBJ,
+    [MENU_LBJRT]            = MENU_CAT_LBJ,
 #endif
 };
 
@@ -694,6 +696,16 @@ const char gSubMenu_LBJ_NUM[][7] =
 {
     "FULL",
     "SIMPLE"
+};
+
+/* LBJRT: how the popup prints a route name. 中文 keeps the four GB2312
+ * characters the detail block carries (the external font draws them); 拼音
+ * prints their pinyin initials, the way the row read before the setting
+ * existed. */
+const char gSubMenu_LBJ_RT[][5] =
+{
+    "中文",
+    "拼音"
 };
 #endif
 
@@ -1946,6 +1958,9 @@ void UI_DisplayMenu(void)
             }
             case MENU_LBJNUM:
                 strcpy(String, gSubMenu_LBJ_NUM[gSubMenuSelection]);
+                break;
+            case MENU_LBJRT:
+                strcpy(String, gSubMenu_LBJ_RT[gSubMenuSelection]);
                 break;
             case MENU_LBJLAT:
             case MENU_LBJLON:

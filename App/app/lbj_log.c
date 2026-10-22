@@ -33,7 +33,8 @@
 #define LBJ_LOG_COMMIT    0xA5u
 
 /* On-flash record: little endian and packed, so the tool can parse it field by
- * field. Bytes 28..29 are reserved (0xFF) for a later revision. */
+ * field. Bytes 28..29 carry the high half of a packed route name (see
+ * LBJ_LOG_F_RT_PACKED) and stay 0xFF on a record with plain initials. */
 typedef struct __attribute__((packed)) {
     uint8_t  flags;      /* LBJ_LOG_F_*                                        */
     char     pref[2];    /* train class prefix                                 */
@@ -124,6 +125,87 @@ static void unpack_bcd(char *out, const uint8_t *p, uint8_t n){
  * 0x00 from a shorter string) in the rest of a text field. */
 static bool ch_ok(char c){
     return c >= 0x20 && c <= 0x7E;
+}
+
+/* ---- the route field ------------------------------------------------------
+ *
+ * The popup can print the four route characters the detail block carries, or
+ * their pinyin initials (LBJRT). Either way the history keeps the characters,
+ * so the record carries them too: four GB2312 pairs are 8 bytes, while the
+ * record has 6 bytes to spare (rt[4] plus the two reserved bytes). Level-1
+ * GB2312 holds 3755 characters, so one character is a 12-bit index in it, and
+ * four of those are 48 bits: exactly the two fields. flags bit 7 says which
+ * form a record holds, so a record an older build wrote with plain initials
+ * still reads as initials.
+ *
+ * A route character the detail block carries outside level 1 (a symbol or a
+ * level-2 character) falls back to its pinyin initial - an ASCII letter or '?'
+ * - which has a range of its own, so the field never has to throw anything
+ * away. 0xFFF is "no character there". */
+#define RT_NONE   0xFFFu
+#define RT_ASCII  0xF00u              /* + (c - 0x20) for c 0x20..0x7F */
+
+/* The four 12-bit codes of a route name, written into rt[4] and the reserved
+ * bytes, low bits first. */
+static void rt_pack(const char *rt, lbj_log_flash_t *e){
+    uint8_t b[6] = { 0, 0, 0, 0, 0, 0 };
+    const char *p = rt;
+
+    for (uint8_t i = 0; i < 4u; i++){
+        uint16_t c = RT_NONE;
+        if (*p != '\0' && (uint8_t)p[0] >= 0xA1u && (uint8_t)p[0] <= 0xF7u &&
+            (uint8_t)p[1] >= 0xA1u && (uint8_t)p[1] <= 0xFEu){
+            const uint8_t hi = (uint8_t)p[0], lo = (uint8_t)p[1];
+            p += 2;
+            if (hi >= 0xB0u && hi <= 0xD7u){
+                const uint16_t idx = (uint16_t)((uint16_t)(hi - 0xB0u) * 94u
+                                                + (uint16_t)(lo - 0xA1u));
+                if (idx < 3755u)
+                    c = idx;
+            }
+        } else if (*p != '\0'){
+            const uint8_t v = (uint8_t)*p++;
+            if (v >= 0x20u && v < 0x80u)
+                c = (uint16_t)(RT_ASCII + (v - 0x20u));
+        }
+        for (uint8_t k = 0; k < 12u; k++){
+            if (c & (uint16_t)(1u << k)){
+                const uint8_t bit = (uint8_t)(12u * i + k);
+                b[bit >> 3] |= (uint8_t)(1u << (bit & 7u));
+            }
+        }
+    }
+
+    e->rt[0] = (char)b[0]; e->rt[1] = (char)b[1];
+    e->rt[2] = (char)b[2]; e->rt[3] = (char)b[3];
+    e->rsv1[0] = b[4];     e->rsv1[1] = b[5];
+}
+
+/* The inverse, into a C string. */
+static void rt_unpack(const char *rt, const uint8_t *rsv, char *out){
+    const uint8_t *src = (const uint8_t *)rt;
+    uint8_t b[6] = { (uint8_t)src[0], (uint8_t)src[1], (uint8_t)src[2],
+                     (uint8_t)src[3], rsv[0], rsv[1] };
+    uint8_t n = 0;
+
+    for (uint8_t i = 0; i < 4u; i++){
+        uint16_t c = 0;
+        for (uint8_t k = 0; k < 12u; k++){
+            const uint8_t bit = (uint8_t)(12u * i + k);
+            if (b[bit >> 3] & (uint8_t)(1u << (bit & 7u)))
+                c |= (uint16_t)(1u << k);
+        }
+        if (c == RT_NONE)
+            continue;
+        if (c >= RT_ASCII && c < (uint16_t)(RT_ASCII + 0x60u))
+            out[n++] = (char)(c - RT_ASCII + 0x20u);
+        else if (c < 3755u){
+            out[n++] = (char)(0xB0u + c / 94u);
+            out[n++] = (char)(0xA1u + c % 94u);
+        }
+    }
+
+    out[n] = '\0';
 }
 
 static bool record_ok(const lbj_log_flash_t *e){
@@ -239,8 +321,17 @@ bool LBJ_LOG_Write(const lbj_log_rec_t *rec){
     e.pref[1]  = rec->pref[1];
     pack_bcd(e.trn, rec->trn, 6u);
     pack_bcd(e.loc, rec->loc, 8u);
-    if (rec->flags & LBJ_LOG_F_RT)
-        memcpy(e.rt, rec->rt, sizeof e.rt);
+    if (rec->flags & LBJ_LOG_F_RT){
+        bool plain = true;
+        for (uint8_t i = 0; i < 4u && rec->rt[i]; i++)
+            if ((uint8_t)rec->rt[i] >= 0xA1u){ plain = false; break; }
+        if (plain){
+            memcpy(e.rt, rec->rt, sizeof e.rt);
+        } else {
+            rt_pack(rec->rt, &e);
+            e.flags |= LBJ_LOG_F_RT_PACKED;
+        }
+    }
     e.spd = (rec->flags & LBJ_LOG_F_SPD) ? rec->spd : (uint16_t)LBJ_LOG_SPD_NONE;
     e.mdl = (rec->flags & LBJ_LOG_F_MDL) ? rec->mdl : (uint16_t)LBJ_LOG_MDL_NONE;
     e.dst = (rec->flags & LBJ_LOG_F_DST) ? rec->dst : (int16_t)-1;
@@ -352,7 +443,7 @@ void LBJ_LOG_ViewGet(const lbj_log_view_t *v, lbj_log_rec_t *out){
     if (!record_ok(&e))
         return;                       /* erased under us: hand back "nothing" */
 
-    out->flags = e.flags;
+    out->flags = e.flags  & (uint8_t)(~LBJ_LOG_F_RT_PACKED);
     out->dir   = e.dir;
     out->sec   = e.uptime;
     out->spd   = e.spd;
@@ -369,8 +460,12 @@ void LBJ_LOG_ViewGet(const lbj_log_view_t *v, lbj_log_rec_t *out){
     out->pref[1] = ch_ok(e.pref[1]) ? e.pref[1] : '\0';
     unpack_bcd(out->trn, e.trn, 6u);
     unpack_bcd(out->loc, e.loc, 8u);
-    for (uint8_t i = 0; i < 4u; i++)
-        out->rt[i] = ch_ok(e.rt[i]) ? e.rt[i] : '\0';
+    if (e.flags & LBJ_LOG_F_RT_PACKED){
+        rt_unpack(e.rt, e.rsv1, out->rt);
+    } else {
+        for (uint8_t i = 0; i < 4u; i++)
+            out->rt[i] = ch_ok(e.rt[i]) ? e.rt[i] : '\0';
+    }
 
     if (!(e.flags & LBJ_LOG_F_SPD)) out->spd  = (uint16_t)LBJ_LOG_SPD_NONE;
     if (!(e.flags & LBJ_LOG_F_KM))  out->km10 = (uint32_t)LBJ_LOG_KM_NONE;

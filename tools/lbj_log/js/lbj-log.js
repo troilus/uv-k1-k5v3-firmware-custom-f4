@@ -29,6 +29,10 @@
   const F_LOC = 0x10;
   const F_RT = 0x20;
   const F_DST = 0x40;
+  const F_RT_PACKED = 0x80;         // route carries 4x12-bit GB2312 indexes
+
+  const RT_NONE = 0xFFF;
+  const RT_ASCII = 0xF00;
 
   const DIR_NONE = 0;
   const DIR_DN = 1;
@@ -127,6 +131,38 @@
     return text;
   }
 
+  // Route field: four pinyin initials (ASCII), or - when the record carries
+  // the characters themselves - four 12-bit GB2312 level-1 indexes packed into
+  // rt[4] plus the two reserved bytes (see LBJ_LOG_F_RT_PACKED in lbj_log.h).
+  function gb2312Char(hi, lo) {
+    try {
+      return new TextDecoder('gb2312').decode(new Uint8Array([hi, lo]));
+    } catch (e) {
+      return '?';
+    }
+  }
+
+  function routeField(rec, flags) {
+    if (!(flags & F_RT)) return '';
+    if (!(flags & F_RT_PACKED)) return asciiField(rec.subarray(17, 21));
+
+    const b = [rec[17], rec[18], rec[19], rec[20], rec[28], rec[29]];
+    let out = '';
+    for (let i = 0; i < 4; i++) {
+      let code = 0;
+      for (let k = 0; k < 12; k++) {
+        const bit = 12 * i + k;
+        if (b[bit >> 3] & (1 << (bit & 7))) code |= 1 << k;
+      }
+      if (code === RT_NONE) continue;
+      if (code >= RT_ASCII && code < RT_ASCII + 0x60)
+        out += String.fromCharCode(code - RT_ASCII + 0x20);
+      else if (code < 3755)
+        out += gb2312Char(0xB0 + Math.floor(code / 94), 0xA1 + (code % 94));
+    }
+    return out;
+  }
+
   function isBlankSlot(rec) {
     for (let i = 0; i < rec.length; i++) {
       if (rec[i] !== EMPTY_BYTE) return false;
@@ -161,7 +197,7 @@
       .filter(digit => digit !== null).join('');
     const loc = bcdDigits(rec.subarray(13, 17), 8)
       .filter(digit => digit !== null).join('');
-    const rt = asciiField(rec.subarray(17, 21));
+    const rt = routeField(rec, flags);
 
     const spd = readU16(view, rec, 6);
     const km = rec[8] | (rec[9] << 8) | (rec[10] << 16);

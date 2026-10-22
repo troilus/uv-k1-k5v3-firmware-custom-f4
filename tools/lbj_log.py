@@ -64,6 +64,30 @@ COMMIT = 0xA5
 
 F_TRN, F_SPD, F_KM, F_MDL, F_LOC, F_RT, F_DST = (
     0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40)
+F_RT_PACKED = 0x80
+
+# 中文固件存的线路（见文件头）：4 个 12 位 GB2312 一级字区索引
+RT_NONE, RT_ASCII = 0xFFF, 0xF00
+
+
+def _route(rec):
+    """线路字段：4 个拼音首字母（ASCII），或 4 个汉字打包成 4x12 位。"""
+    if not (rec[0] & F_RT):
+        return ""
+    if not (rec[0] & F_RT_PACKED):
+        return bytes(c for c in rec[17:21]
+                     if c not in (0, 0xFF)).decode("ascii", "replace")
+    bits = int.from_bytes(rec[17:21] + rec[28:30], "little")
+    out = []
+    for i in range(4):
+        c = (bits >> (12 * i)) & 0xFFF
+        if c == RT_NONE:
+            continue
+        if RT_ASCII <= c < RT_ASCII + 0x60:
+            out.append(chr(c - RT_ASCII + 0x20))
+        elif c < 3755:
+            out.append(bytes((0xB0 + c // 94, 0xA1 + c % 94)).decode("gb2312"))
+    return "".join(out)
 
 DIR_NONE, DIR_DN, DIR_UP = 0, 1, 2
 
@@ -136,7 +160,7 @@ def parse_record(rec: bytes):
 
     trn = "".join(str(d) for d in _bcd(rec[3:6], 6) if d is not None)
     loc = "".join(str(d) for d in _bcd(rec[13:17], 8) if d is not None)
-    rt = bytes(c for c in rec[17:21] if c not in (0, 0xFF)).decode("ascii", "replace")
+    rt = _route(rec)
 
     spd = struct.unpack_from("<H", rec, 6)[0]
     km = rec[8] | (rec[9] << 8) | (rec[10] << 16)

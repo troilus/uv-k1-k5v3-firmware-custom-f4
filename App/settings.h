@@ -338,6 +338,11 @@ typedef struct {
      * It lives in the settings byte behind LBJLOG (0x00A0C7, see settings.c);
      * 0xFF reads as 0, so a radio that never stored one keeps the old row. */
     uint8_t               LBJ_NUM_FORMAT;
+    /* LBJRT: how the popup prints the route name. 0 = 中文 (the four GB2312
+     * characters the detail block carries), 1 = 拼音 (their pinyin initials,
+     * the way the row read before). It lives in 0x00A0F3, a byte of the DTMF
+     * block that was unused until now (see settings.c); 0xFF reads as 0. */
+    uint8_t               LBJ_RT_FORMAT;
 #endif
 } EEPROM_Config_t;
 

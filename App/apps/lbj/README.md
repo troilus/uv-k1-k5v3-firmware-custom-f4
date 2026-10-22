@@ -27,6 +27,15 @@ The `LBJNUM` item chooses the registration on row 3 of the decode window and of
 the flash-log detail: `FULL` keeps all eight digits (the default, and what the
 log record and exports always keep), `SIMPLE` prints four - the last four for a
 locomotive (`HXD1D-0002`), digits 4..7 for an EMU (`CR400BF-5387`).
+The `线路名` (`LBJRT`) item chooses how the route line of those two pages is
+printed: `中文` keeps the four GB2312 characters the detail block carries (the
+default - the radio's external font draws them), `拼音` prints their pinyin
+initials (`JGX`), the way the line read before the setting existed. The history
+entry keeps the characters either way and the row is put together when it is
+drawn, so flipping the setting never drops a report; the flash log packs the
+characters into the record's route field (four 12-bit GB2312 level-1 indexes, see
+`LBJ_LOG_F_RT_PACKED`), so an export shows the Chinese route name too, while a
+record an older build wrote still reads as its initials.
 
 **使用说明（面向使用者）**：固件版 / LBJ RX App 版 / 经纬度（v0.22 起在固件菜单里填）/ 导出，见
 [`USAGE.md`](USAGE.md)。开发细节在下面。

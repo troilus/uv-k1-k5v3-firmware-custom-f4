@@ -227,6 +227,10 @@ enum
      * locomotive, digits 4..7 for an EMU (model code 3xx). Appended last so no
      * existing id moves. */
     MENU_LBJNUM,
+    /* LBJRT: how the popup prints the route name - the four GB2312 characters
+     * the detail block carries (中文, the default) or their pinyin initials
+     * (拼音). Appended last so no existing id moves. */
+    MENU_LBJRT,
 #endif
 };
 
@@ -240,6 +244,7 @@ extern const char        gSubMenu_LBJ_POP[5][4];
 extern const char        gSubMenu_LBJ_CLR[2][4];
 extern const char        gSubMenu_LBJ_PRI[6][4];
 extern const char        gSubMenu_LBJ_NUM[2][7];
+extern const char        gSubMenu_LBJ_RT[2][5];
 extern const char        gSubMenu_NA[4];
 extern const char        gSubMenu_TOT[11][7];
 extern const char* const gSubMenu_RXMode[4];

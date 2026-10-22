@@ -162,6 +162,12 @@ static dem_t g_dm;
 /* ---- state ---- */
 #define LBJ_HISTORY   8u          /* decoded reports kept for paging back     */
 
+/* The route name of a report: up to four GB2312 characters (8 bytes) or their
+ * pinyin initials, '\0' terminated. The characters are what the detail block
+ * carries; LBJRT decides whether the rows print them or the initials, and the
+ * entry keeps the characters either way so the setting never has to lose one. */
+#define LBJ_RT_BYTES  9u
+
 /* The window has more than one page: the live decode (what a received report,
  * the LBJMSG item or a shortcut shows), the list of the reports stored in
  * flash, and the detail of one of those. */
@@ -183,7 +189,7 @@ typedef struct {
     uint8_t  sh;                  /* a short block has been seen for this entry */
     char     trn[7];              /* train digits   (short block), "" if unknown */
     char     loc[9];              /* 8-digit registration (detail), "" if unknown */
-    char     rt[5];               /* route name initials, e.g. "JGX"         */
+    char     rt[LBJ_RT_BYTES];    /* route name: GB2312 characters            */
     char     pref[3];             /* train prefix currently baked into row0  */
     char     l0[14], l1[18], l2[14], l3[20];
     /* the same numbers the rows show, kept separately for the LBJ log: the row
@@ -215,7 +221,7 @@ static struct {
     bool     dismissed;           /* popup dismissed until the carrier drops  */
     bool     pinned;              /* the LBJ menu item opened it: no timeout  */
     char     pref[3];             /* 2-char train prefix of the page being formatted */
-    char     rt[5];               /* route initials of the report being formatted */
+    char     rt[LBJ_RT_BYTES];    /* route name of the report being formatted */
     int16_t  dst;                 /* distance of the report being formatted   */
     char     trn[7];              /* train digits of the report being formatted */
     char     loc[9];              /* registration of the report being formatted */
@@ -405,6 +411,34 @@ static char cn_initial(uint8_t hi, uint8_t lo){
         k = i;
     }
     return "ABCDEFGHJKLMNOPQRSTWXYZ"[k];
+}
+
+/* The route text of a stored entry, as LBJRT prints it: the characters
+ * themselves (0 = 中文, the default) or their pinyin initials (1 = 拼音). The
+ * entry keeps the characters either way, so this reads the setting at draw
+ * time and a change never has to touch the history or the flash log. Bytes an
+ * old log wrote as plain initials pass through unchanged. */
+static char *putrt(char *o, const char *rt){
+    for (uint8_t i = 0; rt[i]; ){
+        const uint8_t hi = (uint8_t)rt[i];
+        const uint8_t lo = (uint8_t)rt[i + 1u];
+
+        if (hi >= 0xA1u && hi <= 0xF7u && lo >= 0xA1u && lo <= 0xFEu){
+            i = (uint8_t)(i + 2u);
+            if (gEeprom.LBJ_RT_FORMAT == 0u){
+                *o++ = (char)hi;
+                *o++ = (char)lo;
+            } else {
+                *o++ = cn_initial(hi, lo);
+            }
+            continue;
+        }
+
+        *o++ = (hi >= 0x20u && hi < 0x7Fu) ? (char)hi : '?';
+        i++;
+    }
+
+    return o;
 }
 
 /* True when none of the n characters is a decimal digit: the short block was
@@ -946,7 +980,9 @@ static void format(uint32_t addr, uint8_t func, const char *b, uint16_t len){
     o = g.l0; o = puttrain(o, sb, func, have_short);
     *o = '\0';
 
-    /* route name initials (the popup draws them as "LINE xxx") */
+    /* route name: the characters the detail block carries. The rows print
+     * either them or their pinyin initials (LBJRT, see putrt()), but the entry
+     * always keeps the characters, so switching the setting never loses one. */
     o = g.rt;
     if (has_detail){
         for (uint8_t m = 0; m < 4u; m++){
@@ -955,7 +991,8 @@ static void format(uint32_t addr, uint8_t func, const char *b, uint16_t len){
             const uint8_t hi = (uint8_t)((nib(d[k]) << 4) | nib(d[k + 1u]));
             const uint8_t lo = (uint8_t)((nib(d[k + 2u]) << 4) | nib(d[k + 3u]));
             if (!hi || !lo) break;
-            *o++ = cn_initial(hi, lo);
+            *o++ = (char)hi;
+            *o++ = (char)lo;
         }
     }
     *o = '\0';
@@ -1458,7 +1495,7 @@ static void log_build(lbj_log_rec_t *o, const lbj_rec_t *e){
     o->pref[1] = e->pref[1];
     for (uint8_t i = 0; i < 6u && e->trn[i]; i++) o->trn[i] = e->trn[i];
     for (uint8_t i = 0; i < 8u && e->loc[i]; i++) o->loc[i] = e->loc[i];
-    for (uint8_t i = 0; i < 4u && e->rt[i];  i++) o->rt[i]  = e->rt[i];
+    for (uint8_t i = 0; i + 1u < LBJ_LOG_RT_LEN && e->rt[i]; i++) o->rt[i] = e->rt[i];
     o->spd  = e->spd;
     o->km10 = e->km10;
     o->mdl  = e->mdl;
@@ -1858,12 +1895,11 @@ static void drawLogDetail(void){
         UI_PrintStringSmallBold(s, 0, 0, 3);
     }
 
-    /* row4: route initials, or a dash */
+    /* row4: the route name (characters or pinyin initials, LBJRT), or a dash */
     {
         char *o = put(s, "LINE ");
-        if ((r.flags & LBJ_LOG_F_RT) && r.rt[0]){
-            for (uint8_t i = 0; i < 4u && r.rt[i]; i++) *o++ = r.rt[i];
-        } else *o++ = '-';
+        if ((r.flags & LBJ_LOG_F_RT) && r.rt[0]) o = putrt(o, r.rt);
+        else *o++ = '-';
         *o = '\0';
         UI_PrintStringSmallBold(s, 0, 0, 4);
     }
@@ -1935,11 +1971,12 @@ void LBJ_DrawPopup(void){
     UI_PrintStringSmallBold(r->l2, 0, 0, 2);
     UI_PrintStringSmallBold(r->l3, 0, 0, 3);
 
-    /* route line: the ASCII initials of the line name, or a dash */
+    /* route line: the characters of the line name or their pinyin initials
+     * (LBJRT), and a dash when the report carried none */
     {
         char *o = s;
         o = put(o, "LINE ");
-        if (r->rt[0]) o = put(o, r->rt); else *o++ = '-';
+        if (r->rt[0]) o = putrt(o, r->rt); else *o++ = '-';
         *o = '\0';
         UI_PrintStringSmallBold(s, 0, 0, 4);
     }

@@ -34,7 +34,7 @@
 /* Presence bits for lbj_log_rec_t.flags: one per field the report actually
  * carried. The direction is not one of these - it has a byte of its own (see
  * LBJ_LOG_DIR_*), because "the frame header did not say" is a third state that
- * a single presence bit could not hold. 0x80 is reserved. */
+ * a single presence bit could not hold. */
 #define LBJ_LOG_F_TRN   0x01u
 #define LBJ_LOG_F_SPD   0x02u
 #define LBJ_LOG_F_KM    0x04u
@@ -42,6 +42,16 @@
 #define LBJ_LOG_F_LOC   0x10u
 #define LBJ_LOG_F_RT    0x20u
 #define LBJ_LOG_F_DST   0x40u
+/* The record's rt field carries the four route characters packed as 12-bit
+ * GB2312 level-1 indexes (rt[4] plus the two reserved bytes) instead of the
+ * plain pinyin initials. The popup keeps the characters whatever LBJRT says,
+ * so every record this firmware writes has it; a record without it was written
+ * by an older build and holds ASCII initials. */
+#define LBJ_LOG_F_RT_PACKED 0x80u
+
+/* lbj_log_rec_t.rt: four GB2312 route characters (8 bytes) or their pinyin
+ * initials, '\0' terminated. */
+#define LBJ_LOG_RT_LEN  9u
 
 /* lbj_log_rec_t.dir, exactly what the popup shows: func 1 is down, func 3 is
  * up, anything else is the "??" the row prints. */
@@ -62,7 +72,7 @@ typedef struct {
     uint32_t km10;       /* km post in 0.1 km units (5 BCD digits)         */
     uint16_t mdl;        /* model code 0..999 -> type_name()               */
     char     loc[8];     /* 8-digit registration                           */
-    char     rt[4];      /* route initials, e.g. "JGX"                     */
+    char     rt[LBJ_LOG_RT_LEN]; /* route: initials, or 4 GB2312 chars    */
     int16_t  dst;        /* distance, tenths of km; < 0 = unknown kind     */
     uint16_t seq;        /* the ordinal the record carries in the flash, i.e.
                           * the export's "seq" column. Only the viewer fills it
