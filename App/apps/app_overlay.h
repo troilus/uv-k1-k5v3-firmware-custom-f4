@@ -124,6 +124,9 @@
  * the editor and by its target, whose settings cannot be changed without it;
  * earlier firmware refuses both with APP_ERR_CAP. */
 #define APP_CAP_CFG_PROXY     0x00000020u
+/* Serial ports (serial_read / serial_write / serial_ctl, API level 3): the
+ * USB-C port; serial_ctl tells which ports this firmware has (APP_SERIAL_OK). */
+#define APP_CAP_SERIAL        0x00000040u
 
 /* Aligned RAM objects; app_overlay.c pins every serialized field offset. */
 typedef struct {
@@ -173,6 +176,10 @@ bool APP_ReadSlotConfig(uint8_t slot, uint8_t *buf, uint16_t len);
  * APP_CHAIN_ABORTED means a runaway-chain guard stopped the sequence.  The
  * internal flash is never touched while an overlay is executing. */
 uint8_t APP_LaunchOverlay(uint8_t slot);
+
+/* Set when an app staged a VFO (vfo_stage): the Apps menu then hands back to
+ * the main screen, and clears it. */
+extern bool gAppVfoExit;
 
 /* An open RX audio capture (af_capture_open) holds the ADC on PA4: Yield puts
  * the battery channel back for one conversion and returns whether it did, Resume

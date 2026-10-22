@@ -332,6 +332,9 @@ extern volatile bool         gTxTimeoutReached;
 
         bool SCREENSHOT_IsLocked(void);
     #endif
+    #ifdef ENABLE_USB
+        extern volatile bool gUART_AppSerial;   // an overlay app owns the USB port
+    #endif
 #endif
 
 extern volatile uint16_t     gTailNoteEliminationCountdown_10ms;

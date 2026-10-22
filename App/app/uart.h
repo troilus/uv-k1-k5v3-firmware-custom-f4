@@ -19,6 +19,7 @@
 #define APP_UART_H
 
 #include <stdbool.h>
+#include <stdint.h>
 
 enum
 {
@@ -32,6 +33,10 @@ enum
 
 bool UART_IsCommandAvailable(uint32_t Port);
 void UART_HandleCommand(uint32_t Port);
+
+#if defined(ENABLE_USB)
+extern uint16_t VCP_ReadIndex;   /* the command parser's VCP_RxBuf read index */
+#endif
 
 #endif
 

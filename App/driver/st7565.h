@@ -31,6 +31,12 @@ void ST7565_DrawLine(const unsigned int Column, const unsigned int Line, const u
 void ST7565_BlitFullScreen(void);
 void ST7565_BlitLine(unsigned line);
 void ST7565_BlitStatusLine(void);
+#ifdef ENABLE_FEAT_F4HWN
+void ST7565_BlitScreen(uint8_t line);   /* 0 status line, 1-7 a frame line, 8 all */
+#endif
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
+bool ST7565_Feed(unsigned count);       /* overlay app: screen a few bytes at a time */
+#endif
 void ST7565_FillScreen(uint8_t Value);
 void ST7565_Init(void);
 #ifdef ENABLE_FEAT_F4HWN_SLEEP

@@ -214,6 +214,12 @@ volatile bool     gTxTimeoutReached;
         volatile uint8_t  gUART_LockScreenshot = 0; // lock screenshot if Chirp is used
         bool gUSB_ScreenshotEnabled = false;
     #endif
+    #ifdef ENABLE_USB
+        /* Set while an overlay app owns the USB-C port (API level 3
+         * serial_read/write): the viewer must neither read the app's bytes as
+         * commands nor mix frames into its stream. */
+        volatile bool gUART_AppSerial = false;
+    #endif
 #endif
 
 volatile uint16_t gTailNoteEliminationCountdown_10ms;
@@ -649,6 +655,10 @@ void MR_PrintCacheStats(void)
 #ifdef ENABLE_FEAT_F4HWN_SCREENSHOT
     bool SCREENSHOT_IsLocked(void) 
     {
+        #ifdef ENABLE_USB
+            if (gUART_AppSerial)
+                return true;   /* an overlay app owns the port; no countdown */
+        #endif
         if (gUART_LockScreenshot > 0) {
             gUART_LockScreenshot--;
             return true;
