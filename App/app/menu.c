@@ -1136,12 +1136,11 @@ void MENU_AcceptSetting(void)
 #ifdef ENABLE_CN_FONT
             case MENU_LBJ_LANG:
                 /* Takes effect on the next frame: the browser, the popup and
-                 * the route names all read gSetting_LBJ_lang. The history rows
-                 * are already formatted, so they are dropped rather than shown
-                 * in two languages at once. */
+                 * the route names all read gSetting_LBJ_lang, and the popup
+                 * rebuilds a history entry's rows as it draws them. Nothing is
+                 * dropped here - the reports stay, in the new language. */
                 gEeprom.LBJ_LANG  = (uint8_t)gSubMenuSelection;
                 gSetting_LBJ_lang = (uint8_t)gSubMenuSelection;
-                LBJ_HistoryForget();
                 break;
 #endif
             case MENU_LBJLAT:

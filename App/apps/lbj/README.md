@@ -33,9 +33,12 @@ values: `CHN` keeps the Chinese menu, labels and route names (the way it always
 printed), `ENG` turns everything English and writes the route names as their
 pinyin initials, and `ENLC` keeps only the route names Chinese. It lives in the
 settings byte at 0x00A0F3, so a radio that never stored one (0xFF) stays in
-Chinese. Changing it drops the session history of the decode window, whose rows
-are already formatted, instead of showing two languages at once; the flash log
-is re-formatted every time it is drawn, so it is not affected.
+Chinese. Changing it leaves the session history of the decode window alone: the
+popup rebuilds an entry's rows (labels, the direction word, the values) from the
+report it keeps, in the language in force when it draws them, so a history
+captured under one language shows in the other instead of being thrown away. The
+flash log is re-formatted every time it is drawn, so it follows the language the
+same way.
 
 What v0.2 changed (all mirrored in `test/model_rx.py`):
 

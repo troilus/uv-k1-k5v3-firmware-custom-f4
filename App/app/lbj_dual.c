@@ -1089,6 +1089,36 @@ static void format(uint32_t addr, uint8_t func, const char *b, uint16_t len){
                                           : (uint8_t)LBJ_LOG_DIR_NONE);
 }
 
+/* Rebuild the formatted rows of a history entry from the values it keeps next
+ * to them, in the language in force now. Row0 is filed with the train number
+ * (which may carry a '?' where a codeword was lost) and the direction word of
+ * the language the report arrived under, so only the word after the separator
+ * is rewritten - the number itself is language-neutral and stays byte for
+ * byte. Rows 1 and 2 are the label plus a value the entry also keeps as a
+ * number, so they are rebuilt whole. Switching the language must not throw the
+ * history away: this is what makes it follow the language instead. The stored
+ * rows are only ever read by the popup, so this is also where a row a merge
+ * filled in from a held-back block gets its final form. */
+static void rebuild_rows(lbj_rec_t *r){
+    char *o = r->l0;
+    while (*o && *o != ' ') o++;         /* puttrain always writes this space */
+    if (*o) o++;
+    o = putdir(o, (r->dir == LBJ_LOG_DIR_DN) ? 1u
+                : ((r->dir == LBJ_LOG_DIR_UP) ? 3u : 0u));
+    *o = '\0';
+
+    o = r->l1; o = put(o, LBJ_LBL_SPD);
+    if (r->spd != (uint16_t)LBJ_LOG_SPD_NONE) o = putu(o, r->spd);
+    else                                      *o++ = '-';
+    o = put(o, " km/h");
+    *o = '\0';
+
+    o = r->l2; o = put(o, LBJ_LBL_KM);
+    if (r->km10 != (uint32_t)LBJ_LOG_KM_NONE) o = putkm10(o, r->km10);
+    else                                      *o++ = '-';
+    *o = '\0';
+}
+
 /* ---- the LBJ channel's LED ------------------------------------------------
  *
  * On this mode the LED keeps the radio's ordinary meaning - on while a carrier
@@ -1621,18 +1651,6 @@ void LBJ_ClosePopup(void){
     g.dismissed = true;              /* stay dismissed until the carrier drops */
 }
 
-/* Drop the session history. Each entry keeps its rows already formatted, with
- * the labels and the direction word of the language the report arrived under,
- * so a language change (LBJLANG) starts the history over instead of leaving two
- * languages on one screen. The flash log is not touched: its rows are rebuilt
- * every time they are drawn. */
-void LBJ_HistoryForget(void){
-    g.count     = 0;
-    g.cur       = 0;
-    g.pendValid = false;             /* its held-back rows are formatted too */
-    memset(&g.rec[0], 0, sizeof g.rec[0]);
-}
-
 /* Manually open the decode window (the LBJMSG menu item, and the side key or M
  * Long action the operator can point at it): unlike a received report nothing
  * re-arms it, so it simply stays until EXIT or PTT - the LBJPOP timeout does not
@@ -2012,8 +2030,10 @@ void LBJ_DrawPopup(void){
     if (g.view == LBJ_VIEW_LIST){ drawList();      return; }
     if (g.view == LBJ_VIEW_REC ){ drawLogDetail(); return; }
 
-    const lbj_rec_t *r = &g.rec[g.cur];
+    lbj_rec_t *r = &g.rec[g.cur];
     char s[22];
+
+    rebuild_rows(r);                 /* labels/direction in the language now */
 
     UI_DisplayClear();
 
