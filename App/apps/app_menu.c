@@ -415,8 +415,10 @@ void APP_MenuOpen(void)
                     app_show_error(&hdr, rc);               /* no longer silent */
                 APP_WaitKeyRelease();
                 /* Radio apps (BEAM, ...) hand back straight to the radio screen. */
-                if (rc == APP_OK && (hdr.flags & APP_FLAG_EXIT_TO_MAIN))
+                if (rc == APP_OK && ((hdr.flags & APP_FLAG_EXIT_TO_MAIN) | gAppVfoExit)) {
+                    gAppVfoExit = false;
                     return;
+                }
                 break;
             }
             default:

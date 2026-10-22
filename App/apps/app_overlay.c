@@ -58,6 +58,11 @@
 #include "helper/battery.h"
 #include "settings.h"
 #include "misc.h"   /* dBmCorrTable */
+#ifdef ENABLE_USB
+#define APP_SERIAL 1
+#include "app/uart.h"
+#include "driver/vcp.h"
+#endif
 #ifdef ENABLE_FEAT_F4HWN_OVERLAY_INFO
 #include "version.h"
 #include "stack_usage.h"
@@ -115,6 +120,9 @@ enum {
 #ifdef ENABLE_FEAT_F4HWN_OVERLAY_INFO
                        | APP_CAP_SYSINFO
 #endif
+#ifdef APP_SERIAL
+                       | APP_CAP_SERIAL
+#endif
 };
 
 /* Keep the small zero-initialized state together so callbacks can address it
@@ -153,7 +161,22 @@ static struct {
     bool    handoff_unread;
     uint8_t cfg_buf[APP_CONFIG_PROXY_MAX];
     uint8_t handoff_buf[APP_HANDOFF_MAX];
+#ifdef APP_SERIAL
+    /* Serial port claim (API level 3): the byte total at the app's read
+     * position (detects a lapped ring), the host configuration count (detects
+     * a re-enumeration), the events since serial_ctl, and whether the port is
+     * held (the viewer stays off until the app returns). */
+    uint32_t serial_read_total;
+    uint8_t  serial_enum;
+    uint8_t  serial_evt;
+    bool     serial_used;
+#endif
 } app_state;
+
+/* Set when an app staged a VFO (vfo_stage); the Apps menu then hands back to
+ * the main screen and clears it. Never set on this build (no BEAM bridge), but
+ * the menu test is part of the ABI and costs one byte. */
+bool gAppVfoExit;
 
 /* ---- ABI wrappers: the few resident calls that are not a direct signature match ---- */
 
@@ -971,6 +994,125 @@ static int16_t app_handoff_read(void *buf, uint8_t max, char *from)
     return len;
 }
 
+#ifdef APP_SERIAL
+/* ---- API level 3: serial ports ----
+ * USB only for now: APP_SERIAL_KPLUG reports no port (serial_ctl 0).  The
+ * first call drops what the main loop left unread, takes the current USB
+ * counters as the reference and holds the screenshot viewer off until the app
+ * returns, so it neither reads the app's bytes as viewer commands nor mixes
+ * screen frames into the app's stream, however rarely the app polls the port. */
+#define APP_SERIAL_WRITE_CYC (48000000u / 20u)   /* 50 ms for the host */
+
+_Static_assert(sizeof(VCP_RxBuf) == 256u, "the ring indexes wrap as uint8_t");
+
+/* Drop the unread bytes and take the receive total at the new read position,
+ * with the USB interrupt held off: a packet stored in between would otherwise
+ * be counted on the wrong side.  The ISR may leave the write index at the ring
+ * size before wrapping it, hence uint8_t. */
+static void app_serial_flush(void)
+{
+    const uint32_t primask = __get_PRIMASK();
+    __disable_irq();
+    VCP_ReadIndex = (uint8_t)VCP_RxBufPointer;
+    app_state.serial_read_total = cdc_acm_rx_total;
+    __set_PRIMASK(primask);
+}
+
+static bool app_serial_claim(uint8_t port)
+{
+    if (port != APP_SERIAL_USB)
+        return false;
+    if (!app_state.serial_used) {
+        app_state.serial_used = true;
+        app_serial_flush();
+        app_state.serial_enum = cdc_acm_config_count;
+        gUART_AppSerial = true;
+    }
+    return true;
+}
+
+static uint16_t app_serial_read(uint8_t port, void *buf, uint16_t len)
+{
+    if (!app_serial_claim(port))
+        return 0;
+    /* 256 bytes or more since the app's position: the ISR lapped it. */
+    const uint32_t total = cdc_acm_rx_total;
+    if (total - app_state.serial_read_total >= sizeof(VCP_RxBuf)) {
+        app_serial_flush();
+        app_state.serial_evt |= APP_SERIAL_LOST;
+    }
+    /* From the command parser's own read index, so the bytes an app consumed
+     * are never parsed as commands once the main loop resumes. */
+    const uint8_t w = (uint8_t)VCP_RxBufPointer;
+    uint8_t r = (uint8_t)VCP_ReadIndex;
+    uint8_t *p = buf;
+    uint16_t n = 0;
+    while (n < len && r != w)
+        p[n++] = VCP_RxBuf[r++];
+    VCP_ReadIndex = r;
+    app_state.serial_read_total += n;
+    return n;
+}
+
+static bool app_serial_write(uint8_t port, const void *buf, uint16_t len)
+{
+    if (!app_serial_claim(port) || !dtr_enable)
+        return false;
+    if (!len)
+        return true;
+    if (cdc_acm_start_send(buf, len)) {
+        const uint32_t t0 = app_cycles_raw();
+        while (ep_tx_busy_flag)
+            if (app_cycles_raw() - t0 >= APP_SERIAL_WRITE_CYC)
+                goto timeout;
+        return true;
+    }
+timeout:
+    cdc_acm_cancel_send();
+    app_state.serial_evt |= APP_SERIAL_TIMEOUT;
+    return false;
+}
+
+static uint8_t app_serial_ctl(uint8_t port, uint32_t baud)
+{
+    (void)baud;
+    if (!app_serial_claim(port))
+        return 0;
+    uint8_t st = APP_SERIAL_OK | app_state.serial_evt;
+    app_state.serial_evt = 0;
+    if (dtr_enable)
+        st |= APP_SERIAL_HOST;
+    const uint8_t c = cdc_acm_config_count;
+    if (c != app_state.serial_enum) {
+        app_state.serial_enum = c;
+        st |= APP_SERIAL_ENUM;
+    }
+    return st;
+}
+
+/* After the app: its half-read frames must not reach the command parser or
+ * the viewer once the main loop resumes. */
+static void app_serial_release(void)
+{
+    if (!app_state.serial_used)
+        return;
+    app_state.serial_used = false;
+    app_state.serial_evt  = 0;
+    app_serial_flush();
+    gUART_AppSerial = false;
+}
+#endif
+
+/* A viewer frame on request, for an app that does not use blit_full (its
+ * screen goes out with lcd_feed instead). Suppressed like every other frame
+ * while the app owns the serial port. */
+static void app_viewer_update(void)
+{
+#ifdef ENABLE_FEAT_F4HWN_SCREENSHOT
+    SCREENSHOT_Update(false);
+#endif
+}
+
 uint8_t APP_ValidateSlot(uint8_t slot, app_header_t *out_header)
 {
     app_header_t h;
@@ -1221,6 +1363,15 @@ static const app_api_t app_api = {
      * system information; inside it, an app would call a NULL pointer. */
     .handoff             = app_handoff,
     .handoff_read        = app_handoff_read,
+    .tx_prepare          = RADIO_PrepareTx,
+#ifdef APP_SERIAL
+    .serial_read         = app_serial_read,
+    .serial_write        = app_serial_write,
+    .serial_ctl          = app_serial_ctl,
+#endif
+    .blit_page           = ST7565_BlitScreen,
+    .lcd_feed            = ST7565_Feed,
+    .viewer_update       = app_viewer_update,
 };
 
 /* Hand-off guards: a chain of apps that hand off to each other for ever (a
@@ -1342,6 +1493,11 @@ static uint8_t app_launch(uint8_t slot)
 
     /* A capture the app left open must not keep PA4 and the DAC. */
     app_af_capture_close();
+#ifdef APP_SERIAL
+    /* The app's half-read frames must not reach the command parser or the
+     * viewer once the main loop resumes. */
+    app_serial_release();
+#endif
 
     /* First thing after the app: nothing has drawn over its last screen yet. */
     if (h.flags & APP_FLAG_SAVE_SCREEN)
@@ -1440,6 +1596,7 @@ uint8_t gAppLastSlot;
  * that failed to launch.  A runaway-chain guard returns APP_CHAIN_ABORTED. */
 uint8_t APP_LaunchOverlay(uint8_t slot)
 {
+    gAppVfoExit = false;   /* result belongs only to this top-level launch */
     uint8_t fast_hops = 0;
     app_state.handoff_unread = false;   /* a menu or shortcut launch carries no message */
     for (;;) {

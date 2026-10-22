@@ -91,6 +91,13 @@ USB_MEM_ALIGNX uint8_t read_buffer[128];
 
 static cdc_acm_rx_buf_t client_rx_buf = {0};
 
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
+/* Bytes received since boot (overlay apps detect a lapped ring with it) and
+ * host configurations since boot (each enumeration counts one). */
+volatile uint32_t cdc_acm_rx_total = 0;
+volatile uint8_t  cdc_acm_config_count = 0;
+#endif
+
 volatile bool ep_tx_busy_flag = false;
 
 #ifdef CONFIG_USB_HS
@@ -101,6 +108,9 @@ volatile bool ep_tx_busy_flag = false;
 
 void usbd_configure_done_callback(void)
 {
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
+    cdc_acm_config_count++;
+#endif
     /* setup first out ep read transfer */
     usbd_ep_start_read(CDC_OUT_EP, read_buffer, sizeof(read_buffer));
 }
@@ -111,6 +121,9 @@ void usbd_cdc_acm_bulk_out(uint8_t ep, uint32_t nbytes)
     if (nbytes && rx_buf->buf)
     {
         const uint8_t *buf = read_buffer;
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
+        cdc_acm_rx_total += nbytes;
+#endif
         uint32_t pointer = *rx_buf->write_pointer;
         while (nbytes)
         {
@@ -207,3 +220,26 @@ void cdc_acm_data_send_with_dtr_async(const uint8_t *buf, uint32_t size)
         usbd_ep_start_write(CDC_IN_EP, buf, size);
     }
 }
+
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
+/* Overlay-app serial port (API level 3): start a write and let the caller wait
+ * on ep_tx_busy_flag, then give up with cdc_acm_cancel_send.  Unlike
+ * cdc_acm_data_send_with_dtr, a host that is slow to read never clears
+ * dtr_enable here: the caller times out and reports APP_SERIAL_TIMEOUT. */
+bool cdc_acm_start_send(const uint8_t *buf, uint32_t size)
+{
+    ep_tx_busy_flag = true;
+    if (usbd_ep_start_write(CDC_IN_EP, buf, size) == 0)
+        return true;
+    ep_tx_busy_flag = false;
+    return false;
+}
+
+void cdc_acm_cancel_send(void)
+{
+    /* This CherryUSB port has no usbd_ep_cancel_write: a transfer still in
+     * flight keeps the endpoint busy, so the next start fails cleanly instead
+     * of queueing a second packet.  Drop the busy flag only. */
+    ep_tx_busy_flag = false;
+}
+#endif

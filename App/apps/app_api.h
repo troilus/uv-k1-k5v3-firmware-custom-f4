@@ -47,8 +47,12 @@
  *      current and minimum-since-boot free stack/RAM margin
  *   3  append_i32 / append_u32 (resident decimal formatters), af_capture_open /
  *      sample / close (RX audio on PA4), cycles_48mhz, draw_frequency,
- *      handoff / handoff_read; the Labs system information slots become part
- *      of the layout in every build, so level 3 services have one offset.
+ *      handoff / handoff_read, tx_prepare; the Labs system information slots
+ *      become part of the layout in every build, so level 3 services have one
+ *      offset; serial_read / serial_write / serial_ctl (the USB-C serial
+ *      port, K-plug reserved; APP_CAP_SERIAL); blit_page, lcd_feed,
+ *      viewer_update (the LCD without the K5Viewer side effect), vfo_stage
+ *      (deferred update of the current VFO).
  *      This fork also enlarges the app's own config area to 96 bytes
  *      (APP_CONFIG_LOCAL_MAX), which upstream does not: a level 3 app that
  *      keeps more than 16 bytes of its own settings runs here, not upstream */
@@ -373,18 +377,89 @@ typedef struct app_api {
      * Read once, -1 afterwards: call it at launch, before handoff(), which
      * replaces the message. */
     int16_t (*handoff_read)(void *buf, uint8_t max, char *from);
+
+    /* tx_set_params without the FM waits and with PA_ENABLE left off, for a
+     * caller that keys the PA itself (tx_set_params leaves an unshaped
+     * carrier burst). On an older level 3 table, check api_size first. */
+    void    (*tx_prepare)(void);
+
+    /* ---- API level 3: serial ports (APP_CAP_SERIAL) ----
+     * port: APP_SERIAL_USB, the USB-C CDC port (a PC or a phone in OTG: the
+     * radio is a USB device, never a host).  APP_SERIAL_KPLUG, the K-plug
+     * UART, is reserved and not implemented yet: serial_ctl returns 0 (no
+     * APP_SERIAL_OK), serial_read 0 and serial_write false.
+     * From the app's first serial call until it returns, the resident command
+     * parser and K5Viewer leave the USB port alone; when the app returns, the
+     * loader drops the bytes it left unread.
+     * serial_read copies up to len received bytes, returns their count (0 when
+     * nothing waits).  The port receives into a 256-byte ring: poll it before
+     * 256 bytes can arrive (a few ms while a host streams).  A lapped ring is
+     * reported by serial_ctl (APP_SERIAL_LOST) and read on from the newest
+     * byte.
+     * serial_write sends len bytes and returns once the host has taken them;
+     * false when no host has the port open (DTR clear) or the host did not
+     * take the data within 50 ms: the unsent rest is then dropped, and the
+     * next write starts clean.  It needs interrupts enabled (the transfer
+     * completes in the USB interrupt).
+     * serial_ctl returns the port state: APP_SERIAL_* bits, the events since
+     * the previous serial_ctl.  baud is for the K-plug, ignored for USB. */
+    uint16_t (*serial_read)(uint8_t port, void *buf, uint16_t len);
+    bool     (*serial_write)(uint8_t port, const void *buf, uint16_t len);
+    uint8_t  (*serial_ctl)(uint8_t port, uint32_t baud);
+
+    /* ---- API level 3: the LCD without the K5Viewer side effect ----
+     * blit_page: one LCD page, 0 the status line, 1-7 a frame buffer line, 8
+     * the 7 of them (blit_status and blit_full are 0 and 8, but blit_full and
+     * blit_line also send a blocking K5Viewer frame).
+     * lcd_feed: the screen a few bytes at a time, for an app that sends it
+     * between its audio samples (a whole-screen blit, an 11 ms burst on the
+     * LCD SPI, is heard as a flutter while the speaker is on). 0 starts a
+     * frame; n > 0 sends its next n bytes (10.7 us each, 1048 in all: per
+     * page, 3 command bytes then 128 data bytes, from the status line), each
+     * one done before it returns. True while bytes remain. The status line
+     * and the frame buffer are read as the bytes go: change them only once a
+     * frame is out. Any blit may follow; lcd_feed(0) then starts over.
+     * viewer_update: a K5Viewer frame of the status line and the frame buffer,
+     * for an app that does not use blit_full; nothing when no viewer is
+     * connected. Blocking: short on USB, up to ~0.3 s for a full frame on the
+     * K-plug at 38400 bauds. */
+    void     (*blit_page)(uint8_t page);
+    bool     (*lcd_feed)(unsigned n);
+    void     (*viewer_update)(void);
+
+    /* ---- API level 3: set the VFO on exit (builds with the BEAM bridge) ----
+     * Stage a VFO setting: the loader applies it to the current VFO after
+     * app_main() returns (frequency, offset, codes, modulation, bandwidth,
+     * power, step), before it launches a hand-off target or returns to the
+     * main screen, where it then goes. The VFO is saved as a keypad entry
+     * saves it. One staging per run, shared with beam_save: false when one is
+     * already pending or the frequency is out of the radio's range. Only the
+     * frequency is checked: the other fields are taken as they are, as with
+     * beam_save, so start from beam_get and change what is needed. NULL on a
+     * build without the BEAM bridge. */
+    bool     (*vfo_stage)(const app_beam_channel_t *ch);
 } app_api_t;
+
+/* Serial ports and serial_ctl state bits (API level 3). */
+enum { APP_SERIAL_USB = 0, APP_SERIAL_KPLUG = 1 };
+#define APP_SERIAL_OK      0x01u  /* the port exists in this build            */
+#define APP_SERIAL_HOST    0x02u  /* USB: a host has the port open (DTR)      */
+#define APP_SERIAL_LOST    0x04u  /* event: received bytes overwritten unread */
+#define APP_SERIAL_TIMEOUT 0x08u  /* event: a write timed out, data dropped   */
+#define APP_SERIAL_ENUM    0x10u  /* event: USB (re-)enumerated by a host     */
 
 /* The layout is append-only and shared by every build: the Labs system
  * information and the level 3 services must sit at one offset whether or not
  * ENABLE_FEAT_F4HWN_OVERLAY_INFO is defined (apps are built without it). */
 _Static_assert(offsetof(app_api_t, sys_edition) == 276u &&
-               offsetof(app_api_t, sys_stack_free_min) == 324u,
-               "Labs system information must keep its offsets in every build");
-_Static_assert(offsetof(app_api_t, append_i32) == 328u,
-               "API level 3 must start at 328 in every build");
+               offsetof(app_api_t, append_i32) == 328u,
+               "the level 2 API prefix must stay 328 bytes");
 _Static_assert(offsetof(app_api_t, handoff) == 356u &&
-               sizeof(app_api_t) == 364u,
+               offsetof(app_api_t, tx_prepare) == 364u &&
+               offsetof(app_api_t, serial_read) == 368u &&
+               offsetof(app_api_t, blit_page) == 380u &&
+               offsetof(app_api_t, vfo_stage) == 392u &&
+               sizeof(app_api_t) == 396u,
                "app_api_t is append-only: every edition shares this layout");
 
 /* Wrap-safe modular ordering for deadlines less than half a cycle-counter
