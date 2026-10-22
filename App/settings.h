@@ -338,8 +338,23 @@ typedef struct {
      * It lives in the settings byte behind LBJLOG (0x00A0C7, see settings.c);
      * 0xFF reads as 0, so a radio that never stored one keeps the old row. */
     uint8_t               LBJ_NUM_FORMAT;
+    /* LBJLANG (the Chinese build only): what it prints. 0 = CHN (the Chinese
+     * menu, popup labels and route names), 1 = ENG (all English, the route
+     * names as pinyin initials), 2 = ENLC (English apart from the route names,
+     * which stay Chinese). It lives in the free byte at 0x00A0F3 (see
+     * settings.c); 0xFF reads as 0, so a radio that never stored one stays in
+     * Chinese. */
+    uint8_t               LBJ_LANG;
 #endif
 } EEPROM_Config_t;
+
+#ifdef ENABLE_FEAT_F4HWN_LBJ
+/* The LBJ_LANG values, in menu order. */
+#define LBJ_LANG_CHN    0
+#define LBJ_LANG_ENG    1
+#define LBJ_LANG_ENLC   2
+#define LBJ_LANG_COUNT  3
+#endif
 
 extern EEPROM_Config_t gEeprom;
 

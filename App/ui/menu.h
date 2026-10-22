@@ -227,6 +227,12 @@ enum
      * locomotive, digits 4..7 for an EMU (model code 3xx). Appended last so no
      * existing id moves. */
     MENU_LBJNUM,
+#ifdef ENABLE_CN_FONT
+    /* LBJLANG: what the Chinese build prints - CHN, ENG, or ENLC (English, but
+     * the route names stay Chinese). The English build has no such item and no
+     * Chinese in it at all. Appended last again so no existing id moves. */
+    MENU_LBJ_LANG,
+#endif
 #endif
 };
 
@@ -240,6 +246,9 @@ extern const char        gSubMenu_LBJ_POP[5][4];
 extern const char        gSubMenu_LBJ_CLR[2][4];
 extern const char        gSubMenu_LBJ_PRI[6][4];
 extern const char        gSubMenu_LBJ_NUM[2][7];
+#ifdef ENABLE_CN_FONT
+extern const char        gSubMenu_LBJ_LANG[3][5];
+#endif
 extern const char        gSubMenu_NA[4];
 extern const char        gSubMenu_TOT[11][7];
 extern const char* const gSubMenu_RXMode[4];

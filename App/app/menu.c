@@ -510,6 +510,12 @@ int MENU_GetLimits(uint8_t menu_id, int32_t *pMin, int32_t *pMax)
                 //*pMin = 0;
                 *pMax = ARRAY_SIZE(gSubMenu_LBJ_NUM) - 1;
                 break;
+#ifdef ENABLE_CN_FONT
+            case MENU_LBJ_LANG:
+                //*pMin = 0;
+                *pMax = ARRAY_SIZE(gSubMenu_LBJ_LANG) - 1;
+                break;
+#endif
         #endif
 
         case MENU_VOL: {
@@ -1127,6 +1133,17 @@ void MENU_AcceptSetting(void)
             case MENU_LBJNUM:
                 gEeprom.LBJ_NUM_FORMAT = gSubMenuSelection;
                 break;
+#ifdef ENABLE_CN_FONT
+            case MENU_LBJ_LANG:
+                /* Takes effect on the next frame: the browser, the popup and
+                 * the route names all read gSetting_LBJ_lang. The history rows
+                 * are already formatted, so they are dropped rather than shown
+                 * in two languages at once. */
+                gEeprom.LBJ_LANG  = (uint8_t)gSubMenuSelection;
+                gSetting_LBJ_lang = (uint8_t)gSubMenuSelection;
+                LBJ_HistoryForget();
+                break;
+#endif
             case MENU_LBJLAT:
             case MENU_LBJLON:
             {   /* One half of the primary slot's coordinate: the digits the box
@@ -1667,6 +1684,11 @@ void MENU_ShowCurrentSetting(void)
             case MENU_LBJNUM:
                 gSubMenuSelection = gEeprom.LBJ_NUM_FORMAT;
                 break;
+#ifdef ENABLE_CN_FONT
+            case MENU_LBJ_LANG:
+                gSubMenuSelection = gEeprom.LBJ_LANG;
+                break;
+#endif
         #endif
 
         default:

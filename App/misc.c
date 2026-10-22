@@ -162,6 +162,9 @@ enum BacklightOnRxTx_t gSetting_backlight_on_tx_rx;
 #endif
 bool              gSetting_live_DTMF_decoder;
 uint8_t           gSetting_battery_text;
+#ifdef ENABLE_FEAT_F4HWN_LBJ
+uint8_t           gSetting_LBJ_lang;          // LBJ_LANG_*: what the CN build prints
+#endif
 
 bool              gMonitor = false;           // true opens the squelch
 

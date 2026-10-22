@@ -44,6 +44,7 @@ void LBJ_StopSampler(void);
 /* Popup state. */
 bool LBJ_PopupActive(void);
 void LBJ_ClosePopup(void);
+void LBJ_HistoryForget(void);
 void LBJ_DrawPopup(void);
 
 /* Open the decode window by hand (the LBJMSG menu item, and the side key /

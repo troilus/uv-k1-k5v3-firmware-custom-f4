@@ -326,6 +326,15 @@ gEeprom.FreqChannel[1]   = IS_FREQ_CHANNEL(Data16[5]) ? Data16[5] : (FREQ_CHANNE
     PY25Q16_ReadBuffer(0x00A0A8 + 0x48, Data, 8);
     gEeprom.DTMF_CODE_PERSIST_TIME  = (Data[0] < 101) ? Data[0] * 10 : 100;
     gEeprom.DTMF_CODE_INTERVAL_TIME = (Data[1] < 101) ? Data[1] * 10 : 100;
+#ifdef ENABLE_FEAT_F4HWN_LBJ
+    /* LBJLANG. Data[3] was unused until now (0x00A0F3), so a radio that never
+     * stored one reads 0xFF and the clamp turns that into 0 = CHN, the way the
+     * Chinese build has always printed. */
+    gEeprom.LBJ_LANG = (Data[3] < LBJ_LANG_COUNT) ? Data[3] : LBJ_LANG_CHN;
+    /* What the menu, the popup and the route names print; kept in RAM so the
+     * drawing code does not read the EEPROM on every frame. */
+    gSetting_LBJ_lang = gEeprom.LBJ_LANG;
+#endif
 
 #ifdef ENABLE_DTMF_CALLING
     gEeprom.PERMIT_REMOTE_KILL      = (Data[2] <   2) ? Data[2] : true;
@@ -1067,6 +1076,9 @@ void SETTINGS_SaveSettings(void)
     State[1] = gEeprom.DTMF_CODE_INTERVAL_TIME / 10U;
 #ifdef ENABLE_DTMF_CALLING
     State[2] = gEeprom.PERMIT_REMOTE_KILL;
+#endif
+#ifdef ENABLE_FEAT_F4HWN_LBJ
+    State[3] = gEeprom.LBJ_LANG;            /* 0x00A0F3, unused until now */
 #endif
 
     PY25Q16_WriteBuffer(0x00A0A8, SecBuf, 0x50, false);

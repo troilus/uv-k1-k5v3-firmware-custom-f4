@@ -175,16 +175,19 @@ static dem_t g_dm;
 #define LBJ_RT_BYTES  5
 #endif
 
-/* The labels the detail rows start with. The English build writes the short
- * ASCII ones; the Chinese build (ENABLE_CN_FONT) writes the Chinese names, each
- * character two 7 px bytes wide, so "速度 " is 35 px where "SPD " was 28. Row 0
- * carries no label in either build: the train number starts at x=0, which keeps
- * the distance readout at the right of the same row intact. */
+/* The labels the detail rows start with. They follow LBJ_LANG: the Chinese
+ * build (ENABLE_CN_FONT) writes the Chinese names while the language is CHN and
+ * the short ASCII ones in ENG and ENLC; the English build always writes the
+ * ASCII ones. Row 0 carries no label in any of them: the train number starts at
+ * x=0, which keeps the distance readout at the right of the same row intact. */
 #ifdef ENABLE_CN_FONT
-#define LBJ_LBL_SPD  "速度 "
-#define LBJ_LBL_KM   "公里 "
-#define LBJ_LBL_RT   "线路 "
-#define LBJ_LBL_EXIT "退出"
+/* True while the CN build prints Chinese: ENG and ENLC keep the ASCII labels
+ * (ENLC only keeps the route names Chinese). */
+static bool lbj_cn_ui(void){ return gSetting_LBJ_lang == LBJ_LANG_CHN; }
+#define LBJ_LBL_SPD  (lbj_cn_ui() ? "速度 " : "SPD ")
+#define LBJ_LBL_KM   (lbj_cn_ui() ? "公里 " : "KM ")
+#define LBJ_LBL_RT   (lbj_cn_ui() ? "线路 " : "LINE ")
+#define LBJ_LBL_EXIT (lbj_cn_ui() ? "退出" : "EXIT")
 #else
 #define LBJ_LBL_SPD  "SPD "
 #define LBJ_LBL_KM   "KM "
@@ -411,11 +414,11 @@ static void decode_pref(const char *d){
 
 /* The direction of a report, as row0 prints it after the train number. */
 static char *putdir(char *o, uint8_t func){
-#if defined(ENABLE_CN_FONT)
-    return put(o, (func == 1u) ? "下行" : ((func == 3u) ? "上行" : "??"));
-#else
-    return put(o, (func == 1u) ? "DN" : ((func == 3u) ? "UP" : "??"));
+#ifdef ENABLE_CN_FONT
+    if (gSetting_LBJ_lang == LBJ_LANG_CHN)
+        return put(o, (func == 1u) ? "下行" : ((func == 3u) ? "上行" : "??"));
 #endif
+    return put(o, (func == 1u) ? "DN" : ((func == 3u) ? "UP" : "??"));
 }
 
 static char *puttrain(char *o, const char *sb, uint8_t func, bool have){
@@ -448,18 +451,49 @@ static char cn_initial(uint8_t hi, uint8_t lo){
 
 /* One route character, appended as the popup prints it. The English build has
  * no Chinese font (the external one carries only what the user flashed) and
- * draws the pinyin initial above; the Chinese build keeps the character and
- * lets the built-in font draw it, falling back to the initial for a character
- * its table does not carry - never a block, and no flash read. */
+ * draws the pinyin initial above; the Chinese build keeps the character while
+ * the language is CHN or ENLC and lets the built-in font draw it, falling back
+ * to the initial for a character its table does not carry - never a block, and
+ * no flash read. ENG writes the initial, the way the English build does. */
 static char *putroute(char *o, uint8_t hi, uint8_t lo){
 #ifdef ENABLE_CN_FONT
-    if (CN_FONT_Glyph8((uint16_t)((hi << 8) | lo)) != 0){
+    if (gSetting_LBJ_lang != LBJ_LANG_ENG &&
+        CN_FONT_Glyph8((uint16_t)((hi << 8) | lo)) != 0){
         *o++ = (char)hi;
         *o++ = (char)lo;
         return o;
     }
 #endif
     *o++ = cn_initial(hi, lo);
+    return o;
+}
+
+/* The route text of a stored record, as the current language prints it. The
+ * record holds whatever the language of the moment wrote - the characters
+ * themselves (CHN, ENLC) or their pinyin initials (ENG) - so a record captured
+ * in Chinese and shown after switching to ENG turns back into initials here.
+ * With no Chinese font the bytes are ASCII initials and go out unchanged. */
+static char *putrt(char *o, const char *rt){
+    for (uint8_t i = 0; rt[i]; ){
+        const uint8_t hi = (uint8_t)rt[i];
+
+        if (hi >= 0xA1u && rt[i + 1u]){
+            const uint8_t lo = (uint8_t)rt[i + 1u];
+            i = (uint8_t)(i + 2u);
+#ifdef ENABLE_CN_FONT
+            if (gSetting_LBJ_lang != LBJ_LANG_ENG){
+                *o++ = (char)hi;
+                *o++ = (char)lo;
+                continue;
+            }
+#endif
+            *o++ = cn_initial(hi, lo);
+            continue;
+        }
+
+        *o++ = rt[i++];
+    }
+
     return o;
 }
 
@@ -1587,6 +1621,18 @@ void LBJ_ClosePopup(void){
     g.dismissed = true;              /* stay dismissed until the carrier drops */
 }
 
+/* Drop the session history. Each entry keeps its rows already formatted, with
+ * the labels and the direction word of the language the report arrived under,
+ * so a language change (LBJLANG) starts the history over instead of leaving two
+ * languages on one screen. The flash log is not touched: its rows are rebuilt
+ * every time they are drawn. */
+void LBJ_HistoryForget(void){
+    g.count     = 0;
+    g.cur       = 0;
+    g.pendValid = false;             /* its held-back rows are formatted too */
+    memset(&g.rec[0], 0, sizeof g.rec[0]);
+}
+
 /* Manually open the decode window (the LBJMSG menu item, and the side key or M
  * Long action the operator can point at it): unlike a received report nothing
  * re-arms it, so it simply stays until EXIT or PTT - the LBJPOP timeout does not
@@ -1931,7 +1977,7 @@ static void drawLogDetail(void){
     {
         char *o = put(s, LBJ_LBL_RT);
         if ((r.flags & LBJ_LOG_F_RT) && r.rt[0]){
-            o = put(o, r.rt);
+            o = putrt(o, r.rt);
         } else *o++ = '-';
         *o = '\0';
         UI_PrintStringSmallBold(s, 0, 0, 4);
@@ -2008,7 +2054,7 @@ void LBJ_DrawPopup(void){
      * themselves in the Chinese build - and a dash when there is none */
     {
         char *o = put(s, LBJ_LBL_RT);
-        if (r->rt[0]) o = put(o, r->rt); else *o++ = '-';
+        if (r->rt[0]) o = putrt(o, r->rt); else *o++ = '-';
         *o = '\0';
         UI_PrintStringSmallBold(s, 0, 0, 4);
     }

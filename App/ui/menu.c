@@ -47,58 +47,31 @@
 #include "welcome.h"
 
 
-/* Rows main00 already shows in Chinese. The Chinese build (ENABLE_CN_FONT)
- * uses exactly those words; every other row stays as main00 has it. */
-#ifdef ENABLE_CN_FONT
-#define MT_AM "模式"
-#define MT_STEP "步进"
-#define MT_TXP "功率"
-#define MT_W_N "宽窄带"
-#define MT_MEM_CH "存信道"
-#define MT_DEL_CH "删信道"
-#define MT_MEM_NAME "信道名"
-#define MT_VOL "信息"
-#define MT_F_LOCK "F锁"
-#define MT_SET_INV "反色"
-#else
-#define MT_AM "Mode"
-#define MT_STEP "Step"
-#define MT_TXP "Power"
-#define MT_W_N "W/N"
-#define MT_MEM_CH "ChSave"
-#define MT_DEL_CH "ChDele"
-#define MT_MEM_NAME "ChName"
-#define MT_VOL "SysInf"
-#define MT_F_LOCK "F Lock"
-#define MT_SET_INV "SetInv"
-#endif
-
+/* The rows main00 already shows in Chinese. The Chinese build
+ * (ENABLE_CN_FONT) prints them from menu_name() below, which follows LBJ_LANG;
+ * every other row stays as main00 has it. The English build has none of it. */
 const t_menu_item MenuList[] =
 {
 //   text,          menu ID
     {"SQL",         MENU_SQL           },
-    {MT_AM,        MENU_AM            }, // was "AM"
-    {MT_STEP,        MENU_STEP          },
-    {MT_TXP,       MENU_TXP           }, // was "TXP"
+    {"Mode",        MENU_AM            }, // was "AM"
+    {"Step",        MENU_STEP          },
+    {"Power",       MENU_TXP           }, // was "TXP"
     {"RxDCS",       MENU_R_DCS         }, // was "R_DCS"
     {"RxCTCS",      MENU_R_CTCS        }, // was "R_CTCS"
     {"TxDCS",       MENU_T_DCS         }, // was "T_DCS"
     {"TxCTCS",      MENU_T_CTCS        }, // was "T_CTCS"
     {"TxDir",      MENU_SFT_D         }, // was "SFT_D"
     {"TxOffs",      MENU_OFFSET        }, // was "OFFSET"
-    {MT_W_N,         MENU_W_N           },
-    {MT_MEM_CH,      MENU_MEM_CH        }, // was "MEM-CH"
-    {MT_DEL_CH,      MENU_DEL_CH        }, // was "DEL-CH"
-    {MT_MEM_NAME,      MENU_MEM_NAME      },
+    {"W/N",         MENU_W_N           },
+    {"ChSave",      MENU_MEM_CH        }, // was "MEM-CH"
+    {"ChDele",      MENU_DEL_CH        }, // was "DEL-CH"
+    {"ChName",      MENU_MEM_NAME      },
     {"VOX",         MENU_VOX           },
 #ifdef ENABLE_FEAT_F4HWN
-    {MT_VOL,    MENU_VOL           }, // was "VOL"
+    {"SysInf",    MENU_VOL           }, // was "VOL"
 #else
-    #ifdef ENABLE_CN_FONT
-    {"电压",      MENU_VOL           }, // was "VOL"
-    #else
     {"BatVol",    MENU_VOL           }, // was "VOL"
-    #endif
 #endif
 #ifdef ENABLE_FEAT_F4HWN_LBJ
     {"LBJMSG",      MENU_LBJ           }, // last visible item: opens the decode window
@@ -110,6 +83,9 @@ const t_menu_item MenuList[] =
     {"LBJLAT",      MENU_LBJLAT        }, // its latitude, DD MM hh
     {"LBJLON",      MENU_LBJLON        }, // its longitude, DDD MM hh
     {"LBJNUM",      MENU_LBJNUM        }, // registration: FULL 8 digits or SIMPLE 4
+#ifdef ENABLE_CN_FONT
+    {"LANG",        MENU_LBJ_LANG      }, // CN build only: CHN / ENG / ENLC
+#endif
 #endif
 #ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
     {"SetCfg",      MENU_SET_CFG       }, // pick the settings bank to boot with
@@ -118,7 +94,7 @@ const t_menu_item MenuList[] =
     // upper side key gesture at power-on revealed. The browser filters on the
     // table below instead, so every one of them is reachable - in the category
     // it belongs to. Only the DTMF category still waits for that gesture.
-    {MT_F_LOCK,      MENU_F_LOCK        },
+    {"F Lock",      MENU_F_LOCK        },
     {"RxMode",      MENU_TDR           },
 #ifdef ENABLE_FEAT_F4HWN
     {"SetPwr",      MENU_SET_PWR       },
@@ -126,7 +102,7 @@ const t_menu_item MenuList[] =
     {"SetTOT",      MENU_SET_TOT       },
     {"SetEOT",      MENU_SET_EOT       },
     {"SetCtr",      MENU_SET_CTR       },
-    {MT_SET_INV,      MENU_SET_INV       },
+    {"SetInv",      MENU_SET_INV       },
     {"SetLck",      MENU_SET_LCK       },
     {"SetMet",      MENU_SET_MET       },
     {"SetGUI",      MENU_SET_GUI       },
@@ -396,6 +372,9 @@ static const uint8_t gMenuCatOf[] =
     [MENU_LBJLAT]           = MENU_CAT_LBJ,
     [MENU_LBJLON]           = MENU_CAT_LBJ,
     [MENU_LBJNUM]           = MENU_CAT_LBJ,
+#ifdef ENABLE_CN_FONT
+    [MENU_LBJ_LANG]         = MENU_CAT_LBJ,
+#endif
 #endif
 };
 
@@ -403,20 +382,6 @@ static const uint8_t gMenuCatOf[] =
  * The hidden one is named here all the same, it is simply never picked. */
 static const char *const gMenuCatName[MENU_CAT_COUNT] =
 {
-#ifdef ENABLE_CN_FONT
-    "信道",     /* MENU_CAT_CHANNELS */
-    "LBJ",      /* MENU_CAT_LBJ */
-    "扫描",     /* MENU_CAT_SCAN */
-    "按键",     /* MENU_CAT_KEYS */
-    "电源",     /* MENU_CAT_POWER */
-    "显示",     /* MENU_CAT_DISPLAY */
-    "定时",     /* MENU_CAT_TIMERS */
-    "音频",     /* MENU_CAT_AUDIO */
-    "电台",     /* MENU_CAT_RADIO */
-    "DTMF",     /* MENU_CAT_DTMF */
-    "服务",     /* MENU_CAT_SERVICE */
-    "全部"      /* MENU_CAT_ALL */
-#else
     "Channels", /* MENU_CAT_CHANNELS */
     "LBJ",      /* MENU_CAT_LBJ */
     "Scan",     /* MENU_CAT_SCAN */
@@ -429,7 +394,6 @@ static const char *const gMenuCatName[MENU_CAT_COUNT] =
     "DTMF",     /* MENU_CAT_DTMF */
     "Service",  /* MENU_CAT_SERVICE */
     "All"       /* MENU_CAT_ALL */
-#endif
 };
 
 bool    gMenuCatView = false;              /* the category page is up */
@@ -503,9 +467,68 @@ static uint8_t list_cursor(void)
     return gMenuCursor;
 }
 
+/* What a row of the browser prints. The Chinese build shows the words main00
+ * already uses while LBJ_LANG is CHN; ENG and ENLC keep the English names the
+ * table carries. The English build has no Chinese in it at all, so there the
+ * name is simply the table's. */
+#ifdef ENABLE_CN_FONT
+static const char *menu_name(const t_menu_item *item)
+{
+    if (gSetting_LBJ_lang != LBJ_LANG_CHN)
+        return item->name;
+
+    switch (item->menu_id)
+    {
+        case MENU_AM:       return "模式";
+        case MENU_STEP:     return "步进";
+        case MENU_TXP:      return "功率";
+        case MENU_W_N:      return "宽窄带";
+        case MENU_MEM_CH:   return "存信道";
+        case MENU_DEL_CH:   return "删信道";
+        case MENU_MEM_NAME: return "信道名";
+#ifdef ENABLE_FEAT_F4HWN
+        case MENU_VOL:      return "信息";
+#else
+        case MENU_VOL:      return "电压";
+#endif
+        case MENU_F_LOCK:   return "F锁";
+        case MENU_SET_INV:  return "反色";
+        case MENU_LBJ_LANG: return "语言";
+        default:            return item->name;
+    }
+}
+#else
+#define menu_name(item) ((item)->name)
+#endif
+
 static const char *cat_name(uint8_t cat)
 {
-    return (cat < MENU_CAT_COUNT) ? gMenuCatName[cat] : "";
+    if (cat >= MENU_CAT_COUNT)
+        return "";
+
+#ifdef ENABLE_CN_FONT
+    if (gSetting_LBJ_lang == LBJ_LANG_CHN)
+    {
+        switch (cat)
+        {
+            case MENU_CAT_CHANNELS: return "信道";
+            case MENU_CAT_LBJ:      return "LBJ";
+            case MENU_CAT_SCAN:     return "扫描";
+            case MENU_CAT_KEYS:     return "按键";
+            case MENU_CAT_POWER:    return "电源";
+            case MENU_CAT_DISPLAY:  return "显示";
+            case MENU_CAT_TIMERS:   return "定时";
+            case MENU_CAT_AUDIO:    return "音频";
+            case MENU_CAT_RADIO:    return "电台";
+            case MENU_CAT_DTMF:     return "DTMF";
+            case MENU_CAT_SERVICE:  return "服务";
+            case MENU_CAT_ALL:      return "全部";
+            default:                return "";
+        }
+    }
+#endif
+
+    return gMenuCatName[cat];
 }
 
 static uint8_t cat_item_count(uint8_t cat)
@@ -740,6 +763,19 @@ const char gSubMenu_LBJ_NUM[][7] =
     "FULL",
     "SIMPLE"
 };
+
+#ifdef ENABLE_CN_FONT
+/* LBJLANG: what the Chinese build prints. CHN is the way it always printed;
+ * ENG turns everything English, the route names included (they become their
+ * pinyin initials); ENLC keeps the route names Chinese and everything else
+ * English. */
+const char gSubMenu_LBJ_LANG[][5] =
+{
+    "CHN",
+    "ENG",
+    "ENLC"
+};
+#endif
 #endif
 
 const char gSubMenu_NA[4] =
@@ -862,17 +898,25 @@ const char gSubMenu_RX_TX[][6] =
 
 const char gSubMenu_BAT_TXT[][12] =
 {
-#ifdef ENABLE_CN_FONT
-    "无",
-    "电压",
-    "百分比",
-#else
     "NONE",
     "VOLTAGE",
     "PERCENT",
-#endif
     "BOTH"
 };
+
+/* What the battery-type row prints. The Chinese build follows LBJ_LANG the way
+ * the menu names do; the English build has no other table. */
+static const char *bat_text(int32_t sel)
+{
+#ifdef ENABLE_CN_FONT
+    static const char *const cn[4] = {"无", "电压", "百分比", "BOTH"};
+
+    if (gSetting_LBJ_lang == LBJ_LANG_CHN && sel >= 0 && sel < 4)
+        return cn[sel];
+#endif
+
+    return gSubMenu_BAT_TXT[sel];
+}
 
 const char gSubMenu_BATTYP[][12] =
 {
@@ -1179,7 +1223,7 @@ void UI_DisplayMenu(void)
     for (i = 0; i < 3; i++)
         if (gMenuCursor > 0 || i > 0)
             if ((gMenuListCount - 1) != gMenuCursor || i != 2)
-                UI_PrintString(view_item(gMenuCursor + i - 1)->name, 0, 0, i * 2, 8);
+                UI_PrintString(menu_name(view_item(gMenuCursor + i - 1)), 0, 0, i * 2, 8);
 
     // invert the current menu list item pixels
     for (i = 0; i < (8 * menu_list_width); i++)
@@ -1211,24 +1255,24 @@ void UI_DisplayMenu(void)
             {   // leading menu items - small text
                 const int k = menu_index + i - 2;
                 if (k < 0)
-                    UI_PrintStringSmallNormal(view_item(gMenuListCount + k)->name, 0, 0, i);  // wrap-a-round
+                    UI_PrintStringSmallNormal(menu_name(view_item(gMenuListCount + k)), 0, 0, i);  // wrap-a-round
                 else if (k >= 0 && k < (int)gMenuListCount)
-                    UI_PrintStringSmallNormal(view_item(k)->name, 0, 0, i);
+                    UI_PrintStringSmallNormal(menu_name(view_item(k)), 0, 0, i);
                 i++;
             }
 
             // current menu item - keep big n fat
             if (menu_index >= 0 && menu_index < (int)gMenuListCount)
-                UI_PrintString(view_item(menu_index)->name, 0, 0, 2, 8);
+                UI_PrintString(menu_name(view_item(menu_index)), 0, 0, 2, 8);
             i++;
 
             while (i < 4)
             {   // trailing menu item - small text
                 const int k = menu_index + i - 2;
                 if (k >= 0 && k < (int)gMenuListCount)
-                    UI_PrintStringSmallNormal(view_item(k)->name, 0, 0, 1 + i);
+                    UI_PrintStringSmallNormal(menu_name(view_item(k)), 0, 0, 1 + i);
                 else if (k >= (int)gMenuListCount)
-                    UI_PrintStringSmallNormal(view_item(gMenuListCount - k)->name, 0, 0, 1 + i);  // wrap-a-round
+                    UI_PrintStringSmallNormal(menu_name(view_item(gMenuListCount - k)), 0, 0, 1 + i);  // wrap-a-round
                 i++;
             }
 
@@ -1241,7 +1285,7 @@ void UI_DisplayMenu(void)
         else if (menu_index >= 0 && menu_index < (int)gMenuListCount)
         {   // current menu item
 //          strcat(String, ":");
-            UI_PrintString(view_item(menu_index)->name, 0, 0, 0, 8);
+            UI_PrintString(menu_name(view_item(menu_index)), 0, 0, 0, 8);
 //          UI_PrintStringSmallNormal(String, 0, 0, 0);
         }
 
@@ -1674,7 +1718,7 @@ void UI_DisplayMenu(void)
             break;
 
         case MENU_BAT_TXT:
-            strcpy(String, gSubMenu_BAT_TXT[gSubMenuSelection]);
+            strcpy(String, bat_text(gSubMenuSelection));
             break;
 
 #ifdef ENABLE_DTMF_CALLING
@@ -1998,6 +2042,11 @@ void UI_DisplayMenu(void)
             case MENU_LBJNUM:
                 strcpy(String, gSubMenu_LBJ_NUM[gSubMenuSelection]);
                 break;
+#ifdef ENABLE_CN_FONT
+            case MENU_LBJ_LANG:
+                strcpy(String, gSubMenu_LBJ_LANG[gSubMenuSelection]);
+                break;
+#endif
             case MENU_LBJLAT:
             case MENU_LBJLON:
             {   /* One half of that slot's coordinate: what has been typed while

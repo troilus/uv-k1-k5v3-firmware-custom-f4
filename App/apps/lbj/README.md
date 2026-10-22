@@ -27,6 +27,15 @@ The `LBJNUM` item chooses the registration on row 3 of the decode window and of
 the flash-log detail: `FULL` keeps all eight digits (the default, and what the
 log record and exports always keep), `SIMPLE` prints four - the last four for a
 locomotive (`HXD1D-0002`), digits 4..7 for an EMU (`CR400BF-5387`).
+The Chinese build (`LBJRadio-cn` / `LBJRadioTX-cn`, the one that carries the font
+in the image) adds a `LANG` item - `语言` while it is Chinese - with three
+values: `CHN` keeps the Chinese menu, labels and route names (the way it always
+printed), `ENG` turns everything English and writes the route names as their
+pinyin initials, and `ENLC` keeps only the route names Chinese. It lives in the
+settings byte at 0x00A0F3, so a radio that never stored one (0xFF) stays in
+Chinese. Changing it drops the session history of the decode window, whose rows
+are already formatted, instead of showing two languages at once; the flash log
+is re-formatted every time it is drawn, so it is not affected.
 
 What v0.2 changed (all mirrored in `test/model_rx.py`):
 
