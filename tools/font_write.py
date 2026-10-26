@@ -1,40 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""把中文字库写进对讲机的外部 SPI flash（多系统固件专用）.
 
-为什么需要这个脚本
-------------------
-老地址 0x0A0000（16×16）和 0x0E0000（8×8）正好压在多系统的 slot 4 和
-config bank 1..3 上，会互相覆盖。固件已经把字库搬到尾部空区：
-
-    16×16 : 0x18E000 .. 0x1CDE3F   (261,696 字节 = 0x3FE40)
-    8×8   : 0x1CE000 .. 0x1DDF8F   ( 65,424 字节 = 0xFF90)
-
-所以旧的 UV-K1_FontTool.exe 不能再用了（它还写老地址）。本脚本用固件自带的
-外部 flash 读写命令（和 UV Studio 用的是同一套）把 .fon 写到新地址。
-
-运行前提
---------
-* 对讲机里已经刷了带多系统的固件（`ENABLE_FEAT_F4HWN_MULTIBOOT` + `EXT_FLASH_RW`）。
-* 用 K 头写频线（USB 直连在某些机器上不行）。
-* 关闭 UV Studio / K5Viewer，串口只能被一个程序占用。
-* 装好 pyserial：`pip install pyserial`。
-
-用法
-----
-    python tools/font_write.py --port COM3 16x16.fon 8x8.fon
-
-只写一个也可以：`python tools/font_write.py --port COM3 16x16.fon`
-
-    --list        列出可用的串口
-    --dry-run     只检查文件和地址，不连接对讲机
-    --no-verify   跳过写完后的 CRC + 回读校验（不建议）
-
-官方 FontTool 生成的 .fon（以及仓库里的样本 16x16.FON / 8x8.FON）末尾会多带
-一个 CRLF 换行，它不是字模数据。脚本会自动忽略，不用手动改文件。
-
-写完直接拔线开机即可，不用重刷固件。
-"""
 
 import argparse
 import os
