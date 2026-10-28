@@ -1563,7 +1563,14 @@ void APP_TimeSlice10ms(void)
     }
 
     if (gUpdateStatusCurrent) {
-        UI_DisplayStatus();
+#ifdef ENABLE_FEAT_F4HWN_LBJ
+        /* The QR page keeps the status line blank: it is the symbol's top
+         * quiet zone. It is redrawn when the page closes. */
+        if (LBJ_QrActive())
+            gUpdateStatus = false;
+        else
+#endif
+            UI_DisplayStatus();
     }
 
     #ifdef ENABLE_FEAT_F4HWN_SCREENSHOT

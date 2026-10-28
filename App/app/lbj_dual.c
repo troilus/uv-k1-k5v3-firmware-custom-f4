@@ -49,6 +49,7 @@
 #include "lbj_dual.h"
 #include "lbj_log.h"
 #include "lbj_pos.h"
+#include "lbj_qr.h"
 
 #ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
 #include "apps/app_config_proxy.h"
@@ -226,6 +227,8 @@ typedef struct {
     uint32_t km10;                /* km post, 0.1 km, LBJ_LOG_KM_NONE        */
     uint16_t mdl;                 /* model code, LBJ_LOG_MDL_NONE if unknown */
     uint8_t  dir;                 /* LBJ_LOG_DIR_NONE/DN/UP                  */
+    uint32_t lat4, lon4;          /* train position, 1e-4 degree, when fix   */
+    uint8_t  fix;                 /* a detail block gave a usable fix        */
 } lbj_rec_t;
 
 /* g.dst / lbj_rec_t.dst values that are not a distance */
@@ -247,9 +250,15 @@ static struct {
     bool     dirty;
     bool     dismissed;           /* popup dismissed until the carrier drops  */
     bool     pinned;              /* the LBJ menu item opened it: no timeout  */
+    bool     qr;                  /* the map QR page is up                    */
+    uint64_t qrM[LBJ_QR_N];       /* its module rows, encoded once            */
+    char     qrLoc[9];            /* the record to return to when it closes   */
+    char     qrTrn[7];
     char     pref[3];             /* 2-char train prefix of the page being formatted */
     char     rt[LBJ_RT_BYTES];    /* route name of the report being formatted */
     int16_t  dst;                 /* distance of the report being formatted   */
+    bool     fix;                 /* a detail block gave a usable fix         */
+    uint32_t lat4, lon4;          /* the train position, 1e-4 degree          */
     char     trn[7];              /* train digits of the report being formatted */
     char     loc[9];              /* registration of the report being formatted */
     uint16_t spd;                 /* speed of the report being formatted      */
@@ -995,11 +1004,18 @@ static void format(uint32_t addr, uint8_t func, const char *b, uint16_t len){
      * always there, so the readout no longer needs an overlay app installed:
      * pos_get() falls back to the app stores when the menu was never used. */
     g.dst = LBJ_DST_NODET;
+    g.fix = false;
+    g.lat4 = g.lon4 = 0;
     if (has_detail){
         uint32_t flat, flon, rlat, rlon;
         g.dst = LBJ_DST_UNK;
-        if (lbj_fix(d, dlen, &flat, &flon) && pos_get(&rlat, &rlon))
-            g.dst = lbj_dist(flat, flon, rlat, rlon);
+        if (lbj_fix(d, dlen, &flat, &flon)){
+            g.fix  = true;
+            g.lat4 = flat;
+            g.lon4 = flon;
+            if (pos_get(&rlat, &rlon))
+                g.dst = lbj_dist(flat, flon, rlat, rlon);
+        }
     }
 
     /* the history merge keys: the 6 train digits the short block carries, and
@@ -1481,6 +1497,8 @@ static bool history_merge(uint32_t addr, uint8_t func, uint16_t len, uint8_t err
         g.rec[0].km10   = (uint32_t)LBJ_LOG_KM_NONE;
         g.rec[0].mdl    = (uint16_t)LBJ_LOG_MDL_NONE;
         g.rec[0].dir    = (uint8_t)LBJ_LOG_DIR_NONE;
+        g.rec[0].fix    = 0u;
+        g.rec[0].lat4   = g.rec[0].lon4 = 0u;
         if (!own_sh && det_at){
             if (g.pendValid && (int16_t)(g.sec - g.pendSec) <= (int16_t)LBJ_MERGE_SECS){
                 /* the short block it belongs to was held back a moment ago: this
@@ -1549,6 +1567,16 @@ static bool history_merge(uint32_t addr, uint8_t func, uint16_t len, uint8_t err
         copyline(g.rec[0].rt, (uint8_t)sizeof g.rec[0].rt, g.rt);
         g.rec[0].dst = g.dst;
         g.rec[0].mdl = g.mdl;
+        /* The latest detail block is the authority on the train's position.
+         * A short block does not touch it, so the code stays available while
+         * the pair is refreshed by the short half. */
+        if (g.fix){
+            g.rec[0].lat4 = g.lat4;
+            g.rec[0].lon4 = g.lon4;
+            g.rec[0].fix  = 1u;
+        } else {
+            g.rec[0].fix = 0u;
+        }
     }
     /* The cursor is deliberately left where it is: when a window is already up
      * the operator may be paging, and a report arriving must not take the page
@@ -1646,7 +1674,9 @@ static void log_observe(void){
 
 /* ---- popup ---- */
 bool LBJ_PopupActive(void){ return g.popup; }
+bool LBJ_QrActive(void){ return g.qr; }
 void LBJ_ClosePopup(void){
+    if (g.qr){ g.qr = false; gUpdateStatus = true; }
     if (g.popup){ g.popup = false; gUpdateDisplay = true; }
     g.dismissed = true;              /* stay dismissed until the carrier drops */
 }
@@ -1674,6 +1704,7 @@ bool LBJ_OpenPopup(void){
     if (g.rec[0].loc[0])
         *putl3(g.rec[0].l3, g.rec[0].loc) = '\0';
     g.view      = LBJ_VIEW_LIVE;
+    if (g.qr){ g.qr = false; gUpdateStatus = true; }
     g.popup     = true;
     g.pinned    = true;              /* opened by hand: it never times out */
     g.dismissed = false;             /* an explicit open overrides an earlier EXIT */
@@ -1692,6 +1723,7 @@ bool LBJ_OpenList(void){
         return false;
     g.lvTop     = g.lv;              /* the list opens on the newest report */
     g.view      = LBJ_VIEW_LIST;
+    if (g.qr){ g.qr = false; gUpdateStatus = true; }
     g.popup     = true;
     g.pinned    = true;
     g.dismissed = false;
@@ -1731,6 +1763,26 @@ bool LBJ_HandleKey(uint8_t key, bool pressed, bool held){
     if (!pressed || held)                 /* held or released: eat it, but do not step again */
         return true;
     g.popSec = g.sec;                     /* a key is activity: restart the LBJPOP count */
+    if (g.qr){
+        /* The code stays until the operator closes it; only a fresh STAR or
+         * EXIT acts, every other key is swallowed. Closing it returns to the
+         * record it was opened on, even if a report shifted the history. */
+        if (key == KEY_STAR || key == KEY_EXIT){
+            g.qr = false;
+            g.cur = 0;                    /* the record was pushed out: newest */
+            if (g.qrLoc[0] || g.qrTrn[0]){
+                for (uint8_t i = 0; i < g.count; i++){
+                    const bool same = g.qrLoc[0]
+                        ? key_eq(g.rec[i].loc, g.qrLoc)
+                        : key_eq(g.rec[i].trn, g.qrTrn);
+                    if (same){ g.cur = i; break; }
+                }
+            }
+            g.dirty = true;
+            gUpdateStatus = true;
+        }
+        return true;
+    }
     if (key == KEY_EXIT){
         LBJ_ClosePopup();
         return true;
@@ -1787,6 +1839,18 @@ bool LBJ_HandleKey(uint8_t key, bool pressed, bool held){
         }
         return true;
     }
+    if (key == KEY_STAR){
+        /* The live page is the only one with the decoded position in RAM: the
+         * flash log has no room for it. A report without a fix has no code. */
+        if (g.view == LBJ_VIEW_LIVE && g.rec[g.cur].fix &&
+            LBJ_QR_Build(g.rec[g.cur].lat4, g.rec[g.cur].lon4, g.qrM)){
+            copyline(g.qrLoc, (uint8_t)sizeof g.qrLoc, g.rec[g.cur].loc);
+            copyline(g.qrTrn, (uint8_t)sizeof g.qrTrn, g.rec[g.cur].trn);
+            g.qr = true;
+            g.dirty = true;
+        }
+        return true;
+    }
     return true;                          /* swallow every other key */
 }
 
@@ -1797,6 +1861,26 @@ bool LBJ_HandleKey(uint8_t key, bool pressed, bool held){
 #define POP_PAGEX   0u                  /* page number, hard left             */
 #define POP_TIMEX  52u                  /* age, middle                        */
 #define POP_EXITX 100u                  /* EXIT, hard right (100..127)        */
+
+/* The map QR page: 37 x 37 modules at one pixel each, centred horizontally.
+ * The status line is blanked to give the symbol its top quiet zone; the
+ * footer row is far enough below the last module for the bottom one. */
+#define QR_X 45u
+#define QR_Y  0u
+
+static void drawQr(void){
+    UI_DisplayClear();
+    UI_StatusClear();
+    for (uint8_t y = 0; y < LBJ_QR_N; y++){
+        const uint64_t row = g.qrM[y];
+        for (uint8_t x = 0; x < LBJ_QR_N; x++)
+            if (row & (1ull << x))
+                PutPixel((uint8_t)(QR_X + x), (uint8_t)(QR_Y + y), true);
+    }
+    UI_PrintStringSmallBold(LBJ_LBL_EXIT, POP_EXITX, 0, POP_FOOTER);
+    ST7565_BlitStatusLine();
+    ST7565_BlitFullScreen();
+}
 
 /* ---- the stored-report list ----------------------------------------------
  *
@@ -2027,6 +2111,7 @@ static void drawLogDetail(void){
 }
 
 void LBJ_DrawPopup(void){
+    if (g.qr){ drawQr(); return; }
     if (g.view == LBJ_VIEW_LIST){ drawList();      return; }
     if (g.view == LBJ_VIEW_REC ){ drawLogDetail(); return; }
 
@@ -2040,12 +2125,17 @@ void LBJ_DrawPopup(void){
     /* row0: the train number, the BCH verdict of whichever page filled this
      * entry last (nothing when it arrived clean, '*' when a codeword was
      * repaired, '!' when it could not be repaired at all), and at the right the
-     * distance from the receiver position set in APRS Edit. The number is cut
-     * to 10 characters when a verdict follows - 11 otherwise - so the verdict
-     * and the readout (up to 7) always fit the 128 px row. */
+     * distance from the receiver position set in APRS Edit, with a '*' after
+     * the km when the train fix is known. The number is cut to 9 characters
+     * when the map star follows, 10 when a verdict follows - 11 otherwise - so
+     * the verdict and the readout (up to 8 with the star) always fit the
+     * 128 px row. */
     {
         char l0[15];
-        copyline(l0, (uint8_t)((r->err || r->cor) ? 11u : 12u), r->l0);
+        /* The map star takes one more character on the right, so leave one
+         * more for it: the verdict can still follow the train number. */
+        const uint8_t cap = r->fix ? 9u : (uint8_t)((r->err || r->cor) ? 11u : 12u);
+        copyline(l0, cap, r->l0);
         uint8_t n = 0;
         while (l0[n]) n++;
         if (r->err)      l0[n++] = '!';
@@ -2063,6 +2153,7 @@ void LBJ_DrawPopup(void){
             *o++ = (char)('0' + (unsigned)(r->dst % 10));
             o = put(o, "km");
         }
+        if (r->fix) *o++ = '*';
         *o = '\0';
         UI_PrintStringSmallBold(s, (uint8_t)(128u - (uint8_t)(o - s) * 7u), 0, 0);
     }
@@ -2344,7 +2435,7 @@ void LBJ_Tick(void){
      * coming straight back (g.dismissed), and a later carrier opens a fresh
      * window. The window the LBJ menu item opened is pinned (g.pinned) and stays
      * up until EXIT or PTT, exactly as before. */
-    if (g.popup && !g.pinned){
+    if (g.popup && !g.pinned && !g.qr){
         const uint8_t t = gEeprom.LBJ_POPUP_TIME;
         if (t < ARRAY_SIZE(LBJ_POPUP_SECS) && LBJ_POPUP_SECS[t] &&
             (uint16_t)(g.sec - g.popSec) >= LBJ_POPUP_SECS[t])
