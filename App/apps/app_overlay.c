@@ -1494,6 +1494,12 @@ static uint8_t app_launch(uint8_t slot)
 
     /* A capture the app left open must not keep PA4 and the DAC. */
     app_af_capture_close();
+#ifdef ENABLE_FEAT_F4HWN_LBJ
+    /* RF apps may have retuned the hardware (the LBJ pin build does), so the
+     * resident VCO calibration state is stale. Force the restore below to do
+     * the REG_30 0/back sequence when it retunes. */
+    RADIO_InvalidateVcoCalibration();
+#endif
 #ifdef APP_SERIAL
     /* The app's half-read frames must not reach the command parser or the
      * viewer once the main loop resumes. */

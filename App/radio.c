@@ -746,6 +746,37 @@ BK4819_FilterBandwidth_t RADIO_GetAMFilterBandwidth(const VFO_Info_t *pVfo)
     return (pVfo->CHANNEL_BANDWIDTH == BANDWIDTH_WIDE) ? BK4819_FILTER_BW_WIDE : BK4819_FILTER_BW_AM;
 }
 
+#ifdef ENABLE_FEAT_F4HWN_LBJ
+static uint32_t         g_vcoCalFreq;
+static ModulationMode_t g_vcoCalMod;
+static bool             g_vcoCalValid;
+
+static void RADIO_RecalibrateVCO(void)
+{
+    const uint16_t r30 = BK4819_ReadRegister(BK4819_REG_30);
+
+    BK4819_WriteRegister(BK4819_REG_30, 0x0000);
+    BK4819_WriteRegister(BK4819_REG_30, r30);
+}
+
+static void RADIO_EnsureVcoCalibrated(uint32_t Frequency, ModulationMode_t Modulation)
+{
+    if (g_vcoCalValid && g_vcoCalFreq == Frequency && g_vcoCalMod == Modulation)
+        return;
+
+    RADIO_RecalibrateVCO();
+
+    g_vcoCalFreq  = Frequency;
+    g_vcoCalMod   = Modulation;
+    g_vcoCalValid = true;
+}
+
+void RADIO_InvalidateVcoCalibration(void)
+{
+    g_vcoCalValid = false;
+}
+#endif
+
 void RADIO_SetupRegisters(bool switchToForeground)
 {
     BK4819_FilterBandwidth_t Bandwidth = gRxVfo->CHANNEL_BANDWIDTH;
@@ -825,6 +856,7 @@ void RADIO_SetupRegisters(bool switchToForeground)
              * one and costs weak-signal margin. */
             BK4819_WriteRegister(BK4819_REG_43, 0x3628);
             BK4819_WriteRegister(BK4819_REG_3D, 0x2AAB);
+            RADIO_EnsureVcoCalibrated(Frequency, gRxVfo->Modulation);
         }
     #endif
 
@@ -1110,6 +1142,12 @@ void RADIO_SetModulation(ModulationMode_t modulation)
 
         BK4819_SetRegValue(afDacGainRegSpec, 0xF);
         BK4819_WriteRegister(BK4819_REG_3D, reg_3d_val);
+
+        #ifdef ENABLE_FEAT_F4HWN_LBJ
+            if (modulation == MODULATION_LBJ)
+                RADIO_EnsureVcoCalibrated(gRxVfo->pRX->Frequency, modulation);
+        #endif
+
         RADIO_SetupAGC(false, false);
         return;
     }

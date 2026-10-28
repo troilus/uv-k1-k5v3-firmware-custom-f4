@@ -172,6 +172,9 @@ void     RADIO_SetTxParameters(void);
 void     RADIO_PrepareTx(void);   /* same setup, no FM waits, PA left off */
 void     RADIO_SetupAGC(bool listeningAM, bool disable);
 void     RADIO_SetModulation(ModulationMode_t modulation);
+#ifdef ENABLE_FEAT_F4HWN_LBJ
+void     RADIO_InvalidateVcoCalibration(void);
+#endif
 void     RADIO_SetVfoState(VfoState_t State);
 void     RADIO_PrepareTX(void);
 void     RADIO_SendCssTail(void);
