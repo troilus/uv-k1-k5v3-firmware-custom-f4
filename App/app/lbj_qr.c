@@ -44,7 +44,7 @@
  * itself is specified by ISO/IEC 18004:2015.
  */
 
-/* QR Code encoder, version 5-L: see lbj_qr.h.
+/* QR Code encoder, version 4-L: see lbj_qr.h.
  *
  * The steps of ISO/IEC 18004 for one fixed version, so every size is a
  * constant: bit stream, Reed-Solomon codewords, function patterns, data in
@@ -61,8 +61,8 @@
 
 #define QR_N    LBJ_QR_N
 #define QR_MAX  LBJ_QR_MAX
-#define QR_DATA 108u                /* data codewords, version 5-L  */
-#define QR_ECC  26u                 /* error correction codewords   */
+#define QR_DATA 80u                 /* data codewords, version 4-L  */
+#define QR_ECC  20u                 /* error correction codewords   */
 #define QR_ALL  (QR_DATA+QR_ECC)
 #define QR_LAST (QR_N-1u)
 
@@ -89,8 +89,8 @@ static void codewords(const uint8_t *s,unsigned len,uint8_t cw[QR_ALL]){
         if(i==len) break;
         acc=acc<<8|s[i]; n+=8u;
     }
-    /* the last 4 bits, then the 4-bit terminator: both fit, since 12 + 8 x 106
-     * leaves 4 bits free in the 108 codewords */
+    /* the last 4 bits, then the 4-bit terminator: both fit, since 12 + 8 x 78
+     * leaves 4 bits free in the 80 codewords */
     cw[pos++]=(uint8_t)(acc<<4);
     for(unsigned pad=0xECu;pos<QR_DATA;pad^=0xECu^0x11u) cw[pos++]=(uint8_t)pad;
 
@@ -124,16 +124,16 @@ static unsigned dist(int dx,int dy){
     return (unsigned)(dx>dy?dx:dy);
 }
 
-/* The function modules of version 5: finders with their separators, the
- * timing patterns, the alignment pattern at (30,30), and the format areas
+/* The function modules of version 4: finders with their separators, the
+ * timing patterns, the alignment pattern at (26,26), and the format areas
  * that run along row 8 and column 8. They are recognised from the position
- * instead of a map, which keeps 37 uint64_t off the stack. */
+ * instead of a map, which keeps 33 uint64_t off the stack. */
 static bool isFn(unsigned x,unsigned y){
     if(x==6u || y==6u) return true;                       /* timing */
     if(x<=8u && y<=8u) return true;                       /* top-left finder */
     if(x>=QR_N-8u && y<=8u) return true;                  /* top-right finder */
     if(x<=8u && y>=QR_N-8u) return true;                  /* bottom-left finder */
-    if(x>=28u && x<=32u && y>=28u && y<=32u) return true; /* alignment */
+    if(x>=24u && x<=28u && y>=24u && y<=28u) return true; /* alignment */
     return false;
 }
 
@@ -171,9 +171,9 @@ static void patterns(uint64_t *m){
                 if(x>=0 && x<(int)QR_N && y>=0 && y<(int)QR_N)
                     set(m,(unsigned)x,(unsigned)y,d!=2u && d!=4u);
             }
-    for(int dy=-2;dy<=2;dy++)       /* the alignment pattern of version 5 */
+    for(int dy=-2;dy<=2;dy++)       /* the alignment pattern of version 4 */
         for(int dx=-2;dx<=2;dx++)
-            set(m,(unsigned)(30+dx),(unsigned)(30+dy),dist(dx,dy)!=1u);
+            set(m,(unsigned)(26+dx),(unsigned)(26+dy),dist(dx,dy)!=1u);
     format(m,0);                    /* reserve the format areas */
 }
 
@@ -308,8 +308,8 @@ static char *putdeg4(char *o,uint32_t v){
 }
 
 bool LBJ_QR_Build(uint32_t lat4,uint32_t lon4,uint64_t rows[LBJ_QR_N]){
-    static const char prefix[]="https://apis.map.qq.com/uri/v1/marker?marker=coord:";
-    static const char suffix[]="&referer=lbjradio";
+    static const char prefix[]="https://uri.amap.com/marker?position=";
+    static const char suffix[]="&coordinate=wgs84";
     char text[LBJ_QR_MAX+1u];
 
     if(lat4>900000u || lon4>1800000u)
@@ -317,9 +317,9 @@ bool LBJ_QR_Build(uint32_t lat4,uint32_t lon4,uint64_t rows[LBJ_QR_N]){
 
     char *o=text;
     o=put(o,prefix);
-    o=putdeg4(o,lat4);
-    *o++=',';
     o=putdeg4(o,lon4);
+    *o++=',';
+    o=putdeg4(o,lat4);
     o=put(o,suffix);
     *o='\0';
 

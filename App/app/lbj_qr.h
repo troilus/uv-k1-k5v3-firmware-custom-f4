@@ -3,11 +3,12 @@
  * The URL a 1234001/1234002 (or a merged 65-character) report hands to the
  * phone is:
  *
- *   https://apis.map.qq.com/uri/v1/marker?marker=coord:<lat>,<lon>&referer=lbjradio
+ *   https://uri.amap.com/marker?position=<lon>,<lat>&coordinate=wgs84
  *
- * That is 84 bytes with four decimal places, so the symbol is QR version 5-L
- * (37 x 37 modules, 106 bytes at level L). Version 3-L, which the QR Map
- * overlay app uses, only holds 53 bytes.
+ * That is 70 bytes with four decimal places, so the symbol is QR version 4-L
+ * (33 x 33 modules, 78 bytes at level L). The coordinate=wgs84 parameter lets
+ * Amap convert the WGS84 fix to GCJ-02 on its side, so the firmware does not
+ * need the conversion math.
  *
  * Pure C, no API call: the host test builds it as it is.
  */
@@ -17,8 +18,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define LBJ_QR_N    37u    /* modules per side                        */
-#define LBJ_QR_MAX 106u    /* bytes that fit at level L               */
+#define LBJ_QR_N    33u    /* modules per side                        */
+#define LBJ_QR_MAX  78u    /* bytes that fit at level L               */
 
 /* Encode the map URL for a position in 1e-4 degree units (the unit lbj_fix()
  * returns, north and east only). Row y of the symbol is rows[y]: bit x set =

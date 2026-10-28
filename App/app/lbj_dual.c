@@ -1766,22 +1766,39 @@ bool LBJ_HandleKey(uint8_t key, bool pressed, bool held){
 #define POP_TIMEX  52u                  /* age, middle                        */
 #define POP_EXITX 100u                  /* EXIT, hard right (100..127)        */
 
-/* The map QR page: 37 x 37 modules at one pixel each, centred horizontally.
- * The status line is blanked to give the symbol its top quiet zone; the
- * footer row is far enough below the last module for the bottom one. */
-#define QR_X 45u
-#define QR_Y  0u
+/* The map QR page: 33 x 33 modules rendered at 70 x 56 pixels. The LCD pixels
+ * are taller than wide (K5Viewer draws x at pixel_size-1 and y at pixel_size,
+ * 4:5 at its default), so a square pixel image looks tall; the 5:4 page makes
+ * the symbol square on the glass. The top four rows live in the status line,
+ * the rest in the frame buffer, and the page has no footer text so the quiet
+ * zone around the symbol stays clear. */
+#define QR_PX_W 70u
+#define QR_PX_H 56u
+#define QR_X ((LCD_WIDTH  - QR_PX_W) / 2u)   /* 29 */
+#define QR_Y ((LCD_HEIGHT - QR_PX_H) / 2u)   /* 4  */
+
+static void qrPixel(uint8_t x, uint8_t y){
+    if (y < 8u) PutPixelStatus(x, y, true);
+    else        PutPixel(x, (uint8_t)(y - 8u), true);
+}
 
 static void drawQr(void){
     UI_DisplayClear();
     UI_StatusClear();
-    for (uint8_t y = 0; y < LBJ_QR_N; y++){
-        const uint64_t row = g.qrM[y];
-        for (uint8_t x = 0; x < LBJ_QR_N; x++)
-            if (row & (1ull << x))
-                PutPixel((uint8_t)(QR_X + x), (uint8_t)(QR_Y + y), true);
+    for (uint8_t my = 0; my < LBJ_QR_N; my++){
+        const uint64_t row = g.qrM[my];
+        if (!row) continue;
+        const unsigned y0 = QR_Y + ((unsigned)my * QR_PX_H + LBJ_QR_N / 2u) / LBJ_QR_N;
+        const unsigned y1 = QR_Y + ((unsigned)(my + 1u) * QR_PX_H + LBJ_QR_N / 2u) / LBJ_QR_N;
+        for (uint8_t mx = 0; mx < LBJ_QR_N; mx++){
+            if (!(row & (1ull << mx))) continue;
+            const unsigned x0 = QR_X + ((unsigned)mx * QR_PX_W + LBJ_QR_N / 2u) / LBJ_QR_N;
+            const unsigned x1 = QR_X + ((unsigned)(mx + 1u) * QR_PX_W + LBJ_QR_N / 2u) / LBJ_QR_N;
+            for (unsigned y = y0; y < y1; y++)
+                for (unsigned x = x0; x < x1; x++)
+                    qrPixel((uint8_t)x, (uint8_t)y);
+        }
     }
-    UI_PrintStringSmallBold("EXIT", POP_EXITX, 0, POP_FOOTER);
     ST7565_BlitStatusLine();
     ST7565_BlitFullScreen();
 }
