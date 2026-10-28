@@ -22,11 +22,24 @@
 #include "driver/keyboard.h"
 
 // SRAM optimization: minimize static allocations
-// - previousFrame: 1024 bytes (REQUIRED - need to compare for delta)
-// - No currentFrame or deltaFrame static buffers
-static uint8_t previousFrame[1024] = {0};
+// - previousHash: 256 bytes (16-bit fingerprint per 8-byte chunk)
+// - No frame buffers at all: each chunk is computed on demand
+static uint16_t previousHash[128] = {0};
 static uint8_t forcedBlock = 0;
 static uint8_t keepAlive = 3;
+
+#define SCREENSHOT_CHUNK_SIZE       8u
+#define SCREENSHOT_CHUNKS_PER_LINE  16u
+#define SCREENSHOT_HALF_LINE_COLS   (LCD_WIDTH / 2u)
+
+// FNV-1a over one 8-byte chunk, folded to 16 bits (as upstream K5Viewer).
+static uint16_t SCREENSHOT_Hash(const uint8_t *data)
+{
+    uint32_t h = 2166136261u;
+    for (uint8_t i = 0; i < SCREENSHOT_CHUNK_SIZE; i++)
+        h = (h ^ data[i]) * 16777619u;
+    return (uint16_t)(h ^ (h >> 16));
+}
 
 void SCREENSHOT_ParseInput(void)
 {
@@ -52,27 +65,34 @@ static void SCREENSHOT_Send(const uint8_t *buf, uint16_t len)
     }
 }
 
-void SCREENSHOT_Line(uint8_t *src, uint8_t *dest, uint16_t *idx) {
-    for (uint8_t b = 0; b < 8; b++) {
-        for (uint8_t i = 0; i < 128; i += 8) {
-            uint8_t acc = 0;
-            for (uint8_t k = 0; k < 8; k++) {
-                if (src[i + k] & (1 << b)) acc |= (1 << k);
-            }
-            dest[(*idx)++] = gSetting_set_inv ? ~acc : acc;
+// Compute one 8-byte output chunk directly from the display buffers.
+// Frame layout: per line (status + 7 frame lines), 8 bit layers of
+// 16 bytes each. Each bit layer is split into two 64-column chunks.
+static void SCREENSHOT_Chunk(uint8_t chunkIdx, uint8_t *dest)
+{
+    const uint8_t chunkInLine = chunkIdx % SCREENSHOT_CHUNKS_PER_LINE;
+    const uint8_t line = chunkIdx / SCREENSHOT_CHUNKS_PER_LINE;
+    const uint8_t bit = chunkInLine / 2u;
+    const uint8_t columnBase = (chunkInLine % 2u) * SCREENSHOT_HALF_LINE_COLS;
+    const uint8_t *src = (line == 0u ? gStatusLine : gFrameBuffer[line - 1u])
+                         + columnBase;
+
+    for (uint8_t j = 0; j < SCREENSHOT_CHUNK_SIZE; j++) {
+        uint8_t acc = 0;
+        for (uint8_t k = 0; k < SCREENSHOT_CHUNK_SIZE; k++) {
+            if (src[j * SCREENSHOT_CHUNK_SIZE + k] & (1u << bit))
+                acc |= (uint8_t)(1u << k);
         }
+        dest[j] = gSetting_set_inv ? (uint8_t)~acc : acc;
     }
 }
 
 void SCREENSHOT_Update(bool force)
 {
-    // Build frame in a temporary stack buffer
-    // This is 1024 bytes but it's temporary and gets freed after the function
-    uint8_t frameBuffer[1024];
-    uint16_t index = 0;
-    uint8_t acc = 0;
-    uint8_t bitCount = 0;
     static bool wasConnected = false;
+    uint16_t deltaLen = 0;
+    uint8_t changedBitmap[16] = {0};  // 1 bit per chunk
+    uint8_t chunk[9];                 // [0] = index, [1..8] = payload
 
     if (SCREENSHOT_IsLocked())
         return;
@@ -93,41 +113,20 @@ void SCREENSHOT_Update(bool force)
         wasConnected = true;
     }
 
-    // ==== BUILD FRAME ONCE ====
-    // Status line: 8 bit layers × 128 columns
-    SCREENSHOT_Line(gStatusLine, frameBuffer, &index);
-
-    // Frame buffer: 7 lines × 8 bit layers × 128 columns
-    for (uint8_t l = 0; l < 7; l++) {
-        SCREENSHOT_Line(gFrameBuffer[l], frameBuffer, &index);
-    }
-
-    if (bitCount > 0)
-        frameBuffer[index++] = acc;
-
-    if (index != 1024)
-        return;
-
     // ==== FIRST PASS: Count changed chunks ====
-    uint16_t deltaLen = 0;
-    uint8_t changedChunks[128];  // List of changed chunk indices
-    uint8_t changedCount = 0;
+    for (uint8_t chunkIdx = 0; chunkIdx < 128u; chunkIdx++) {
+        SCREENSHOT_Chunk(chunkIdx, &chunk[1]);
 
-    for (uint8_t chunk = 0; chunk < 128; chunk++) {
-        uint8_t *cur = &frameBuffer[chunk * 8];
-        uint8_t *prev = &previousFrame[chunk * 8];
+        bool changed = SCREENSHOT_Hash(&chunk[1]) != previousHash[chunkIdx];
+        bool isForced = (chunkIdx == forcedBlock);
 
-        bool changed = memcmp(cur, prev, 8) != 0;
-        bool isForced = (chunk == forcedBlock);
-        bool fullUpdate = force;
-
-        if (changed || isForced || fullUpdate) {
-            changedChunks[changedCount++] = chunk;
-            deltaLen += 9;
+        if (changed || isForced || force) {
+            changedBitmap[chunkIdx >> 3] |= (uint8_t)(1u << (chunkIdx & 7u));
+            deltaLen += 9u;
         }
     }
 
-    forcedBlock = (forcedBlock + 1) % 128;
+    forcedBlock = (forcedBlock + 1u) % 128u;
 
     if (deltaLen == 0)
         return;
@@ -153,20 +152,18 @@ void SCREENSHOT_Update(bool force)
     SCREENSHOT_Send(header, 5);
 
     // ==== SECOND PASS: Send only changed chunks ====
-    uint8_t chunk[9];
-    
-    for (uint8_t i = 0; i < changedCount; i++) {
-        uint8_t chunkIdx = changedChunks[i];
-        uint8_t *cur = &frameBuffer[chunkIdx * 8];
-        uint8_t *prev = &previousFrame[chunkIdx * 8];
+    for (uint8_t chunkIdx = 0; chunkIdx < 128u; chunkIdx++) {
+        if (!(changedBitmap[chunkIdx >> 3] & (1u << (chunkIdx & 7u))))
+            continue;
 
         chunk[0] = chunkIdx;
-        memcpy(&chunk[1], cur, 8);
-        
+        SCREENSHOT_Chunk(chunkIdx, &chunk[1]);
+
         SCREENSHOT_Send(chunk, 9);
-        
-        // Update previousFrame for next comparison
-        memcpy(prev, cur, 8);
+
+        // Update the fingerprint only once the chunk is actually sent, so
+        // chunks skipped by an early return stay marked as changed.
+        previousHash[chunkIdx] = SCREENSHOT_Hash(&chunk[1]);
     }
 
     uint8_t end = 0x0A;
