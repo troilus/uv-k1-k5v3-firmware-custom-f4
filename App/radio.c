@@ -816,6 +816,18 @@ void RADIO_SetupRegisters(bool switchToForeground)
     #endif
     BK4819_SetFrequency(Frequency);
 
+    #ifdef ENABLE_FEAT_F4HWN_LBJ
+        if (gRxVfo->Modulation == MODULATION_LBJ)
+        {
+            /* Match the app's pin path: 25 kHz weak-signal-wide filter and
+             * the normal low-IF.  The RAW profile otherwise leaves REG_3D at
+             * zero-IF, which folds the negative sideband onto the positive
+             * one and costs weak-signal margin. */
+            BK4819_WriteRegister(BK4819_REG_43, 0x3628);
+            BK4819_WriteRegister(BK4819_REG_3D, 0x2AAB);
+        }
+    #endif
+
     BK4819_SetupSquelch(
         gRxVfo->SquelchOpenRSSIThresh,    gRxVfo->SquelchCloseRSSIThresh,
         gRxVfo->SquelchOpenNoiseThresh,   gRxVfo->SquelchCloseNoiseThresh,
@@ -1085,6 +1097,15 @@ void RADIO_SetModulation(ModulationMode_t modulation)
             // RAW on BK4829 uses RX-only filter bypass profile.
             BK4819_EnterRaw();
             // reg_3d_val = 0x0000;
+
+            #ifdef ENABLE_FEAT_F4HWN_LBJ
+                if (modulation == MODULATION_LBJ) {
+                    // LBJ is 1200-baud FSK: keep the normal low-IF and the
+                    // 25 kHz, weak-signal-wide filter.
+                    BK4819_WriteRegister(BK4819_REG_43, 0x3628);
+                    reg_3d_val = 0x2AAB;
+                }
+            #endif
         }
 
         BK4819_SetRegValue(afDacGainRegSpec, 0xF);
