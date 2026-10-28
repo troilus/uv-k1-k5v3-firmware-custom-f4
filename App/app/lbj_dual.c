@@ -227,7 +227,7 @@ typedef struct {
     uint32_t km10;                /* km post, 0.1 km, LBJ_LOG_KM_NONE        */
     uint16_t mdl;                 /* model code, LBJ_LOG_MDL_NONE if unknown */
     uint8_t  dir;                 /* LBJ_LOG_DIR_NONE/DN/UP                  */
-    uint32_t lat4, lon4;          /* train position, 1e-4 degree, when fix   */
+    uint32_t lat6, lon6;          /* train position, 1e-6 degree, when fix   */
     uint8_t  fix;                 /* a detail block gave a usable fix        */
 } lbj_rec_t;
 
@@ -258,7 +258,7 @@ static struct {
     char     rt[LBJ_RT_BYTES];    /* route name of the report being formatted */
     int16_t  dst;                 /* distance of the report being formatted   */
     bool     fix;                 /* a detail block gave a usable fix         */
-    uint32_t lat4, lon4;          /* the train position, 1e-4 degree          */
+    uint32_t lat6, lon6;          /* the train position, 1e-6 degree          */
     char     trn[7];              /* train digits of the report being formatted */
     char     loc[9];              /* registration of the report being formatted */
     uint16_t spd;                 /* speed of the report being formatted      */
@@ -893,7 +893,7 @@ static bool pos_get(uint32_t *plat, uint32_t *plon){
 /* The reporting station's own fix, out of the detail block: [30:39) is the
  * longitude as DDD MM MMMM and [39:47) the latitude as DD MM MMMM, plain
  * decimal digits - the same two fields the overlay's LBJ_COORDS reads (the
- * decimals here are minutes, not degrees). Returns 1e-4 degree units. */
+ * decimals here are minutes, not degrees). Returns 1e-6 degree units. */
 static bool lbj_fix(const char *d, uint8_t dlen, uint32_t *plat, uint32_t *plon){
     if (dlen < 47u)
         return false;
@@ -903,13 +903,13 @@ static bool lbj_fix(const char *d, uint8_t dlen, uint32_t *plat, uint32_t *plon)
     if (d[30u] > '1' || d[33u] > '5' || d[41u] > '5')
         return false;                            /* < 200 deg, minutes < 60 */
 
-    const uint32_t lon = (uint32_t)digv(d + 30u, 3u) * 10000u +
-                         ((uint32_t)digv(d + 33u, 2u) * 10000u +
-                          (uint32_t)digv(d + 35u, 4u)) / 60u;
-    const uint32_t lat = (uint32_t)digv(d + 39u, 2u) * 10000u +
-                         ((uint32_t)digv(d + 41u, 2u) * 10000u +
-                          (uint32_t)digv(d + 43u, 4u)) / 60u;
-    if (lat > 900000u || lon > 1800000u)
+    const uint32_t lon = (uint32_t)digv(d + 30u, 3u) * 1000000u +
+                         ((uint32_t)digv(d + 33u, 2u) * 1000000u +
+                          (uint32_t)digv(d + 35u, 4u) * 100u) / 60u;
+    const uint32_t lat = (uint32_t)digv(d + 39u, 2u) * 1000000u +
+                         ((uint32_t)digv(d + 41u, 2u) * 1000000u +
+                          (uint32_t)digv(d + 43u, 4u) * 100u) / 60u;
+    if (lat > 90000000u || lon > 180000000u)
         return false;
 
     *plat = lat;
@@ -1005,16 +1005,16 @@ static void format(uint32_t addr, uint8_t func, const char *b, uint16_t len){
      * pos_get() falls back to the app stores when the menu was never used. */
     g.dst = LBJ_DST_NODET;
     g.fix = false;
-    g.lat4 = g.lon4 = 0;
+    g.lat6 = g.lon6 = 0;
     if (has_detail){
         uint32_t flat, flon, rlat, rlon;
         g.dst = LBJ_DST_UNK;
         if (lbj_fix(d, dlen, &flat, &flon)){
             g.fix  = true;
-            g.lat4 = flat;
-            g.lon4 = flon;
+            g.lat6 = flat;
+            g.lon6 = flon;
             if (pos_get(&rlat, &rlon))
-                g.dst = lbj_dist(flat, flon, rlat, rlon);
+                g.dst = lbj_dist(flat / 100u, flon / 100u, rlat, rlon);
         }
     }
 
@@ -1498,7 +1498,7 @@ static bool history_merge(uint32_t addr, uint8_t func, uint16_t len, uint8_t err
         g.rec[0].mdl    = (uint16_t)LBJ_LOG_MDL_NONE;
         g.rec[0].dir    = (uint8_t)LBJ_LOG_DIR_NONE;
         g.rec[0].fix    = 0u;
-        g.rec[0].lat4   = g.rec[0].lon4 = 0u;
+        g.rec[0].lat6   = g.rec[0].lon6 = 0u;
         if (!own_sh && det_at){
             if (g.pendValid && (int16_t)(g.sec - g.pendSec) <= (int16_t)LBJ_MERGE_SECS){
                 /* the short block it belongs to was held back a moment ago: this
@@ -1571,8 +1571,8 @@ static bool history_merge(uint32_t addr, uint8_t func, uint16_t len, uint8_t err
          * A short block does not touch it, so the code stays available while
          * the pair is refreshed by the short half. */
         if (g.fix){
-            g.rec[0].lat4 = g.lat4;
-            g.rec[0].lon4 = g.lon4;
+            g.rec[0].lat6 = g.lat6;
+            g.rec[0].lon6 = g.lon6;
             g.rec[0].fix  = 1u;
         } else {
             g.rec[0].fix = 0u;
@@ -1843,7 +1843,7 @@ bool LBJ_HandleKey(uint8_t key, bool pressed, bool held){
         /* The live page is the only one with the decoded position in RAM: the
          * flash log has no room for it. A report without a fix has no code. */
         if (g.view == LBJ_VIEW_LIVE && g.rec[g.cur].fix &&
-            LBJ_QR_Build(g.rec[g.cur].lat4, g.rec[g.cur].lon4, g.qrM)){
+            LBJ_QR_Build(g.rec[g.cur].lat6, g.rec[g.cur].lon6, g.qrM)){
             copyline(g.qrLoc, (uint8_t)sizeof g.qrLoc, g.rec[g.cur].loc);
             copyline(g.qrTrn, (uint8_t)sizeof g.qrTrn, g.rec[g.cur].trn);
             g.qr = true;
