@@ -295,31 +295,33 @@ static char *putu(char *o,uint32_t v){
     return o;
 }
 
-/* 1e-4 degree units as "<degrees>.<four digits>", e.g. 399087 -> 39.9087. */
-static char *putdeg4(char *o,uint32_t v){
-    o=putu(o,v/10000u);
+/* 1e-6 degree units as "<degrees>.<six digits>", e.g. 39908700 -> 39.908700. */
+static char *putdeg6(char *o,uint32_t v){
+    o=putu(o,v/1000000u);
     *o++='.';
-    const uint32_t f=v%10000u;
-    *o++=(char)('0'+f/1000u);
+    const uint32_t f=v%1000000u;
+    *o++=(char)('0'+f/100000u);
+    *o++=(char)('0'+(f/10000u)%10u);
+    *o++=(char)('0'+(f/1000u)%10u);
     *o++=(char)('0'+(f/100u)%10u);
     *o++=(char)('0'+(f/10u)%10u);
     *o++=(char)('0'+f%10u);
     return o;
 }
 
-bool LBJ_QR_Build(uint32_t lat4,uint32_t lon4,uint64_t rows[LBJ_QR_N]){
+bool LBJ_QR_Build(uint32_t lat6,uint32_t lon6,uint64_t rows[LBJ_QR_N]){
     static const char prefix[]="https://uri.amap.com/marker?position=";
     static const char suffix[]="&coordinate=wgs84";
     char text[LBJ_QR_MAX+1u];
 
-    if(lat4>900000u || lon4>1800000u)
+    if(lat6>90000000u || lon6>180000000u)
         return false;
 
     char *o=text;
     o=put(o,prefix);
-    o=putdeg4(o,lon4);
+    o=putdeg6(o,lon6);
     *o++=',';
-    o=putdeg4(o,lat4);
+    o=putdeg6(o,lat6);
     o=put(o,suffix);
     *o='\0';
 
