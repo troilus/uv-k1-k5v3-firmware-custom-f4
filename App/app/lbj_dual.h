@@ -16,6 +16,9 @@
  * at the right. The train's fix comes from the report's detail block; the
  * receiver's position is the beacon position of the APRS TX overlay app, edited
  * with APRS Edit - so that app must be installed for a distance to appear.
+ * The same fix gives the map QR code on the * key; the code needs no receiver
+ * position. The flash log has no room for the fix, so only the live window and
+ * the eight reports held in RAM offer the code.
  *
  * Guarded by ENABLE_FEAT_F4HWN_LBJ so the stock firmwares are unaffected.
  */
@@ -43,6 +46,9 @@ void LBJ_StopSampler(void);
 
 /* Popup state. */
 bool LBJ_PopupActive(void);
+/* True while the map QR page is up: the status line stays blank then, to keep
+ * the symbol's top quiet zone. */
+bool LBJ_QrActive(void);
 void LBJ_ClosePopup(void);
 void LBJ_DrawPopup(void);
 

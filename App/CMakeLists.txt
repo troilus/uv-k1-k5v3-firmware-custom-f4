@@ -226,7 +226,13 @@ enable_feature(ENABLE_FEAT_F4HWN_LBJ
     app/lbj_dual.c
     app/lbj_log.c
     app/lbj_pos.c
+    app/lbj_qr.c
 )
+if(ENABLE_FEAT_F4HWN_LBJ)
+    # The QR encoder is only run when the operator asks for the code; keep it
+    # small even in an -O3 build (at -O3 GCC unrolls the GF(256) loops).
+    set_source_files_properties(app/lbj_qr.c PROPERTIES COMPILE_OPTIONS "-Os")
+endif()
 # Optional LBJ build variant: never display a report whose train number starts
 # with 9 (see processPending() in lbj_dual.c). Off by default, so a plain local
 # build is unchanged; the CI passes -DENABLE_LBJ_HIDE9=ON for one of the two
