@@ -21,10 +21,14 @@
 # full. Keep it to line names.
 
 # ---- trunk and regional lines --------------------------------------------
+# The 16 characters that occur zero times in the current 0-9 + A tables
+# were trimmed out of the names below (they survive only in planned or
+# older line names outside those tables). The names are a readable
+# character source, not a canonical list, so a few read short now.
 京广 京沪 京九 京哈 京包 京通 京承 京原 京秦 京山 津浦 沪宁 沪杭 浙赣 湘桂 黔桂
 成渝 成昆 宝成 宝中 阳安 襄渝 焦柳 焦新 新月 陇海 兰新 包兰 兰青 青藏 南昆 内昆
-水红 昆河 广大 大丽 滇藏 川黔 贵昆 湘黔 鹰厦 峰福 赣龙 漳泉 广梅汕 三茂 黎湛
-河茂 宁芜 合宁 宣杭 皖赣 铜九 武九 大沙 石太 石德 胶济 蓝烟 兖石 新兖 菏日
+水红 昆河 广大 大丽 藏 川黔 贵昆 湘黔 鹰厦 峰福 赣龙 漳泉 广梅汕 三茂 黎湛
+河茂 宁芜 合宁 宣杭 皖赣 铜九 武九 大沙 石太 石德 胶济 蓝烟 兖石 新兖 日
 邯济 沈大 沈丹 长图 长白 牡佳 滨洲 滨绥 哈大 平齐 通让 大郑 集通 集二 包白
 神朔 朔黄 大秦 迁曹 通霍 齐北 富嫩 林密 勃七 汤林 嫩林 伊加 牙林 朝乌 汉丹
 达成 遂渝 渝怀 渝利 宜万 汉宜 长荆 孟宝 漯阜 阜淮 淮南 宁西 合武 合蚌 杭深
@@ -32,12 +36,24 @@
 京沈 京张 张呼 大西 西成 西兰 兰渝 成贵 渝贵 西康 渝万 郑万 郑徐 郑西 京雄
 雄商 商合杭 合安 安九 黄黄 昌九 昌赣 赣深 广汕 汕汕 梅汕 深茂 江湛 湛海
 海南环岛 沪苏通 盐通 连盐 连镇 徐宿淮盐 青连 青荣 石济 石武 武广 广深 广珠
-珠机 佛莞 穗深 莞惠 广佛肇 长株潭 武咸 武黄 武冈 汉孝 郑开 郑焦 郑机 太焦
+珠机 莞 穗深 莞惠 广肇 长株潭 武咸 武黄 武冈 汉孝 郑开 郑焦 郑机 太焦
 侯月 阳涉 邯长 南疆 北疆 精伊霍 奎北 克塔 乌准 哈罗 格库 和若 喀和 拉日 拉林
-成雅 成自 绵遂 内自 渝昆 丽香 大临 玉磨 弥蒙 南防 黎钦 钦北 防东 玉铁 洛湛
-岑茂 罗定 春罗 韶赣 赣韶 阜六 宿淮 平禹 禹亳 商阜 萧甬 金温 金台 衢宁 衢丽
-杭黄 杭绍台 杭温 商杭 湖杭 沪昆 宁安 宁启 宁淮 宁滁 宁马 宁扬 扬马 通苏嘉甬
-苏锡常 盐泰锡常宜 沪通 沪乍杭 金建 建衢 黄衢 九景衢 景德镇 合福 福平 兴泉
-浦梅 南三龙 龙龙 赣瑞龙 瑞梅 蒙华 浩吉 瓦日 唐呼 张唐 蒙冀 集包 包西 神延
-延黄 黄韩侯 侯阎 太中银 太兴 宁静 中南部 通道 洛宜 洛襄 安卫 江汉 大冶 铜大
+成雅 成 绵遂 内 渝昆 丽香 大临 玉 蒙 南防 黎钦 钦北 防东 玉铁 洛湛
+茂 罗定 春罗 韶赣 赣韶 阜六 宿淮 平 商阜 萧甬 金温 金台 衢宁 衢丽
+杭黄 杭台 杭温 商杭 湖杭 沪昆 宁安 宁启 宁淮 宁 宁马 宁 马 通苏嘉甬
+苏锡常 盐泰锡常宜 沪通 沪杭 金建 建衢 黄衢 九衢 德镇 合福 福平 兴泉
+浦梅 南三龙 龙龙 赣瑞龙 瑞梅 蒙华 浩吉 瓦日 唐呼 张唐 蒙 集包 包西 神延
+延黄 黄韩侯 侯 太中银 太兴 宁静 中南部 通道 洛宜 洛襄 安卫 江汉 大冶 铜大
 合九 芜铜 宁铜
+
+# ---- OSM China Railway Line Number: sections 0-9 + A --------------------
+# Every line name in those sections, counted once per line name, and only
+# the characters the built-in table does not carry yet. Frequency >= 3
+# (139 chars) covers 90% of all character occurrences in the <=4-character
+# names the LBJ route field can carry. The five characters on the last line
+# appear only in longer names (right/left/重/折/运); they are kept because a
+# 4-character short form may still use them. Generated set: 144 chars.
+联络疏高解动客城专支车走发港货际到州场丰前外双塘天榆田小虹
+王阿庄桥永衡化口同沟矿何孙岗杨绕都钢门义井八博坪威引李桑盘直翔茶陈
+元入厂周娄屯岭干抚敦来桃横洪清渡潮甘织老肥轨转麻丘乐于介仙军凤县后吕吴四园土堡头家封峨工庆星村棋沧洋浑溪满灌煤用益礼窑符舒良草葫虎赤辛遵邵郭酒钟陵陶霸鸡鹤
+右左重折运
