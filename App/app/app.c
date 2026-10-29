@@ -1773,6 +1773,9 @@ void APP_TimeSlice500ms(void)
     if (gBacklightCountdown_500ms > 0 && !gAskToSave && !gCssBackgroundScan
         // don't turn off backlight if user is in backlight menu option
         && !(gScreenToDisplay == DISPLAY_MENU && (m == MENU_ABR || m == MENU_ABR_MAX || m == MENU_ABR_MIN))
+#ifdef ENABLE_FEAT_F4HWN_LBJ
+        && !LBJ_QrActive()
+#endif
         && --gBacklightCountdown_500ms == 0
         && gEeprom.BACKLIGHT_TIME < 61
     ) {
