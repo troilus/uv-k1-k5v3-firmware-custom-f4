@@ -909,6 +909,61 @@ static int16_t lbj_dist(uint32_t lat, uint32_t lon, uint32_t rlat, uint32_t rlon
     return (int16_t)r;
 }
 
+/* True when a store slot has a full coordinate: the primary letter and the
+ * popup's quick switch both only use slots the distance can actually use. */
+static bool pos_slot_ok(uint8_t slot){
+    uint8_t dig[LBJ_POS_DIGITS];
+    uint32_t lat, lon;
+
+    return slot < LBJ_POS_SLOTS && LBJ_POS_Get(slot, dig) &&
+           pos_digits(dig, &lat, &lon);
+}
+
+/* The current primary slot as A-E, or 0 when none is selected or it is empty. */
+static char pos_primary_letter(void){
+    const uint8_t prim = LBJ_POS_Primary();
+
+    return (prim < LBJ_POS_SLOTS && pos_slot_ok(prim))
+        ? (char)('A' + prim)
+        : 0;
+}
+
+/* Recompute every RAM report after the receiver slot changes. A report with
+ * no detail block keeps NODET; one whose train fix is unknown keeps its
+ * existing value. */
+static void pos_refresh_distances(void){
+    uint32_t rlat, rlon;
+    const bool have = pos_get(&rlat, &rlon);
+
+    for (uint8_t i = 0; i < g.count; i++){
+        lbj_rec_t *r = &g.rec[i];
+        if (!r->fix)
+            continue;
+        r->dst = have ? lbj_dist(r->lat6 / 100u, r->lon6 / 100u, rlat, rlon)
+                      : LBJ_DST_UNK;
+    }
+}
+
+/* Next filled slot after the current one, wrapping A..E. False when there is
+ * no other usable slot, so a single filled store does not churn the flash. */
+static bool pos_cycle_primary(void){
+    const uint8_t prim = LBJ_POS_Primary();
+
+    for (uint8_t n = 1; n <= LBJ_POS_SLOTS; n++){
+        const uint8_t slot = (prim < LBJ_POS_SLOTS)
+            ? (uint8_t)((prim + n) % LBJ_POS_SLOTS)
+            : (uint8_t)(n - 1u);
+        if (!pos_slot_ok(slot))
+            continue;
+        if (slot == prim)
+            return false;                 /* only one filled slot */
+        LBJ_POS_SetPrimary(slot);
+        pos_refresh_distances();
+        return true;
+    }
+    return false;
+}
+
 /* What a page carries. This is exactly the overlay's own hasdet(), so both
  * versions split the same traffic the same way: a detail block needs at least
  * 30 characters on the detail addresses (1234001/1234002) and only the 65
@@ -1612,6 +1667,7 @@ bool LBJ_OpenPopup(void){
     g.popup     = true;
     g.pinned    = true;              /* opened by hand: it never times out */
     g.dismissed = false;             /* an explicit open overrides an earlier EXIT */
+    pos_refresh_distances();         /* the menu may have changed the slot */
     g.dirty     = true;
     return true;
 }
@@ -1756,6 +1812,11 @@ bool LBJ_HandleKey(uint8_t key, bool pressed, bool held){
             gBacklightCountdown_500ms = 0;   /* no timeout while the code is up */
             g.dirty = true;
         }
+        return true;
+    }
+    if (key == KEY_9 && g.view == LBJ_VIEW_LIVE){
+        if (pos_cycle_primary())
+            g.dirty = true;
         return true;
     }
     return true;                          /* swallow every other key */
@@ -2079,6 +2140,15 @@ void LBJ_DrawPopup(void){
         UI_PrintStringSmallBold(s, (uint8_t)(128u - (uint8_t)(o - s) * 7u), 0, 0);
     }
     UI_PrintStringSmallBold(r->l1, 0, 0, 1);
+    {
+        /* The active receiver address, on the speed row's far right: one
+         * letter only, and nothing at all when the slot is unset or empty. */
+        const char addr = pos_primary_letter();
+        if (addr){
+            char a[2] = { addr, '\0' };
+            UI_PrintStringSmallBold(a, (uint8_t)(128u - 7u), 0, 1);
+        }
+    }
     UI_PrintStringSmallBold(r->l2, 0, 0, 2);
     UI_PrintStringSmallBold(r->l3, 0, 0, 3);
 
