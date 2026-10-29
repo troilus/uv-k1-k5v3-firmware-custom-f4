@@ -1676,7 +1676,7 @@ static void log_observe(void){
 bool LBJ_PopupActive(void){ return g.popup; }
 bool LBJ_QrActive(void){ return g.qr; }
 void LBJ_ClosePopup(void){
-    if (g.qr){ g.qr = false; gUpdateStatus = true; }
+    if (g.qr){ g.qr = false; BACKLIGHT_TurnOn(); gUpdateStatus = true; }
     if (g.popup){ g.popup = false; gUpdateDisplay = true; }
     g.dismissed = true;              /* stay dismissed until the carrier drops */
 }
@@ -1704,7 +1704,7 @@ bool LBJ_OpenPopup(void){
     if (g.rec[0].loc[0])
         *putl3(g.rec[0].l3, g.rec[0].loc) = '\0';
     g.view      = LBJ_VIEW_LIVE;
-    if (g.qr){ g.qr = false; gUpdateStatus = true; }
+    if (g.qr){ g.qr = false; BACKLIGHT_TurnOn(); gUpdateStatus = true; }
     g.popup     = true;
     g.pinned    = true;              /* opened by hand: it never times out */
     g.dismissed = false;             /* an explicit open overrides an earlier EXIT */
@@ -1723,7 +1723,7 @@ bool LBJ_OpenList(void){
         return false;
     g.lvTop     = g.lv;              /* the list opens on the newest report */
     g.view      = LBJ_VIEW_LIST;
-    if (g.qr){ g.qr = false; gUpdateStatus = true; }
+    if (g.qr){ g.qr = false; BACKLIGHT_TurnOn(); gUpdateStatus = true; }
     g.popup     = true;
     g.pinned    = true;
     g.dismissed = false;
@@ -1769,6 +1769,7 @@ bool LBJ_HandleKey(uint8_t key, bool pressed, bool held){
          * record it was opened on, even if a report shifted the history. */
         if (key == KEY_STAR || key == KEY_EXIT){
             g.qr = false;
+            BACKLIGHT_TurnOn();           /* restore the normal backlight timeout */
             g.cur = 0;                    /* the record was pushed out: newest */
             if (g.qrLoc[0] || g.qrTrn[0]){
                 for (uint8_t i = 0; i < g.count; i++){
@@ -1847,6 +1848,8 @@ bool LBJ_HandleKey(uint8_t key, bool pressed, bool held){
             copyline(g.qrLoc, (uint8_t)sizeof g.qrLoc, g.rec[g.cur].loc);
             copyline(g.qrTrn, (uint8_t)sizeof g.qrTrn, g.rec[g.cur].trn);
             g.qr = true;
+            BACKLIGHT_TurnOn();
+            gBacklightCountdown_500ms = 0;   /* no timeout while the code is up */
             g.dirty = true;
         }
         return true;
@@ -2443,6 +2446,7 @@ void LBJ_Tick(void){
         g.dirty = false;
         g.popSec = g.sec;                         /* activity: restart the LBJPOP count */
         BACKLIGHT_TurnOn();
+        if (g.qr) gBacklightCountdown_500ms = 0;  /* the QR page stays lit */
         gUpdateDisplay = true;
     }
 
