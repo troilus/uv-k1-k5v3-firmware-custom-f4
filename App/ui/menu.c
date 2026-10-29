@@ -743,16 +743,16 @@ const char gSubMenu_LBJ_CLR[][4] =
 
 /* LBJPRI: which of the five positions the decode window measures a train from.
  * Entry 0 is "--", no primary at all, so the popup keeps its old distance
- * source; 1..5 pick the store's slot 0..4 (lbj_pos.c). It starts on whatever the
- * store already holds. */
+ * source; A..E pick the store's slot 0..4 (lbj_pos.c). It starts on whatever
+ * the store already holds. */
 const char gSubMenu_LBJ_PRI[][4] =
 {
     "--",
-    "1",
-    "2",
-    "3",
-    "4",
-    "5"
+    "A",
+    "B",
+    "C",
+    "D",
+    "E"
 };
 
 /* LBJNUM: how row3 prints the 8-digit registration. FULL keeps the whole

@@ -1123,7 +1123,7 @@ void MENU_AcceptSetting(void)
                     LBJ_LOG_Clear();
                 break;
             case MENU_LBJPRI:
-                /* Entry 0 is "--" (no primary), 1..5 is the store's slot 0..4.
+                /* Entry 0 is "--" (no primary), A..E is the store's slot 0..4.
                  * Chosen before the coordinate is typed, so a slot with nothing
                  * in it can be picked and filled in afterwards. */
                 LBJ_POS_SetPrimary(gSubMenuSelection
