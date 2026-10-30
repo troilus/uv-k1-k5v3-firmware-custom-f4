@@ -8,7 +8,7 @@ set -euo pipefail
 
 APP="$(basename "$PWD")"            # tdcsrx
 APP_NAME="TDCS RX"                  # <-- the only per-app line
-APP_VER="0.2"
+APP_VER="0.3"
 APP_API_MIN=3
 APP_VMA=${APP_VMA:-0x20000280}      # pinned overlay VMA (Core/pyf071xb.ld)
 OUT="${APP_NAME// /}-cn"            # blob basename ("TDCS RX" -> TDCSRX-cn)

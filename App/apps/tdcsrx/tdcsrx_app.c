@@ -51,10 +51,12 @@ static inline volatile uint32_t *hw(uint32_t a)
 #define ADC_CR2_START  ((1u << 22) | (1u << 20))
 
 /* BK4819 registers the frequency pin writes (see the LBJ app's LBJ_PIN_FREQ). */
+#define REG_2B   0x2Bu
 #define REG_30   0x30u
 #define REG_38   0x38u
 #define REG_39   0x39u
 #define REG_43   0x43u
+#define REG_73   0x73u
 #define REG43_WIDE 0x3628u
 
 #define TDCS_FREQ_HZ10 45755000u   /* 457.5500 MHz, 10 Hz units */
@@ -111,6 +113,14 @@ static void adcRestore(void)
     ADC_SQR3 = g.savedSqr3;
     ADC_SMPR3 = g.savedSmpr3;
 }
+/* Point the ADC at channel 4 (PA4) with the same 41.5-cycle sampling time the
+ * battery channel uses: without this the conversion reads the battery divider
+ * and the decoder gets a constant, not the discriminator audio. */
+static void adcSelPA4(void)
+{
+    ADC_SMPR3 = (ADC_SMPR3 & ~(7u << 12)) | (7u << 12);
+    ADC_SQR3  = (ADC_SQR3 & ~0x1Fu) | 4u;
+}
 static uint16_t adcRead(void)
 {
     ADC_CR2 |= ADC_CR2_START;
@@ -134,17 +144,16 @@ static char *put(char *o, const char *s)
 }
 /* Decimal without a division: subtracting the powers of ten keeps the 32-bit
  * divide helper (266 B) out of the 4 KiB blob. */
-static const uint32_t P10[10] = {
-    1000000000u, 100000000u, 10000000u, 1000000u, 100000u,
-    10000u, 1000u, 100u, 10u, 1u
+static const uint32_t P10[7] = {
+    1000000u, 100000u, 10000u, 1000u, 100u, 10u, 1u
 };
 static char *putu(char *o, uint32_t v)
 {
     uint8_t started = 0;
-    for (uint8_t i = 0; i < 10u; i++) {
+    for (uint8_t i = 0; i < 7u; i++) {
         uint8_t d = 0;
         while (v >= P10[i]) { v -= P10[i]; d++; }
-        if (d || started || i == 9u) { *o++ = (char)('0' + d); started = 1u; }
+        if (d || started || i == 6u) { *o++ = (char)('0' + d); started = 1u; }
     }
     return o;
 }
@@ -173,19 +182,14 @@ static char *putlen(char *o, uint32_t l)
     *o++ = '.';
     return putu(o, l);
 }
-static uint8_t slen(const char *s)
-{
-    uint8_t n = 0;
-    while (s[n]) n++;
-    return n;
-}
-
 /* One row: the label (Chinese, from the radio font), ": ", then the value.
  * The stock printer advances a GB2312 character by two byte slots, so the
  * label ends at strlen * 7 px - that is where the value goes. */
 static void row_put(uint8_t row, const char *label, const char *value)
 {
-    const uint8_t w = (uint8_t)(slen(label) * 7u);
+    uint8_t w = 0;
+    while (label[w]) w++;
+    w = (uint8_t)(w * 7u);
     g.A->print_normal(label, 0, 0, row);
     g.A->print_normal(": ", w, 0, row);
     g.A->print_normal(value, (uint8_t)(w + 14u), 0, row);
@@ -195,12 +199,9 @@ static void row_put(uint8_t row, const char *label, const char *value)
 /* 18 fields: the two "extension" bytes (loco type extension, station
  * extension) are 0 on almost every report and the 4 KiB overlay has no room
  * for them. */
-static const char *const LBL[17] = {
-    "信号机", "信号种类", "本补客货", "车次种类", "车次",
-    "机车类型", "机车号", "公里标", "速度",
-    "总重", "计长", "辆数", "车站号",
-    "区段号", "实际交路", "司机号", "状态"
-};
+static const char LBL_BLOB[] =
+    "信号机\0信号种类\0本补客货\0车次种类\0车次\0机车类型\0机车号\0公里标\0速度\0总重\0计长\0辆数\0车站号\0区段号\0实际交路\0司机号\0状态\0";
+static const uint8_t LBL_OFF[17] = { 0, 7, 16, 25, 34, 39, 48, 55, 62, 67, 72, 77, 82, 89, 96, 105, 112 };
 
 static const char *const SIG[7] = {
     "始发车", "编组站", "出站", "进站", "通过", "预告", "容许"
@@ -237,9 +238,9 @@ static void draw_field(uint8_t row, const rec_t *r, uint8_t idx)
             break;
         case 4: {
             /* Seven digits, no leading-zero trim.  Subtracting the powers of
-             * ten (P10[3..9]) keeps the divide helpers out of the blob. */
+             * ten keeps the divide helpers out of the blob. */
             uint32_t t = m->train_no;
-            for (uint8_t i = 3u; i < 10u; i++) {
+            for (uint8_t i = 0; i < 7u; i++) {
                 uint8_t d = 0;
                 while (t >= P10[i]) { t -= P10[i]; d++; }
                 *o++ = (char)('0' + d);
@@ -279,7 +280,7 @@ static void draw_field(uint8_t row, const rec_t *r, uint8_t idx)
     }
     *o = 0;
 
-    row_put(row, LBL[idx], cn ? cn : v);
+    row_put(row, LBL_BLOB + LBL_OFF[idx], cn ? cn : v);
 }
 
 static const uint8_t PAGE_MAP[PAGES][ROWS] = {
@@ -426,6 +427,7 @@ void app_main(const app_api_t *api)
     const uint32_t savedModer = GPIOA_MODER, savedDac = DAC_CR;
     const uint32_t savedRcc = RCC_APBENR1, savedDhr = DAC_DHR12R1;
     biasOn(savedModer, savedRcc);
+    adcSelPA4();
     api->backlight_on();
 
     g.spk = false;
@@ -438,6 +440,11 @@ void app_main(const app_api_t *api)
     api->bk_write(REG_38, (uint16_t)(TDCS_FREQ_HZ10 & 0xFFFFu));
     api->bk_write(REG_39, (uint16_t)(TDCS_FREQ_HZ10 >> 16));
     api->bk_write(REG_43, REG43_WIDE);
+    /* Launched from RAW/LBJ, the audio path still has the filter-bypass bits
+     * set: clear them so the discriminator audio is shaped like the resident
+     * TDCS mode's (the loader restores the VFO's own values on exit). */
+    api->bk_write(REG_2B, (uint16_t)(api->bk_read(REG_2B) & ~0x0700u));
+    api->bk_write(REG_73, (uint16_t)(api->bk_read(REG_73) & ~0x0010u));
     const uint16_t r30 = api->bk_read(REG_30);
     api->bk_write(REG_30, 0);
     api->bk_write(REG_30, r30);
