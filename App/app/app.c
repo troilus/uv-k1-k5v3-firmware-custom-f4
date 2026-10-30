@@ -1428,6 +1428,15 @@ static void HandleRxEndBlink(void)
         return;
     }
 #endif
+#ifdef ENABLE_FEAT_F4HWN_TDCS
+    /* A TDCS channel does not use the RX-end blink either: tdcs_dual.c drives
+     * the LED and only flashes it when a report decodes. */
+    if (TDCS_RxVfoIsTdcs()) {
+        gRxEndBlinkState = 0;
+        gRxEndBlinkPrevSquelch = g_SquelchLost;
+        return;
+    }
+#endif
 
     if (gSetting_set_eot == 0) {
         gRxEndBlinkState = 0;
