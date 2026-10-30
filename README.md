@@ -350,6 +350,10 @@ The script `compile-with-docker.sh` performs the following actions:
 ### Documented Preset
 
 - **Fusion**
+- **TDCS** — Fusion with the 450 MHz TDCS A-class decoder (`MODULATION_TDCS`),
+  LTO and the spectrum screen disabled to make room.  Build with
+  `./compile-with-docker.sh TDCS`; the output is
+  `build/TDCS/f4hwn.tdcs.bin`.
 
 ### Examples
 
@@ -357,6 +361,12 @@ Build Fusion:
 
 ```bash
 ./compile-with-docker.sh Fusion
+```
+
+Build the TDCS decoder:
+
+```bash
+./compile-with-docker.sh TDCS
 ```
 
 ### Passing Additional CMake Options

@@ -46,6 +46,9 @@
     #include "app/lbj_log.h"
     #include "app/lbj_pos.h"
 #endif
+#ifdef ENABLE_FEAT_F4HWN_TDCS
+    #include "app/tdcs_dual.h"
+#endif
 #if defined(ENABLE_FEAT_F4HWN_MULTIBOOT) && !defined(ENABLE_OVERLAY)
     #include "driver/mb_flash.h"
     #include "ui/multiboot.h"
@@ -503,6 +506,13 @@ int MENU_GetLimits(uint8_t menu_id, int32_t *pMin, int32_t *pMax)
             case MENU_LBJRT:
                 //*pMin = 0;
                 *pMax = ARRAY_SIZE(gSubMenu_LBJ_RT) - 1;
+                break;
+        #endif
+
+        #ifdef ENABLE_FEAT_F4HWN_TDCS
+            case MENU_TCDPOP:
+                //*pMin = 0;
+                *pMax = ARRAY_SIZE(gSubMenu_LBJ_POP) - 1;
                 break;
         #endif
 
@@ -1148,6 +1158,12 @@ void MENU_AcceptSetting(void)
             }
         #endif
 
+        #ifdef ENABLE_FEAT_F4HWN_TDCS
+            case MENU_TCDPOP:
+                gEeprom.TCD_POPUP_TIME = gSubMenuSelection;
+                break;
+        #endif
+
         #if defined(ENABLE_FEAT_F4HWN_MULTIBOOT) && !defined(ENABLE_OVERLAY)
             case MENU_SET_CFG:
             {
@@ -1667,6 +1683,12 @@ void MENU_ShowCurrentSetting(void)
                 break;
         #endif
 
+        #ifdef ENABLE_FEAT_F4HWN_TDCS
+            case MENU_TCDPOP:
+                gSubMenuSelection = gEeprom.TCD_POPUP_TIME;
+                break;
+        #endif
+
         default:
             return;
     }
@@ -2114,6 +2136,17 @@ static void MENU_Key_MENU(const bool bKeyPressed, const bool bKeyHeld)
                 gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
                 return;
             }
+        }
+#endif
+
+#ifdef ENABLE_FEAT_F4HWN_TDCS
+        if (m == MENU_TCD)
+        {   /* The same pure action for the TDCS window: leave the menu and show
+             * the newest decoded report. With nothing decoded yet the menu
+             * stays where it is. */
+            if (TDCS_OpenPopup())
+                gRequestDisplayScreen = DISPLAY_MAIN;
+            return;
         }
 #endif
 

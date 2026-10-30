@@ -56,6 +56,10 @@
     #include "app/lbj_dual.h"
     static void ACTION_LbjMsg(void);
 #endif
+#ifdef ENABLE_FEAT_F4HWN_TDCS
+    #include "app/tdcs_dual.h"
+    static void ACTION_TcdMsg(void);
+#endif
 
 #if defined(ENABLE_FMRADIO)
 static void ACTION_Scan_FM(bool bRestart);
@@ -151,6 +155,9 @@ void (*action_opt_table[])(void) = {
 #endif
 #ifdef ENABLE_FEAT_F4HWN_LBJ
     [ACTION_OPT_LBJMSG] = &ACTION_LbjMsg,
+#endif
+#ifdef ENABLE_FEAT_F4HWN_TDCS
+    [ACTION_OPT_TCDMSG] = &ACTION_TcdMsg,
 #endif
 };
 
@@ -401,6 +408,9 @@ void ACTION_Handle(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
     #ifdef ENABLE_FEAT_F4HWN_LBJ
             case ACTION_OPT_LBJMSG:
     #endif
+    #ifdef ENABLE_FEAT_F4HWN_TDCS
+            case ACTION_OPT_TCDMSG:
+    #endif
                 gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
                 return;
 
@@ -437,6 +447,22 @@ static void ACTION_ToneCall(void)
 static void ACTION_LbjMsg(void)
 {
     if (gCurrentFunction == FUNCTION_TRANSMIT || !LBJ_OpenPopup())
+    {
+        gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
+        return;
+    }
+
+    GUI_SelectNextDisplay(DISPLAY_MAIN);
+}
+#endif
+
+#ifdef ENABLE_FEAT_F4HWN_TDCS
+/* The side key / M Long shortcut for the TDCS window: exactly what the TCDMSG
+ * menu item does. Refuses while transmitting, and double beeps when there is
+ * nothing decoded yet. */
+static void ACTION_TcdMsg(void)
+{
+    if (gCurrentFunction == FUNCTION_TRANSMIT || !TDCS_OpenPopup())
     {
         gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
         return;

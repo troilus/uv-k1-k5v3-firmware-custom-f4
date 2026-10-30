@@ -160,6 +160,49 @@ void UI_PrintStringSmallNormal(const char *pString, uint8_t Start, uint8_t End, 
     UI_PrintStringSmall(pString, Start, End, Line, ARRAY_SIZE(gFontSmall[0]), (const uint8_t *)gFontSmall);
 }
 
+/* Mixed ASCII/GB2312 small-font row.  The stock UI_PrintStringBuffer() advances
+ * a GB2312 character by two source bytes, i.e. 14 px at the 6 px ASCII pitch,
+ * which is too wide for the dense TDCS field list.  This one draws the same
+ * 8x8 device font at a 9 px pitch (8 px glyph + 1 px gap) and the 6 px ASCII
+ * font at its normal 7 px pitch, returning the x after the last character.
+ * The string is GB2312 in the binary (the build uses -fexec-charset=GB2312). */
+uint8_t UI_PrintStringSmallCN(const char *pString, uint8_t Start, uint8_t Line)
+{
+    const size_t Length = strlen(pString);
+    uint8_t x = Start;
+
+    for (size_t i = 0; i < Length; i++) {
+        const uint8_t c = (uint8_t)pString[i];
+
+        if (c >= 0xA1u && c <= 0xF7u && (i + 1u) < Length) {
+            const uint8_t lo = (uint8_t)pString[i + 1u];
+            if (lo >= 0xA1u && lo <= 0xFEu) {
+                if ((unsigned)x + 9u > LCD_WIDTH)
+                    break;
+                const uint32_t idx = (uint32_t)(c - 0xA1u) * 94u + (uint32_t)(lo - 0xA1u);
+                uint8_t cnDot[FONT8_SIZE];
+                PY25Q16_ReadBuffer(FLASH_FONT8_BASE + idx * FONT8_SIZE, cnDot, FONT8_SIZE);
+                memcpy(gFrameBuffer[Line] + x + 1u, cnDot, FONT8_SIZE);
+                x = (uint8_t)(x + 9u);
+                i++;
+                continue;
+            }
+        }
+
+        if (c > ' ' && c < 127u) {
+            if ((unsigned)x + 6u > LCD_WIDTH)
+                break;
+            const unsigned int index = c - ' ' - 1u;
+            memcpy(gFrameBuffer[Line] + x, &gFontSmall[index][0], 6u);
+            x = (uint8_t)(x + 7u);
+        } else if (c == ' ') {
+            x = (uint8_t)(x + 7u);
+        }
+    }
+
+    return x;
+}
+
 void UI_PrintStringSmallNormalInverse(const char *pString, uint8_t Start, uint8_t End, uint8_t Line)
 {
     // First draw the string normally

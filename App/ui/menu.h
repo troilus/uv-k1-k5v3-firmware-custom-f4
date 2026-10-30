@@ -38,6 +38,7 @@ enum
 {
     MENU_CAT_CHANNELS = 0,
     MENU_CAT_LBJ,
+    MENU_CAT_TCD,
     MENU_CAT_SCAN,
     MENU_CAT_KEYS,
     MENU_CAT_POWER,
@@ -231,6 +232,16 @@ enum
      * the detail block carries (中文, the default) or their pinyin initials
      * (拼音). Appended last so no existing id moves. */
     MENU_LBJRT,
+#endif
+#ifdef ENABLE_FEAT_F4HWN_TDCS
+    /* Not a setting: selecting it drops out of the menu and opens the TDCS
+     * decode window on the main screen. Appended last so no existing id
+     * moves - the order the menu shows is MenuList, not this enumeration. */
+    MENU_TCD,
+    /* TCDPOP: how long the decode window a report opened stays up on its own
+     * before it closes itself: ON (default), 3, 5, 10 or 60 s. The window the
+     * TCDMSG menu item opens by hand stays up until EXIT, as it always did. */
+    MENU_TCDPOP,
 #endif
 };
 

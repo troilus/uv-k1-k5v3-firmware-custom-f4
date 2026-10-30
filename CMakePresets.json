@@ -185,7 +185,9 @@
             "name": "Fusion",
             "inherits": "default",
             "cacheVariables": {
-                "ENABLE_SPECTRUM": true,
+                "ENABLE_SPECTRUM": false,
+                "ENABLE_FEAT_F4HWN_SPECTRUM": false,
+                "ENABLE_FEAT_F4HWN_TDCS": true,
                 "ENABLE_FMRADIO": true,
                 "ENABLE_VOX": false,
                 "ENABLE_AIRCOPY": false,
@@ -212,8 +214,23 @@
                 "ENABLE_FEAT_F4HWN_MULTIBOOT_OVERLAY": true,
                 "ENABLE_FEAT_F4HWN_EXT_FLASH_RW": true,
                 "ENABLE_SWD": true,
+                "ENABLE_LTO": true,
                 "EDITION_STRING": "Fusion",
+                "VERSION_STRING_2": "v5.5.4",
                 "TARGET": "f4hwn.fusion"
+            }
+        },
+        {
+            "name": "TDCS",
+            "inherits": "Fusion",
+            "cacheVariables": {
+                "ENABLE_SPECTRUM": false,
+                "ENABLE_FEAT_F4HWN_SPECTRUM": false,
+                "ENABLE_FEAT_F4HWN_TDCS": true,
+                "ENABLE_LTO": true,
+                "EDITION_STRING": "TDCS",
+                "VERSION_STRING_2": "v5.5.4",
+                "TARGET": "f4hwn.tdcs"
             }
         }
     ],
@@ -245,6 +262,10 @@
         {
             "name": "Fusion",
             "configurePreset": "Fusion"
+        },
+        {
+            "name": "TDCS",
+            "configurePreset": "TDCS"
         }
     ]
 }

@@ -256,7 +256,9 @@ static void processFKeyFunction(const KEY_Code_t Key, const bool beep)
 #endif
             }
             else {
+#if defined(ENABLE_SPECTRUM)
                 APP_RunSpectrum();
+#endif
             }
 
             break;

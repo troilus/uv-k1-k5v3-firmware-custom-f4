@@ -33,6 +33,9 @@
 #ifdef ENABLE_FEAT_F4HWN_LBJ
     #include "app/lbj_dual.h"
 #endif
+#ifdef ENABLE_FEAT_F4HWN_TDCS
+    #include "app/tdcs_dual.h"
+#endif
 #ifdef ENABLE_FLASHLIGHT
     #include "app/flashlight.h"
 #endif
@@ -1101,6 +1104,9 @@ void APP_Update(void)
 #ifdef ENABLE_FEAT_F4HWN_LBJ
         && !LBJ_Active()            /* hold the LBJ mode while decoding */
 #endif
+#ifdef ENABLE_FEAT_F4HWN_TDCS
+        && !TDCS_Active()           /* hold the TDCS mode while decoding */
+#endif
 #ifdef ENABLE_FEAT_F4HWN_BEAM
         && !gBeamActive
 #endif
@@ -1527,6 +1533,10 @@ void APP_TimeSlice10ms(void)
 #ifdef ENABLE_FEAT_F4HWN_LBJ
     /* LBJ mode: start/stop the PA4 sampler from the FM squelch state. */
     LBJ_Tick();
+#endif
+#ifdef ENABLE_FEAT_F4HWN_TDCS
+    /* TDCS mode: same PA4 sampler, FFSK framer and decode window. */
+    TDCS_Tick();
 #endif
 
 #ifdef ENABLE_FEAT_F4HWN
@@ -2053,8 +2063,21 @@ static void ProcessKey(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
         return;
     }
 #endif
+#ifdef ENABLE_FEAT_F4HWN_TDCS
+    /* The TDCS decode window owns the keypad in the same way. */
+    if (TDCS_HandleKey((uint8_t)Key, bKeyPressed, bKeyHeld))
+    {
+        BACKLIGHT_TurnOn();
+        gBeepToPlay = BEEP_NONE;
+        return;
+    }
+#endif
 
-    if (Key == KEY_EXIT && !BACKLIGHT_IsOn() && !gFmRadioMode && gEeprom.BACKLIGHT_TIME > 0)
+    /* Do not let the backlight wake-up below eat the EXIT that confirms the
+     * low-battery page: that page is handled further down, after the decode
+     * window hooks. */
+    if (Key == KEY_EXIT && !BACKLIGHT_IsOn() && !gFmRadioMode && gEeprom.BACKLIGHT_TIME > 0
+        && !(gLowBattery && !gLowBatteryConfirmed && gScreenToDisplay == DISPLAY_MAIN))
     {   // just turn the light on for now so the user can see what's what
         BACKLIGHT_TurnOn();
         gBeepToPlay = BEEP_NONE;
@@ -2161,6 +2184,7 @@ static void ProcessKey(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
         if(Key == KEY_EXIT && bKeyPressed && lowBatPopup) {
             gLowBatteryConfirmed = true;
             gUpdateDisplay = true;
+            gUpdateStatus  = true;
             AUDIO_PlayBeep(BEEP_1KHZ_60MS_OPTIONAL);
             return;
         }

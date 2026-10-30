@@ -80,6 +80,15 @@ add_subdirectory(Middlewares)
 add_subdirectory(Core)
 add_subdirectory(App)
 
+if(ENABLE_LTO AND ENABLE_FEAT_F4HWN_MULTIBOOT)
+    # The multiboot safety gate scans .MBRamFunc in the non-LTO mb_flash object
+    # from the linker map.  Keep that one translation unit out of LTO.  The
+    # property has to be set in this directory, where the executable compiles
+    # the sources contributed by the App INTERFACE library.
+    set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/App/driver/mb_flash.c
+        PROPERTIES COMPILE_FLAGS "-fno-lto")
+endif()
+
 target_link_libraries(${EXE_NAME} Core App)
 
 target_compile_definitions(${EXE_NAME} PRIVATE $<$<CONFIG:Debug>:DEBUG>)
@@ -98,8 +107,13 @@ target_link_options(${EXE_NAME} PRIVATE "-Wl,-Map=${EXE_NAME}.map")
 # Add the map file to the list of files to be removed with 'clean' target
 set_target_properties(${EXE_NAME} PROPERTIES ADDITIONAL_CLEAN_FILES ${EXE_NAME}.map)
 
-# Force linker to ignore RWX segment warning even if cache exists
-target_link_options(${EXE_NAME} PRIVATE -Wl,--no-warn-rwx-segment)
+# Older GNU Arm Embedded linkers (binutils < 2.39, e.g. the 10.3.1 toolchain)
+# do not know --no-warn-rwx-segment; the warning it suppresses is harmless.
+include(CheckLinkerFlag)
+check_linker_flag(C "LINKER:--no-warn-rwx-segment" HAS_NO_WARN_RWX_SEGMENT)
+if(HAS_NO_WARN_RWX_SEGMENT)
+    target_link_options(${EXE_NAME} PRIVATE -Wl,--no-warn-rwx-segment)
+endif()
 
 # -----------------------------------
 #  Post build processing

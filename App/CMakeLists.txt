@@ -233,6 +233,18 @@ if(ENABLE_FEAT_F4HWN_LBJ)
     # small even in an -O3 build (at -O3 GCC unrolls the GF(256) loops).
     set_source_files_properties(app/lbj_qr.c PROPERTIES COMPILE_OPTIONS "-Os")
 endif()
+
+# TDCS: resident 450 MHz FFSK / A-class encoder receive mode, with a decode
+# popup.  When TDCS is on it links the shared PA4 sampler (pa4_sampler.c) that
+# the LBJ mode uses too; a TDCS-less LBJ build keeps its original sampler.
+enable_feature(ENABLE_FEAT_F4HWN_TDCS
+    app/tdcs_dual.c
+)
+if(ENABLE_FEAT_F4HWN_TDCS)
+    target_sources(App INTERFACE app/pa4_sampler.c)
+    # The TDCS decoder is resident: keep it compact.
+    set_source_files_properties(app/tdcs_dual.c PROPERTIES COMPILE_OPTIONS "-Os")
+endif()
 # Optional LBJ build variant: never display a report whose train number starts
 # with 9 (see processPending() in lbj_dual.c). Off by default, so a plain local
 # build is unchanged; the CI passes -DENABLE_LBJ_HIDE9=ON for one of the two
@@ -243,6 +255,12 @@ if(ENABLE_FEAT_F4HWN_LBJ AND NOT ENABLE_FEAT_F4HWN)
 endif()
 if(ENABLE_FEAT_F4HWN_LBJ AND NOT ENABLE_BYP_RAW_DEMODULATORS)
     message(FATAL_ERROR "ENABLE_FEAT_F4HWN_LBJ requires ENABLE_BYP_RAW_DEMODULATORS (MODULATION_LBJ reuses the RAW receive profile).")
+endif()
+if(ENABLE_FEAT_F4HWN_TDCS AND NOT ENABLE_FEAT_F4HWN)
+    message(FATAL_ERROR "ENABLE_FEAT_F4HWN_TDCS requires ENABLE_FEAT_F4HWN.")
+endif()
+if(ENABLE_FEAT_F4HWN_TDCS AND NOT ENABLE_BYP_RAW_DEMODULATORS)
+    message(FATAL_ERROR "ENABLE_FEAT_F4HWN_TDCS requires ENABLE_BYP_RAW_DEMODULATORS (MODULATION_TDCS reuses the RAW receive profile).")
 endif()
 
 # ---- OVERLAY APPS ----

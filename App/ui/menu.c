@@ -82,6 +82,10 @@ const t_menu_item MenuList[] =
     {"LBJNUM",      MENU_LBJNUM        }, // registration: FULL 8 digits or SIMPLE 4
     {"线路名",        MENU_LBJRT         }, // route name: 中文 characters or 拼音 initials
 #endif
+#ifdef ENABLE_FEAT_F4HWN_TDCS
+    {"TCDMSG",      MENU_TCD           }, // opens the TDCS decode window
+    {"TCDPOP",      MENU_TCDPOP        }, // how long that window stays up on its own
+#endif
 #ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
     {"SetCfg",      MENU_SET_CFG       }, // pick the settings bank to boot with
 #endif
@@ -369,6 +373,10 @@ static const uint8_t gMenuCatOf[] =
     [MENU_LBJNUM]           = MENU_CAT_LBJ,
     [MENU_LBJRT]            = MENU_CAT_LBJ,
 #endif
+#ifdef ENABLE_FEAT_F4HWN_TDCS
+    [MENU_TCD]              = MENU_CAT_TCD,
+    [MENU_TCDPOP]           = MENU_CAT_TCD,
+#endif
 };
 
 /* The names the browser shows the categories by, in the MENU_CAT_* order above.
@@ -377,6 +385,7 @@ static const char *const gMenuCatName[MENU_CAT_COUNT] =
 {
     "信道",     /* MENU_CAT_CHANNELS */
     "LBJ",      /* MENU_CAT_LBJ */
+    "TCD",      /* MENU_CAT_TCD */
     "扫描",     /* MENU_CAT_SCAN */
     "按键",     /* MENU_CAT_KEYS */
     "电源",     /* MENU_CAT_POWER */
@@ -1004,6 +1013,9 @@ const t_sidefunction gSubMenu_SIDEFUNCTIONS[] =
     #endif
     #ifdef ENABLE_FEAT_F4HWN_LBJ
         {"LBJMSG",          ACTION_OPT_LBJMSG},
+    #endif
+    #ifdef ENABLE_FEAT_F4HWN_TDCS
+        {"TCDMSG",          ACTION_OPT_TCDMSG},
     #endif
 #endif
 };
@@ -1998,6 +2010,12 @@ void UI_DisplayMenu(void)
                     strcpy(String, "--");
                 break;
             }
+        #endif
+
+        #ifdef ENABLE_FEAT_F4HWN_TDCS
+            case MENU_TCDPOP:
+                strcpy(String, gSubMenu_LBJ_POP[gSubMenuSelection]);
+                break;
         #endif
 
         #ifdef ENABLE_FEAT_F4HWN_MULTIBOOT

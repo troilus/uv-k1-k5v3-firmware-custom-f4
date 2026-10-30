@@ -50,6 +50,9 @@
 #include "lbj_log.h"
 #include "lbj_pos.h"
 #include "lbj_qr.h"
+#ifdef ENABLE_FEAT_F4HWN_TDCS
+#include "pa4_sampler.h"
+#endif
 
 #ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
 #include "apps/app_config_proxy.h"
@@ -73,6 +76,10 @@
 #include "ui/status.h"
 #include "ui/ui.h"
 
+#ifdef ENABLE_FEAT_F4HWN_TDCS
+#include "tdcs_dual.h"   /* TDCS and LBJ share the screen: one window at a time */
+#endif
+
 /* ---- LBJ channel: 821.2375 MHz (frequency unit = 10 Hz; _1GHz_in_KHz) ---- */
 #define LBJ_FREQ_HZ10   82123750u
 #define LBJ_FREQ_TOL      500u     /* +- 5 kHz match window                     */
@@ -82,36 +89,15 @@
 #define LBJ_LOST_DEBOUNCE  20u     /* squelch closed for 200 ms -> stop         */
 
 /* ---- receiver ---- */
+#define BIAS_CODE      2048u
+
+#ifndef ENABLE_FEAT_F4HWN_TDCS
+/* The original LBJ sampler, used when the shared PA4 sampler is not linked
+ * (TDCS disabled).  With TDCS enabled both decoders share pa4_sampler.c. */
 #define FS             19200u
 #define ADC_CH_PA4     4u
 #define SMP8_POS       24u
 #define SMP4_POS       12u
-#define BIAS_CODE      2048u
-
-#define DC_SHIFT   9          /* ~512 samples = 26.7 ms at 19.2 kHz: slower than
-                               * a run of 13 equal bits, so the baseline never
-                               * chases the droop. (#12) */
-#define PK_SHIFT   8
-#define PLL_STEP   4096
-#define PLL_SHIFT  3          /* proportional DPLL only, as upstream: phase -=
-                               * err >> 3. The integral term only cost code and
-                               * RAM, the model is identical without it. (#12) */
-#define BOX        16u
-
-/* #12: three hysteresis slicers over ONE front-end (DC tracker, low-pass
- * biquad, boxcar matched filter, symmetric peak tracker), merged page by page.
- * k = 3 reads the level through a wide band (it flips late but never on noise),
- * k = 7 through a narrow one (it flips on the drooping edge of a high-passed
- * NRZ), k = 5 in between. The single k = 6 chain this replaces collapsed as
- * soon as the radio audio path cut high; the three read the marginal bits
- * differently and the merge keeps whichever read each character. Chosen with
- * the model in App/apps/lbj/test/model_rx.py (hpsweep). */
-#define LBJ_SLICERS 3u
-static const uint8_t LBJ_SL_K[LBJ_SLICERS] = { 3u, 5u, 7u };
-#define M_B0       725
-#define M_B1       1451
-#define M_A1     (-21674)
-#define M_A2       8192
 
 /* ---- PY32F071 registers (same direct access the overlay app uses) ---- */
 static inline volatile uint32_t *hw(uint32_t a){
@@ -139,6 +125,32 @@ static inline volatile uint32_t *hw(uint32_t a){
 #define REG_RAW2B_OR  0x0700u     /* RX HPF/LPF + de-emphasis + AFC off      */
 #define REG_RAW2B_AND 0x0007u
 #define REG_RAW73_OR  0x0010u
+#endif
+
+#define DC_SHIFT   9          /* ~512 samples = 26.7 ms at 19.2 kHz: slower than
+                               * a run of 13 equal bits, so the baseline never
+                               * chases the droop. (#12) */
+#define PK_SHIFT   8
+#define PLL_STEP   4096
+#define PLL_SHIFT  3          /* proportional DPLL only, as upstream: phase -=
+                               * err >> 3. The integral term only cost code and
+                               * RAM, the model is identical without it. (#12) */
+#define BOX        16u
+
+/* #12: three hysteresis slicers over ONE front-end (DC tracker, low-pass
+ * biquad, boxcar matched filter, symmetric peak tracker), merged page by page.
+ * k = 3 reads the level through a wide band (it flips late but never on noise),
+ * k = 7 through a narrow one (it flips on the drooping edge of a high-passed
+ * NRZ), k = 5 in between. The single k = 6 chain this replaces collapsed as
+ * soon as the radio audio path cut high; the three read the marginal bits
+ * differently and the merge keeps whichever read each character. Chosen with
+ * the model in App/apps/lbj/test/model_rx.py (hpsweep). */
+#define LBJ_SLICERS 3u
+static const uint8_t LBJ_SL_K[LBJ_SLICERS] = { 3u, 5u, 7u };
+#define M_B0       725
+#define M_B1       1451
+#define M_A1     (-21674)
+#define M_A2       8192
 
 /* ---- demodulator (test/model_rx.py, class DemodInt / class Slicer) ----
  * The front-end is shared; each hysteresis slicer keeps its own level and its
@@ -274,8 +286,10 @@ static struct {
     uint8_t  ledPhase;           /* 100 ms phases left; 0 = idle              */
     uint8_t  ledTick;            /* 10 ms ticks left in the current phase      */
     uint8_t  ledVfo;             /* the RX_VFO the blink belongs to (A/B LED)  */
+#ifndef ENABLE_FEAT_F4HWN_TDCS
     uint32_t savedModer, savedDac, savedRcc, savedDhr, savedSqr3, savedSmpr3;
     uint16_t saved2B, saved73;
+#endif
 } g;
 
 /* Ticks a page stays open for the other slicers before it is committed. The
@@ -641,6 +655,13 @@ static const char *type_name(uint16_t c){
         case 3125: return "CR400BF-G";
         default:   return 0;
     }
+}
+
+/* The same table for the TDCS decode window: its locomotive type byte uses the
+ * LBJ model code space (240 is HXD1D), and the window shows the name instead
+ * of the bare number.  Still hard coded above, so there is no pointer table. */
+const char *LBJ_TypeName(uint16_t c){
+    return type_name(c);
 }
 
 /* The registration column, as LBJNUM asks for it. FULL is the old row: a space
@@ -1263,6 +1284,13 @@ static void page_commit(void)
         }
         /* A window that is already up keeps whatever the operator put on it: a
          * report arriving does not yank the list or a stored detail away. */
+#ifdef ENABLE_FEAT_F4HWN_TDCS
+        /* TDCS shares the screen: its window keeps it while it is up, so the
+         * two cannot take turns covering each other.  The report is filed
+         * above either way. */
+        if (TDCS_PopupActive())
+            return;
+#endif
         g.popup = true;
         g.dirty = true;
     }
@@ -2206,30 +2234,15 @@ bool LBJ_IsLbjFreq(uint32_t f){
 bool LBJ_RxVfoIsLbj(void){
     return gRxVfo && gRxVfo->Modulation == MODULATION_LBJ;
 }
+#ifdef ENABLE_FEAT_F4HWN_TDCS
+/* Either VFO is LBJ: dual watch switching the RX VFO must not close a window
+ * the operator is reading. */
+static bool lbj_any_vfo(void){
+    return gEeprom.VfoInfo[0].Modulation == MODULATION_LBJ ||
+           gEeprom.VfoInfo[1].Modulation == MODULATION_LBJ;
+}
+#endif
 bool LBJ_Active(void){ return g.on; }
-
-/* ---- PA4 ADC / DAC bias ---- */
-static void adcSelPA4(uint32_t smpr3, uint32_t sqr3){
-    ADC_SMPR3 = (smpr3 & ~(7u << SMP4_POS)) | (((smpr3 >> SMP8_POS) & 7u) << SMP4_POS);
-    ADC_SQR3 = (sqr3 & ~0x1Fu) | ADC_CH_PA4;
-}
-static uint16_t adcRead(void){
-    ADC_CR2 |= LBJ_ADC_CR2_START;
-    /* Bounded wait: if the ADC never signals EOC, drop this sample instead of
-     * spinning (a long spin inside the 19.2 kHz ISR would starve the main loop). */
-    for (uint16_t n = 0; !(ADC_SR & LBJ_ADC_SR_EOC) && n < 300u; n++){}
-    return (uint16_t)(ADC_DR & 0x0FFFu);
-}
-static void biasOn(uint32_t moder, uint32_t rcc){
-    GPIOA_MODER = moder | (3u << 8);
-    RCC_APBENR1 = rcc | RCC_DACEN;
-    DAC_CR = DAC_CR_BIAS;
-    DAC_DHR12R1 = BIAS_CODE;
-    DAC_SWTRIGR = 1u;
-}
-static void biasOff(uint32_t dac, uint32_t dhr, uint32_t rcc, uint32_t moder){
-    DAC_CR = dac; DAC_DHR12R1 = dhr; RCC_APBENR1 = rcc; GPIOA_MODER = moder;
-}
 
 /* One hysteresis slicer over the shared front-end: its own band width
  * h = (hi-lo) >> k, its own level, its own DPLL. The level at the 0.5 crossing
@@ -2273,7 +2286,54 @@ static void dem_sample(dem_t *m, int32_t x){
         dem_slice(m, i, y, mid, pp);
 }
 
-/* ---- 19.2 kHz sampler (TIM3 update interrupt) ---- */
+#ifdef ENABLE_FEAT_F4HWN_TDCS
+/* ---- sampler: the shared 19.2 kHz PA4/TIM3 engine (pa4_sampler.c) ---- */
+static void lbj_sample(int32_t x)
+{
+    dem_sample(&g_dm, x);
+}
+
+static void samplerStart(void){
+    memset(&g.rx, 0, sizeof g.rx);
+    memset(&g_dm, 0, sizeof g_dm);
+    g_dm.dc = BIAS_CODE; g_dm.hi = 200; g_dm.lo = -200;
+
+    if (PA4_Start(lbj_sample)){
+        g.ticks = 0; g.lostTicks = 0;
+        g.on = true;
+    }
+}
+
+static void samplerStop(void){
+    if (!g.on)
+        return;
+    g.on = false;
+    PA4_Stop();
+}
+
+void LBJ_StopSampler(void){ samplerStop(); }
+#else
+/* ---- original LBJ 19.2 kHz sampler (TIM3 update interrupt) ---- */
+static void adcSelPA4(uint32_t smpr3, uint32_t sqr3){
+    ADC_SMPR3 = (smpr3 & ~(7u << SMP4_POS)) | (((smpr3 >> SMP8_POS) & 7u) << SMP4_POS);
+    ADC_SQR3 = (sqr3 & ~0x1Fu) | ADC_CH_PA4;
+}
+static uint16_t adcRead(void){
+    ADC_CR2 |= LBJ_ADC_CR2_START;
+    for (uint16_t n = 0; !(ADC_SR & LBJ_ADC_SR_EOC) && n < 300u; n++){}
+    return (uint16_t)(ADC_DR & 0x0FFFu);
+}
+static void biasOn(uint32_t moder, uint32_t rcc){
+    GPIOA_MODER = moder | (3u << 8);
+    RCC_APBENR1 = rcc | RCC_DACEN;
+    DAC_CR = DAC_CR_BIAS;
+    DAC_DHR12R1 = BIAS_CODE;
+    DAC_SWTRIGR = 1u;
+}
+static void biasOff(uint32_t dac, uint32_t dhr, uint32_t rcc, uint32_t moder){
+    DAC_CR = dac; DAC_DHR12R1 = dhr; RCC_APBENR1 = rcc; GPIOA_MODER = moder;
+}
+
 void TIM3_IRQHandler(void){
     if (LL_TIM_IsActiveFlag_UPDATE(TIM3)){
         LL_TIM_ClearFlag_UPDATE(TIM3);
@@ -2337,6 +2397,7 @@ void LBJ_AdcBegin(void){
 void LBJ_AdcEnd(void){
     if (g.on){ ADC_SQR3 = (g.savedSqr3 & ~0x1Fu) | ADC_CH_PA4; NVIC_EnableIRQ(TIM3_IRQn); }
 }
+#endif
 
 /* ---- 10 ms tick ---- */
 void LBJ_Tick(void){
@@ -2395,6 +2456,28 @@ void LBJ_Tick(void){
 
     /* The window stays up until EXIT: a signal on the other channel no longer
        dismisses it, and the audio of the received channel keeps playing. */
+
+#ifdef ENABLE_FEAT_F4HWN_TDCS
+    if (!lbj_any_vfo()){
+        /* Leaving LBJ for another mode: stop the sampler now so it cannot keep
+         * running with the LBJ front-end while TDCS (or another mode) starts. */
+        if (g.on) samplerStop();
+        if (g.popup) LBJ_ClosePopup();
+        if (!g_SquelchLost) g.dismissed = false;
+        return;
+    }
+    if (!LBJ_RxVfoIsLbj()){
+        /* Dual watch has the other VFO up: keep the window, stop the sampler. */
+        if (g.on) samplerStop();
+        if (g.dirty){                             /* the window still refreshes */
+            g.dirty = false;
+            g.popSec = g.sec;
+            BACKLIGHT_TurnOn();
+            gUpdateDisplay = true;
+        }
+        return;
+    }
+#endif
 
     if (g.on){
         if (++g.ticks >= LBJ_MAX_TICKS){          /* watchdog only */

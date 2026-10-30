@@ -19,6 +19,12 @@
 
 #include "am_fix.h"
 #include "app/dtmf.h"
+#ifdef ENABLE_FEAT_F4HWN_LBJ
+    #include "app/lbj_dual.h"
+#endif
+#ifdef ENABLE_FEAT_F4HWN_TDCS
+    #include "app/tdcs_dual.h"
+#endif
 #ifdef ENABLE_FMRADIO
     #include "app/fm.h"
 #endif
@@ -53,6 +59,9 @@ const char gModulationStr[MODULATION_UKNOWN][4] = {
 #endif
 #ifdef ENABLE_FEAT_F4HWN_LBJ
     [MODULATION_LBJ]="LBJ",
+#endif
+#ifdef ENABLE_FEAT_F4HWN_TDCS
+    [MODULATION_TDCS]="TDC",
 #endif
 };
 
@@ -843,12 +852,22 @@ void RADIO_SetupRegisters(bool switchToForeground)
     #endif
     BK4819_SetFrequency(Frequency);
 
-#ifdef ENABLE_FEAT_F4HWN_LBJ
-    if (gRxVfo->Modulation == MODULATION_LBJ)
+#if defined(ENABLE_FEAT_F4HWN_LBJ) || defined(ENABLE_FEAT_F4HWN_TDCS)
+    if (
+    #ifdef ENABLE_FEAT_F4HWN_LBJ
+        gRxVfo->Modulation == MODULATION_LBJ
+    #endif
+    #if defined(ENABLE_FEAT_F4HWN_LBJ) && defined(ENABLE_FEAT_F4HWN_TDCS)
+        ||
+    #endif
+    #ifdef ENABLE_FEAT_F4HWN_TDCS
+        gRxVfo->Modulation == MODULATION_TDCS
+    #endif
+    )
     {
-        /* LBJ uses the same 25 kHz, weak-signal-wide filter and low-IF as the
-         * normal FM path. Keep them applied even when this routine runs after
-         * RADIO_SetModulation() (channel change, app exit, ...). */
+        /* LBJ and TDCS use the same 25 kHz, weak-signal-wide filter and low-IF
+         * as the normal FM path. Keep them applied even when this routine runs
+         * after RADIO_SetModulation() (channel change, app exit, ...). */
         BK4819_WriteRegister(BK4819_REG_43, 0x3628);
         BK4819_WriteRegister(BK4819_REG_3D, 0x2AAB);
         RADIO_EnsureVcoCalibrated(Frequency, gRxVfo->Modulation);
@@ -1108,7 +1127,16 @@ void RADIO_PrepareTx(void)
 
 void RADIO_SetModulation(ModulationMode_t modulation)
 {
-    #ifdef ENABLE_BYP_RAW_DEMODULATORS
+#ifdef ENABLE_FEAT_F4HWN_TDCS
+    /* The shared PA4 sampler and the TDCS/LBJ decoders are only linked when
+     * TDCS is enabled.  Stop them before reconfiguring the receiver so their
+     * saved ADC/BK4819 state is restored while it is still current. */
+    #ifdef ENABLE_FEAT_F4HWN_LBJ
+    LBJ_StopSampler();
+    #endif
+    TDCS_StopSampler();
+#endif
+#ifdef ENABLE_BYP_RAW_DEMODULATORS
     if (modulation == MODULATION_BYP || modulation == MODULATION_RAW
     #ifdef ENABLE_FEAT_F4HWN_LBJ
         || modulation == MODULATION_LBJ
@@ -1127,7 +1155,7 @@ void RADIO_SetModulation(ModulationMode_t modulation)
 
 #ifdef ENABLE_FEAT_F4HWN_LBJ
             if (modulation == MODULATION_LBJ) {
-                // LBJ is 1200-baud FSK: keep the normal low-IF and the 25 kHz,
+                // LBJ is direct FSK: keep the normal low-IF and the 25 kHz,
                 // weak-signal-wide filter. The RAW zero-IF profile folds the
                 // negative sideband onto the positive one.
                 BK4819_WriteRegister(BK4819_REG_43, 0x3628);
@@ -1324,8 +1352,11 @@ void RADIO_PrepareTX(void)
     #ifdef ENABLE_FEAT_F4HWN_LBJ
         || gCurrentVfo->Modulation == MODULATION_LBJ
     #endif
+    #ifdef ENABLE_FEAT_F4HWN_TDCS
+        || gCurrentVfo->Modulation == MODULATION_TDCS
+    #endif
     ) {
-        // BYP/RAW/LBJ are receive-only modes.
+        // BYP/RAW/LBJ/TDCS are receive-only modes.
         State = VFO_STATE_TX_DISABLE;
     }
 #endif
