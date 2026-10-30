@@ -195,11 +195,11 @@ static void row_put(uint8_t row, const char *label, const char *value)
 /* 18 fields: the two "extension" bytes (loco type extension, station
  * extension) are 0 on almost every report and the 4 KiB overlay has no room
  * for them. */
-static const char *const LBL[18] = {
+static const char *const LBL[17] = {
     "信号机", "信号种类", "本补客货", "车次种类", "车次",
     "机车类型", "机车号", "公里标", "速度",
     "总重", "计长", "辆数", "车站号",
-    "区段号", "实际交路", "司机号", "司机扩充", "状态"
+    "区段号", "实际交路", "司机号", "状态"
 };
 
 static const char *const SIG[7] = {
@@ -267,8 +267,7 @@ static void draw_field(uint8_t row, const rec_t *r, uint8_t idx)
         case 13: o = putu(o, m->section); break;
         case 14: o = putu(o, m->route); break;
         case 15: o = putu(o, m->driver); break;
-        case 16: o = putu(o, m->driver_ext); break;
-        case 17: {
+        case 16: {
             const int16_t db = g.A->rssi_dbm();
             if (db < 0) { *o++ = '-'; o = putu(o, (uint32_t)(-db)); }
             else o = putu(o, (uint32_t)db);
@@ -286,7 +285,7 @@ static void draw_field(uint8_t row, const rec_t *r, uint8_t idx)
 static const uint8_t PAGE_MAP[PAGES][ROWS] = {
     {  3,  4,  5,  6,  7,  8 },
     {  9, 10, 11, 12, 13, 14 },
-    { 15, 16,  0,  1,  2, 17 }
+    { 15, 16,  0,  1,  2, 0xFF }
 };
 
 static void draw(void)
@@ -302,7 +301,7 @@ static void draw(void)
 
         for (uint8_t i = 0; i < ROWS; i++) {
             const uint8_t idx = PAGE_MAP[g.page][i];
-            if (idx < 18u) draw_field(i, r, idx);
+            if (idx < 17u) draw_field(i, r, idx);
         }
 
         /* page number, top right of the first field row */
