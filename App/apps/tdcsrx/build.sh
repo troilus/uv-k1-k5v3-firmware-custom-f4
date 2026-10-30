@@ -11,7 +11,7 @@ APP_NAME="TDCS RX"                  # <-- the only per-app line
 APP_VER="0.2"
 APP_API_MIN=3
 APP_VMA=${APP_VMA:-0x20000280}      # pinned overlay VMA (Core/pyf071xb.ld)
-OUT="${APP_NAME// /}"               # blob basename ("TDCS RX" -> TDCSRX)
+OUT="${APP_NAME// /}-cn"            # blob basename ("TDCS RX" -> TDCSRX-cn)
 
 CC=/opt/toolchain/bin/arm-none-eabi-gcc
 OBJCOPY=/opt/toolchain/bin/arm-none-eabi-objcopy
