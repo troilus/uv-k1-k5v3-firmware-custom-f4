@@ -216,7 +216,7 @@
                 "ENABLE_SWD": true,
                 "ENABLE_LTO": true,
                 "EDITION_STRING": "Fusion",
-                "VERSION_STRING_2": "v5.5.4",
+                "VERSION_STRING_2": "v5.5.5",
                 "TARGET": "f4hwn.fusion"
             }
         },
@@ -229,7 +229,7 @@
                 "ENABLE_FEAT_F4HWN_TDCS": true,
                 "ENABLE_LTO": true,
                 "EDITION_STRING": "TDCS",
-                "VERSION_STRING_2": "v5.5.4",
+                "VERSION_STRING_2": "v5.5.5",
                 "TARGET": "f4hwn.tdcs"
             }
         }

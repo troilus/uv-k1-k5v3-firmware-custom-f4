@@ -956,7 +956,6 @@ static void draw_field(uint8_t row, const tdcs_rec_t *r, uint8_t idx)
             o = putu(v, m->length10 / 10u);
             *o++ = '.';
             o = putu(o, m->length10 % 10u);
-            *o++ = 'm';
             *o = '\0';
             field_row(row, TDCS_LABEL[idx], v);
             break;

@@ -21,6 +21,12 @@ App/apps/*/*.elf
 App/apps/*/*.bin
 App/apps/*/*.map
 App/apps/*/*.app
+App/apps/*/*.o
 App/apps/*/*_app_blob.h
 App/apps/*/*_assets.h
+
+# TDCS protocol reference material (TB/T standards, not shipped)
+App/apps/tdcsrx/*.pdf
+App/apps/tdcsrx/*.xlsx
+App/apps/tdcsrx/*.md
 
