@@ -20,28 +20,21 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Two artifacts per build flavour: the plain name hides the reports
-        # whose train number starts with 9, a "9" in the suffix shows
-        # everything. The overlay budget is tight, so one variant overflowing
-        # still lets the others build (fail-fast is off).
+        # One artifact per language: both hide the reports whose train number
+        # starts with 9 and pin the receiver to the LBJ channel.  The
+        # coordinates row (LBJ_COORDS) and the "show everything" variants are
+        # no longer built - the overlay budget is tight and one flavour
+        # overflowing still lets the other build (fail-fast is off).
         #
         # The English build is the default: "LINE " plus the pinyin initials of
         # the route, the model abbreviation only, no key 5 and no coordinates
-        # row - the coordinates row does not fit in it. The Chinese build
-        # (LBJ_ROUTE_CN) keeps the GB2312 route, the key-5 language toggle and
-        # the footer hint, and it does have the room for the coordinates row
-        # (LBJ_COORDS), so that flavour is offered too.
+        # row.  The Chinese build (LBJ_ROUTE_CN) keeps the GB2312 route and the
+        # key-5 language toggle.
         include:
           # LBJ_PIN_FREQ pins the receiver to 821.2375 MHz when the app opens
-          # (the loader restores the user's VFO on exit). Only the two plain
-          # flavours carry it: the "9" variants and the coordinate variants
-          # keep their overlay budget untouched.
-          - { hide9: '1', suffix: '',                pin: '1' }
-          - { hide9: '',  suffix: '9',                            }
-          - { hide9: '1', suffix: '-cn',        cn: '1', pin: '1' }
-          - { hide9: '',  suffix: '-cn9',       cn: '1'           }
-          - { hide9: '1', suffix: '-cn-coord',  cn: '1', coords: '1' }
-          - { hide9: '',  suffix: '-cn9-coord', cn: '1', coords: '1' }
+          # (the loader restores the user's VFO on exit).
+          - { hide9: '1', suffix: '',    pin: '1' }
+          - { hide9: '1', suffix: '-cn', cn: '1', pin: '1' }
 
     steps:
     - name: Checkout code
