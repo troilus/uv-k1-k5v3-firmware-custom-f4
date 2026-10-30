@@ -604,9 +604,10 @@ static void ledService(void)
     }
 
     if (!g.ledPhase) {
-        /* Nothing to announce: the LED just reports the carrier. */
-        BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, g_SquelchLost);
-        BK4819_ToggleGpioOut(BK4819_GPIO5_PIN1_RED, g_SquelchLost && gEeprom.RX_VFO != 0u);
+        /* Nothing to announce: in TDCS mode the LED says nothing about the
+         * carrier, it only flashes when a report decodes. */
+        BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, false);
+        BK4819_ToggleGpioOut(BK4819_GPIO5_PIN1_RED, false);
         return;
     }
 
