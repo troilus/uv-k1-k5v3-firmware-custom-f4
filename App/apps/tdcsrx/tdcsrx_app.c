@@ -148,14 +148,6 @@ static char *putu(char *o, uint32_t v)
     }
     return o;
 }
-static char *puthex2(char *o, uint8_t v)
-{
-    static const char H[] = "0123456789ABCDEF";
-    *o++ = H[v >> 4];
-    *o++ = H[v & 0x0Fu];
-    return o;
-}
-
 /* metres -> "K123+456": the thousands by subtraction, no divide helper. */
 static char *putkm(char *o, uint32_t m)
 {
@@ -255,10 +247,9 @@ static void draw_field(uint8_t row, const rec_t *r, uint8_t idx)
             break;
         }
         case 5:
+            /* The model-name table does not fit the 4 KiB overlay: the type
+             * code is printed on its own. */
             o = putu(o, m->loco_type);
-            *o++ = ' '; *o++ = '(';
-            o = puthex2(o, m->loco_type);
-            *o++ = ')';
             break;
         case 6:  o = putu(o, m->loco_no); break;
         case 7:
@@ -301,7 +292,7 @@ static const uint8_t PAGE_MAP[PAGES][ROWS] = {
 static void draw(void)
 {
     const app_api_t *A = g.A;
-    char s[16];
+    char s[24];
     char *o;
 
     memset(A->fb, 0, 7u * 128u);
@@ -318,14 +309,21 @@ static void draw(void)
         o = s; *o++ = 'P'; o = putu(o, (uint32_t)g.page + 1u);
         *o++ = '/'; o = putu(o, PAGES); *o = 0;
         A->print_normal(s, (uint8_t)(128u - (uint8_t)(o - s) * 7u), 0, 0);
-
-        /* footer: history index, EXIT */
-        o = s; o = putu(o, (uint32_t)g.cur + 1u);
-        *o++ = '/'; o = putu(o, g.count); *o = 0;
-        A->print_normal(s, 0, 0, 6);
     }
 
-    A->print_normal("EXIT", 100u, 0, 6);
+    /* footer, the LBJ window's status bar: key-state hints, then the history
+     * index (which report of how many), in the 3x5 font. */
+    o = put(s, "4BL:");
+    o = put(o, g.blAlways ? "ON" : "OFF");
+    o = put(o, " 1SPK:");
+    o = put(o, g.spk ? "ON" : "OFF");
+    *o++ = ' ';
+    o = putu(o, g.count ? (uint32_t)g.cur + 1u : 0u);
+    *o++ = '/';
+    o = putu(o, g.count);
+    *o = 0;
+    A->print_tiny(s, 0, 48u, false, true);
+
     A->blit_full();
 }
 
@@ -370,8 +368,8 @@ static void handleKeys(void)
 
     switch (key) {
         case APP_KEY_EXIT: g.running = false; break;
-        case APP_KEY_1:    g.spk = !g.spk; A->audio_path(g.spk); break;
-        case APP_KEY_4:    g.blAlways = !g.blAlways; A->backlight_on(); break;
+        case APP_KEY_1:    g.spk = !g.spk; A->audio_path(g.spk); draw(); break;
+        case APP_KEY_4:    g.blAlways = !g.blAlways; A->backlight_on(); draw(); break;
         case APP_KEY_6:
             if (g.page > 0u) { g.page--; draw(); }
             break;
