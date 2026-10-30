@@ -70,6 +70,10 @@ typedef enum {
     MODULATION_LBJ,          /* receive-only: LBJ / POCSAG decode (PA4 sampler) */
 #endif
 
+#ifdef ENABLE_FEAT_F4HWN_TDCS
+    MODULATION_TDCS,         /* receive-only: 450 MHz TDCS / FFSK decode (PA4 sampler) */
+#endif
+
     MODULATION_UKNOWN
 } ModulationMode_t;
 

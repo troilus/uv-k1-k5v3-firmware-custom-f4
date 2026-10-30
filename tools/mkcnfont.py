@@ -62,6 +62,7 @@ SOURCES = [
     "App/app/menu.c",
     "App/app/lbj_dual.c",
     "App/app/lbj_log.c",
+    "App/app/tdcs_dual.c",
     "App/frequencies.c",
 ]
 

@@ -8,7 +8,7 @@
 
 #define STACK_WATERMARK 0xA5A5A5A5u
 
-extern uint32_t _ebss;
+extern uint8_t _ebss;
 extern uint32_t _estack;
 
 void STACK_WatermarkInit(void)
@@ -17,7 +17,7 @@ void STACK_WatermarkInit(void)
     __disable_irq();
 
     /* The active frame starts at MSP. Only paint the unused gap below it. */
-    volatile uint32_t *cursor = &_ebss;
+    volatile uint32_t *cursor = (volatile uint32_t *)(void *)&_ebss;
     uintptr_t stack_pointer = (uintptr_t)__get_MSP() & ~(uintptr_t)3u;
     if (stack_pointer > (uintptr_t)&_estack)
         stack_pointer = (uintptr_t)&_estack;
@@ -37,7 +37,7 @@ uint32_t STACK_FreeNow(void)
 uint32_t STACK_FreeMinimum(void)
 {
     /* The first changed word is the lowest stack address observed since init. */
-    const volatile uint32_t *cursor = &_ebss;
+    const volatile uint32_t *cursor = (const volatile uint32_t *)(const void *)&_ebss;
     const volatile uint32_t *const end = &_estack;
     while (cursor < end && *cursor == STACK_WATERMARK)
         cursor++;

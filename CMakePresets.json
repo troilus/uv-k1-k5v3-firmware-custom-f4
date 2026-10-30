@@ -222,11 +222,16 @@
                 "AUTHOR_STRING_2": "LBJRADIO",
                 "ENABLE_SPECTRUM": false,
                 "ENABLE_FEAT_F4HWN_SPECTRUM": false,
+                "ENABLE_FEAT_F4HWN_TDCS": true,
+                "ENABLE_FEAT_F4HWN_SCREENSHOT": false,
+                "ENABLE_CN_FONT": true,
                 "ENABLE_FEAT_F4HWN_LBJ": true,
                 "ENABLE_FEAT_F4HWN_LBJ_TX_LOCK": true,
                 "ENABLE_SWD": false,
                 "ENABLE_DTMF_CALLING": false,
+                "ENABLE_LTO": true,
                 "EDITION_STRING": "LBJRadio",
+                "VERSION_STRING_2": "v5.5.5",
                 "TARGET": "lbjradio"
             }
         },

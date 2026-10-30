@@ -28,6 +28,9 @@
 #ifdef ENABLE_FEAT_F4HWN_LBJ
     #include "app/lbj_dual.h"
 #endif
+#ifdef ENABLE_FEAT_F4HWN_TDCS
+    #include "app/tdcs_dual.h"
+#endif
 
 #include "driver/backlight.h"
 #include "driver/gpio.h"
@@ -95,6 +98,9 @@ void SysTick_Handler(void)
         if (gCurrentFunction != FUNCTION_MONITOR && gCurrentFunction != FUNCTION_TRANSMIT && gCurrentFunction != FUNCTION_RECEIVE
         #ifdef ENABLE_FEAT_F4HWN_LBJ
             && !LBJ_Active()   /* hold the LBJ mode while decoding */
+        #endif
+        #ifdef ENABLE_FEAT_F4HWN_TDCS
+            && !TDCS_Active()  /* hold the TDCS mode while decoding */
         #endif
         )
             DECREMENT_AND_TRIGGER(gDualWatchCountdown_10ms, gScheduleDualWatch);

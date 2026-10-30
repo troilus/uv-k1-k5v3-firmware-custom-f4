@@ -45,6 +45,9 @@
 #include "app/lbj_dual.h"
 #include "app/lbj_log.h"
 #endif
+#ifdef ENABLE_FEAT_F4HWN_TDCS
+#include "app/tdcs_dual.h"
+#endif
 #include "ui/helper.h"
 #include "ui/main.h"
 #include "ui/status.h"
@@ -1412,6 +1415,9 @@ static uint8_t app_launch(uint8_t slot)
     /* The LBJ log writes through the same 4 KiB sector cache the app is about
      * to run from, so it is held off for the app's lifetime. */
     LBJ_LOG_Suspend();
+#endif
+#ifdef ENABLE_FEAT_F4HWN_TDCS
+    TDCS_StopSampler();
 #endif
 
     /* Repurpose the sector cache: drop any cached config sector, load the code

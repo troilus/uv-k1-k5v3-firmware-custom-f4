@@ -189,16 +189,14 @@ void BATTERY_GetReadings(const bool bDisplayBatteryLevel)
 
     if (PreviousBatteryLevel != gBatteryDisplayLevel)
     {
-        if(gBatteryDisplayLevel > 2)
+        if (gBatteryDisplayLevel > 2)
             gLowBatteryConfirmed = false;
-        else if (gBatteryDisplayLevel < 2)
-        {
-            gLowBattery = true;
-        }
-        else
-        {
-            gLowBattery = false;
-        }
+
+        /* Set and clear the warning from the level itself.  The old code only
+         * cleared it on a level of exactly 2, so one spoiled battery reading
+         * (the PA4 sampler shares the ADC) latched LOW BATTERY on a full pack
+         * for the rest of the session: 1 goes straight back to 5. */
+        gLowBattery = (gBatteryDisplayLevel < 2);
 
         if(!gLowBatteryConfirmed)
             gUpdateDisplay = true;

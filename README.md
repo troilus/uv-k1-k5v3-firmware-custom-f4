@@ -350,6 +350,10 @@ The script `compile-with-docker.sh` performs the following actions:
 ### Documented Preset
 
 - **Fusion**
+- **LBJRadio** — the LBJ radio with the 450 MHz TDCS A-class decoder
+  (`MODULATION_TDCS`), the built-in Chinese font (`ENABLE_CN_FONT`), LTO and
+  no spectrum screen.  Build with `./compile-with-docker.sh LBJRadio`; the
+  output is `build/LBJRadio/lbjradio.bin`.
 
 ### Examples
 
@@ -357,6 +361,12 @@ Build Fusion:
 
 ```bash
 ./compile-with-docker.sh Fusion
+```
+
+Build the LBJRadio firmware:
+
+```bash
+./compile-with-docker.sh LBJRadio
 ```
 
 ### Passing Additional CMake Options

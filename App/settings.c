@@ -335,6 +335,10 @@ gEeprom.FreqChannel[1]   = IS_FREQ_CHANNEL(Data16[5]) ? Data16[5] : (FREQ_CHANNE
      * drawing code does not read the EEPROM on every frame. */
     gSetting_LBJ_lang = gEeprom.LBJ_LANG;
 #endif
+#ifdef ENABLE_FEAT_F4HWN_TDCS
+    /* TCDPOP, in the byte behind LBJRT. 0xFF reads as 0 = ON, the default. */
+    gEeprom.TCD_POPUP_TIME          = (Data[4] <   5) ? Data[4] : 0;   /* 0x00A0F4 */
+#endif
 
 #ifdef ENABLE_DTMF_CALLING
     gEeprom.PERMIT_REMOTE_KILL      = (Data[2] <   2) ? Data[2] : true;
@@ -1079,6 +1083,9 @@ void SETTINGS_SaveSettings(void)
 #endif
 #ifdef ENABLE_FEAT_F4HWN_LBJ
     State[3] = gEeprom.LBJ_LANG;            /* 0x00A0F3, unused until now */
+#endif
+#ifdef ENABLE_FEAT_F4HWN_TDCS
+    State[4] = gEeprom.TCD_POPUP_TIME;      /* 0x00A0F4, unused until now */
 #endif
 
     PY25Q16_WriteBuffer(0x00A0A8, SecBuf, 0x50, false);

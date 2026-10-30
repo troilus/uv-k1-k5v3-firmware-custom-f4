@@ -44,6 +44,11 @@ bool LBJ_Active(void);
 /* Stop the sampler now (e.g. before keying up). */
 void LBJ_StopSampler(void);
 
+/* Locomotive model code -> ASCII name ("HXD1D" for 240), NULL when the table
+ * does not know the code.  Shared with the TDCS window, whose type byte uses
+ * the same code space. */
+const char *LBJ_TypeName(uint16_t c);
+
 /* Popup state. */
 bool LBJ_PopupActive(void);
 /* True while the map QR page is up: the status line stays blank then, to keep
@@ -71,9 +76,11 @@ bool LBJ_OpenList(void);
  * is left to the normal transmit path. Returns true when the key was consumed. */
 bool LBJ_HandleKey(uint8_t key, bool pressed, bool held);
 
-/* ADC sharing with the battery reader (channel 8): suspend the sampler around
- * a battery conversion so neither corrupts the other. */
+#ifndef ENABLE_FEAT_F4HWN_TDCS
+/* ADC sharing with the battery reader (channel 8): used by the original LBJ
+ * sampler when the shared PA4 sampler is not linked. */
 void LBJ_AdcBegin(void);
 void LBJ_AdcEnd(void);
+#endif
 
 #endif /* APP_LBJ_DUAL_H */

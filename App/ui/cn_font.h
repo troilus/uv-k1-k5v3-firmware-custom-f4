@@ -24,7 +24,7 @@
 
 /* 16x16 characters (the menu) and 8x8 characters (the small font). */
 #define CN_FONT_COUNT16  42u
-#define CN_FONT_COUNT8   410u
+#define CN_FONT_COUNT8   444u
 
 /* Null when the character is not in the built-in set. */
 const uint8_t *CN_FONT_Glyph16(uint16_t code);

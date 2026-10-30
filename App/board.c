@@ -44,7 +44,9 @@
 #include "helper/battery.h"
 #include "misc.h"
 #include "settings.h"
-#ifdef ENABLE_FEAT_F4HWN_LBJ
+#ifdef ENABLE_FEAT_F4HWN_TDCS
+    #include "app/pa4_sampler.h"
+#elif defined(ENABLE_FEAT_F4HWN_LBJ)
     #include "app/lbj_dual.h"
 #endif
 #if defined(ENABLE_OVERLAY)
@@ -176,11 +178,18 @@ void BOARD_ADC_GetBatteryInfo(uint16_t *pVoltage, uint16_t *pCurrent)
      * for this conversion and give PA4 back afterwards. */
     const bool capture = APP_AfCaptureYieldAdc();
 #endif
-#ifdef ENABLE_FEAT_F4HWN_LBJ
-    /* The LBJ sampler owns ADC PA4; give the battery channel back for the
-     * conversion and hand PA4 over again afterwards. */
+#if defined(ENABLE_FEAT_F4HWN_TDCS)
+    /* The shared PA4 sampler owns ADC PA4; give the battery channel back for
+     * the conversion and hand PA4 over again afterwards. */
+    PA4_AdcBegin();
+#elif defined(ENABLE_FEAT_F4HWN_LBJ)
+    /* The LBJ sampler owns ADC PA4. */
     LBJ_AdcBegin();
 #endif
+    /* EOS shares the EOC bit on this part: a flag left over from the last PA4
+     * audio sample would make the wait below return before channel 8 has been
+     * converted. */
+    LL_ADC_ClearFlag_EOS(ADC1);
     LL_ADC_REG_StartConversionSWStart(ADC1);
     while (!LL_ADC_IsActiveFlag_EOS(ADC1))
         ;
@@ -188,7 +197,9 @@ void BOARD_ADC_GetBatteryInfo(uint16_t *pVoltage, uint16_t *pCurrent)
 
     *pVoltage = LL_ADC_REG_ReadConversionData12(ADC1);
     *pCurrent = 0;
-#ifdef ENABLE_FEAT_F4HWN_LBJ
+#if defined(ENABLE_FEAT_F4HWN_TDCS)
+    PA4_AdcEnd();
+#elif defined(ENABLE_FEAT_F4HWN_LBJ)
     LBJ_AdcEnd();
 #endif
 #ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS

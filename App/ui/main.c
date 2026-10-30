@@ -26,6 +26,9 @@
 #ifdef ENABLE_FEAT_F4HWN_LBJ
     #include "app/lbj_dual.h"
 #endif
+#ifdef ENABLE_FEAT_F4HWN_TDCS
+    #include "app/tdcs_dual.h"
+#endif
 
 #ifdef ENABLE_AM_FIX
     #include "am_fix.h"
@@ -1092,9 +1095,19 @@ void UI_MAIN_TimeSlice500ms(void)
 #endif
 
         if(FUNCTION_IsRx()) {
-#ifdef ENABLE_FEAT_F4HWN_LBJ
-            /* The LBJ decode window owns the screen: no S-meter over it. */
-            if (!LBJ_PopupActive())
+#if defined(ENABLE_FEAT_F4HWN_LBJ) || defined(ENABLE_FEAT_F4HWN_TDCS)
+            /* A decode window owns the screen: no S-meter over it. */
+            if (
+            #ifdef ENABLE_FEAT_F4HWN_LBJ
+                !LBJ_PopupActive()
+            #endif
+            #if defined(ENABLE_FEAT_F4HWN_LBJ) && defined(ENABLE_FEAT_F4HWN_TDCS)
+                &&
+            #endif
+            #ifdef ENABLE_FEAT_F4HWN_TDCS
+                !TDCS_PopupActive()
+            #endif
+            )
 #endif
             DisplayRSSIBar(true);
         }
@@ -1117,6 +1130,15 @@ void UI_DisplayMain(void)
     {
         center_line = CENTER_LINE_NONE;
         LBJ_DrawPopup();
+        return;
+    }
+#endif
+#ifdef ENABLE_FEAT_F4HWN_TDCS
+    /* A decoded TDCS report owns the screen until EXIT. */
+    if (TDCS_PopupActive())
+    {
+        center_line = CENTER_LINE_NONE;
+        TDCS_DrawPopup();
         return;
     }
 #endif

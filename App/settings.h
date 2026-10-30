@@ -146,6 +146,11 @@ enum ACTION_OPT_t {
      * above ACTION_OPT_LEN is turned back into that key's default on load. */
     ACTION_OPT_LBJMSG,
 #endif
+#ifdef ENABLE_FEAT_F4HWN_TDCS
+    /* The same shortcut, for the TDCS decode window. Appended after LBJMSG so
+     * every value already in the settings stays valid. */
+    ACTION_OPT_TCDMSG,
+#endif
     ACTION_OPT_LEN
 };
 
@@ -345,6 +350,14 @@ typedef struct {
      * settings.c); 0xFF reads as 0, so a radio that never stored one stays in
      * Chinese. */
     uint8_t               LBJ_LANG;
+#endif
+#ifdef ENABLE_FEAT_F4HWN_TDCS
+    /* TCDPOP: how long the TDCS decode window that a report opened stays up on
+     * its own. 0 = ON (never closes itself), 1..4 = 3/5/10/60 s. It lives in
+     * 0x00A0F4, a byte of the DTMF block that was unused until now (see
+     * settings.c); 0xFF reads as 0 = ON. The window the TCDMSG menu item opens
+     * by hand is not affected. */
+    uint8_t               TCD_POPUP_TIME;
 #endif
 } EEPROM_Config_t;
 
