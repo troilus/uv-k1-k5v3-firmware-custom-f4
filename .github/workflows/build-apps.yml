@@ -91,7 +91,20 @@ jobs:
       run: |
         set -euo pipefail
         sfx="${{ matrix.suffix }}"
-        version=$(python3 -c "import json;ps=json.load(open('CMakePresets.json'))['configurePresets'];print(next(p['cacheVariables']['VERSION_STRING_2'] for p in ps if p['name']=='default'))")
+        # The version comes from the LBJRadio preset, not from "default": the
+        # preset overrides VERSION_STRING_2, so reading "default" used to file
+        # a v5.5.5 app under v5.5.4.
+        version=$(python3 - LBJRadio <<'PY'
+        import json, sys
+        presets = {p['name']: p for p in json.load(open('CMakePresets.json'))['configurePresets']}
+        def value(name, key):
+            p = presets[name]
+            if key in p.get('cacheVariables', {}):
+                return p['cacheVariables'][key]
+            return value(p['inherits'], key) if 'inherits' in p else None
+        print(value(sys.argv[1], 'VERSION_STRING_2'))
+        PY
+        )
         mkdir -p archive-repo/archive/apps
         # App/apps/lbj/build.sh bakes APP_NAME "LBJ RX", i.e. LBJRX.app; the
         # other overlay apps are upstream and are not archived here.

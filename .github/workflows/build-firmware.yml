@@ -41,13 +41,14 @@ jobs:
         #            firmware uses are compiled into the image (no external
         #            font to flash) and the LBJ popup is in Chinese.
         #   archive: the name the .bin is committed under in main00's archive/
-        #            folder. Only the two TX-unlocked builds are archived; the
-        #            two TX-locked builds stay CI artifacts.
+        #            folder. Only the two TX-locked builds are archived - TX is
+        #            not allowed on this radio, so those are the ones people
+        #            download. The two TX-unlocked builds stay CI artifacts.
         include:
-          - { preset: LBJRadio,   hide9: 'ON', cn: 'OFF', suffix: '',    bin: 'lbjradio.bin',    archive: ''            }
-          - { preset: LBJRadio,   hide9: 'ON', cn: 'ON',  suffix: '-cn', bin: 'lbjradio.bin',    archive: ''            }
-          - { preset: LBJRadioTX, hide9: 'ON', cn: 'OFF', suffix: '',    bin: 'lbjradio.tx.bin', archive: 'LBJRADIO'    }
-          - { preset: LBJRadioTX, hide9: 'ON', cn: 'ON',  suffix: '-cn', bin: 'lbjradio.tx.bin', archive: 'LBJRADIO-cn' }
+          - { preset: LBJRadio,   hide9: 'ON', cn: 'OFF', suffix: '',    bin: 'lbjradio.bin',    archive: 'LBJRADIO'    }
+          - { preset: LBJRadio,   hide9: 'ON', cn: 'ON',  suffix: '-cn', bin: 'lbjradio.bin',    archive: 'LBJRADIO-cn' }
+          - { preset: LBJRadioTX, hide9: 'ON', cn: 'OFF', suffix: '',    bin: 'lbjradio.tx.bin', archive: ''            }
+          - { preset: LBJRadioTX, hide9: 'ON', cn: 'ON',  suffix: '-cn', bin: 'lbjradio.tx.bin', archive: ''            }
 
     steps:
     - name: Checkout code
@@ -66,8 +67,8 @@ jobs:
         name: firmware-${{ matrix.preset }}${{ matrix.suffix }}
         path: build/${{ matrix.preset }}/*.bin
 
-    # The archive lives on main00. Only the two TX-unlocked builds feed it
-    # (the TX-locked builds have no "archive" name). A run on main00 never
+    # The archive lives on main00. Only the two TX-locked builds feed it
+    # (the TX-unlocked builds have no "archive" name). A run on main00 never
     # archives its own build.
     - name: Checkout main00 for the archive
       if: matrix.archive != '' && github.ref_name != 'main00'
@@ -81,7 +82,20 @@ jobs:
       if: matrix.archive != '' && github.ref_name != 'main00'
       run: |
         set -euo pipefail
-        version=$(python3 -c "import json;ps=json.load(open('CMakePresets.json'))['configurePresets'];print(next(p['cacheVariables']['VERSION_STRING_2'] for p in ps if p['name']=='default'))")
+        # The version comes from the preset that was built, not from "default":
+        # LBJRadio/LBJRadioTX override VERSION_STRING_2, so reading "default"
+        # used to file a v5.5.5 image under v5.5.4.
+        version=$(python3 - "${{ matrix.preset }}" <<'PY'
+        import json, sys
+        presets = {p['name']: p for p in json.load(open('CMakePresets.json'))['configurePresets']}
+        def value(name, key):
+            p = presets[name]
+            if key in p.get('cacheVariables', {}):
+                return p['cacheVariables'][key]
+            return value(p['inherits'], key) if 'inherits' in p else None
+        print(value(sys.argv[1], 'VERSION_STRING_2'))
+        PY
+        )
         mkdir -p archive-repo/archive
         cp "build/${{ matrix.preset }}/${{ matrix.bin }}" "archive-repo/archive/${{ matrix.archive }}.${version}.bin"
         cd archive-repo
